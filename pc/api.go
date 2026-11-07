@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"embed"
 	"encoding/base32"
@@ -161,6 +162,44 @@ func (a *App) routes() http.Handler {
 		})
 		writeJ(w, "ok")
 	})
+	// The phone screens (Android app and iPhone home-screen app), served from this PC so both stay in step.
+	m.Handle("GET /m/", static)
+	m.Handle("GET /icon.svg", static)
+	ph("GET /api/phone/state", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		c := a.set.Get()
+		free, _ := diskSpace(c.VaultDir)
+		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "free": human(int64(free)),
+			"config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
+	})
+	ph("GET /api/phone/deleted", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) { writeJ(w, st.Deleted()) })
+	ph("GET /api/phone/view/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		serveItem(w, r, st, r.PathValue("id"), r.URL.Query().Has("dl"))
+	})
+	ph("POST /api/phone/restore/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) { a.queueRestore(w, r) })
+	ph("POST /api/phone/dismiss/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		st.Dismiss(r.PathValue("id"))
+		writeJ(w, "ok")
+	})
+	ph("GET /api/phone/keep-preview", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		n, b := 0, int64(0)
+		if d, ok := keepDur[r.URL.Query().Get("keep")]; ok {
+			n, b = st.Expired(time.Now().Add(-d))
+		}
+		writeJ(w, map[string]any{"count": n, "size": human(b)})
+	})
+	ph("POST /api/phone/settings", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		var in map[string]json.RawMessage
+		json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in)
+		out := map[string]json.RawMessage{}
+		for _, k := range []string{"keep", "theme", "custom"} { // a phone may change only these
+			if v, ok := in[k]; ok {
+				out[k] = v
+			}
+		}
+		b, _ := json.Marshal(out)
+		r.Body = io.NopCloser(bytes.NewReader(b))
+		a.saveSettings(w, r)
+	})
 	return m
 }
 
@@ -187,6 +226,9 @@ func localOnly(h http.Handler) http.Handler {
 func (a *App) phoneAuth(h func(http.ResponseWriter, *http.Request, *Phone, *Store)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if tok == "" {
+			tok = r.URL.Query().Get("t") // previews in <img>/<video> can't send headers
+		}
 		var p *Phone
 		for _, q := range a.set.Get().Phones {
 			if tok != "" && q.Token == tok {
@@ -241,12 +283,17 @@ type phoneView struct {
 	Restores         int
 }
 
-func (a *App) state(w http.ResponseWriter, r *http.Request) {
-	c := a.set.Get()
+func (a *App) phoneViews() []phoneView {
 	phones := []phoneView{}
-	for _, p := range c.Phones {
+	for _, p := range a.set.Get().Phones {
 		phones = append(phones, phoneView{p.ID, p.Name, p.Kind, p.Paired, p.LastSeen, p.Status, len(p.Restores)})
 	}
+	return phones
+}
+
+func (a *App) state(w http.ResponseWriter, r *http.Request) {
+	c := a.set.Get()
+	phones := a.phoneViews()
 	c.Phones = nil
 	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.upd, "moving": a.moving}
 	if st := a.getStore(); st != nil {

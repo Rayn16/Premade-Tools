@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="local.css"><title>Vault setup</title></head>
+<body><div class="box" id="box"></div>
+<script>
+const box = document.getElementById('box');
+function vaultRefresh() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (h === 'pair') {
+    box.innerHTML = `<span class="brand">Premade Tools</span><h1>Pair with your PC</h1>
+      <p class="muted">Open Vault on your PC, choose Phones, then Pair a phone. Scan the code with this phone's camera and tap Pair this phone on the page it opens.</p>`;
+    return;
+  }
+  if (h === 'pairing') { box.innerHTML = `<span class="brand">Premade Tools</span><h1>Pairing…</h1>`; return; }
+  if (h.startsWith('failed:')) {
+    box.innerHTML = `<span class="brand">Premade Tools</span><h1>Couldn't pair</h1><p class="muted">${h.slice(7).replace(/</g, '&lt;')}</p>
+      <p class="muted">Make sure this phone is on the same Wi-Fi as the PC, then show a new code on the PC and scan it again.</p>`;
+    return;
+  }
+  const s = JSON.parse(Vault.status());
+  const row = (ok, yes, no, fix, why) => `<div class="item"><b class="${ok ? 'ok' : 'no'}">${ok ? '✓' : '✕'}</b><span>${ok ? yes : no}${ok ? '' : `<br><small class="muted">${why}</small>`}</span>${ok ? '' : `<button onclick="Vault.fix('${fix}')">${fix === 'bin' ? 'Open Gallery' : 'Allow'}</button>`}</div>`;
+  box.innerHTML = `<span class="brand">Premade Tools · Vault</span><h1>Paired with your PC</h1>
+    <p class="muted">Three things let Vault save what you delete on the ${s.phone}:</p>
+    <div class="card">
+      ${row(s.allFiles, 'All files access allowed', 'Allow All files access', 'files', 'So Vault can read the Recycle bin.')}
+      ${row(s.battery, 'Battery set to Unrestricted', 'Set the battery to Unrestricted', 'battery', 'So Android doesn\'t stop Vault in the background.')}
+      ${row(s.binOn, "Gallery's Recycle bin is on", "Turn on Gallery's Recycle bin", 'bin', 'Gallery › Menu › Settings › Recycle bin.')}
+    </div>
+    <button class="primary" ${s.allFiles ? '' : 'disabled'} onclick="Vault.done()">${s.battery && s.binOn ? 'Start watching' : 'Start watching anyway'}</button>
+    <p class="muted" style="font-size:13px">Vault saves files you delete from now on. Files already in the bin from before stay as they are.</p>`;
+}
+window.addEventListener('hashchange', vaultRefresh);
+vaultRefresh();
+</script></body></html>

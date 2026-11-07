@@ -1,0 +1,22 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'tools.premade.vault'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'tools.premade.vault'
+        minSdk 30
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+    }
+    // ponytail: the signing key lives in this private repo so every build installs over the last one.
+    // Move it to a GitHub secret before the repo goes public.
+    signingConfigs {
+        vault { storeFile file('../vault.keystore'); storePassword 'premadevault'; keyAlias 'vault'; keyPassword 'premadevault' }
+    }
+    buildTypes {
+        release { signingConfig signingConfigs.vault; minifyEnabled false }
+        debug { signingConfig signingConfigs.vault }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}

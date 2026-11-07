@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="local.css"><title>Vault</title></head>
+<body><div class="box" id="box"></div>
+<script>
+function vaultRefresh() {
+  const s = JSON.parse(Vault.status());
+  document.getElementById('box').innerHTML = `<span class="brand">Premade Tools · Vault</span><h1>Can't reach your PC</h1>
+    <p class="muted">That's normal away from home, or when the PC is off. This phone keeps watching the Recycle bin and saves what you delete, then sends it when it's back on your home Wi-Fi.</p>
+    <div class="card"><div class="item"><span>Waiting to send</span><b>${s.pending} files</b></div>
+    <div class="item"><span>Watching the bin</span><b class="${s.allFiles ? 'ok' : 'no'}">${s.allFiles ? 'Yes' : 'No: All files access is off'}</b></div></div>
+    <button class="primary" onclick="Vault.reload()">Try again</button>`;
+}
+vaultRefresh();
+</script></body></html>
