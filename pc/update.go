@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -59,13 +60,11 @@ func (a *App) findUpdate() {
 	}
 }
 
+var updating sync.Mutex
+
 // checkUpdate is the Update button: it installs the newest release and restarts.
 func (a *App) checkUpdate() string {
-	a.mu.Lock()
-	busy := a.updating
-	a.updating = true
-	a.mu.Unlock()
-	if busy {
+	if !updating.TryLock() { // held until the restart
 		return "Updating. The window reopens in a moment."
 	}
 	cl := &http.Client{Timeout: 5 * time.Minute}
@@ -74,9 +73,7 @@ func (a *App) checkUpdate() string {
 		err = swapExe(cl, r.url)
 	}
 	if err != nil || r.url == "" {
-		a.mu.Lock()
-		a.updating = false
-		a.mu.Unlock()
+		updating.Unlock()
 		if err != nil {
 			log.Printf("update: %v", err)
 			return "Update failed: " + err.Error()

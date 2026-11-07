@@ -21,17 +21,16 @@ const port = 47110
 var listener net.Listener
 
 type App struct {
-	set      *Settings
-	mu       sync.Mutex
-	store    *Store // nil until setup picks a vault folder
-	pairs    map[string]time.Time
-	warn     map[string]time.Time // last time each warning was shown as a Windows notification
-	upd      string               // newer version waiting, if any
-	updating bool
-	moving   bool
-	health   string // vault drive health, "" when unknown
-	eng      *Engines
-	dl       *Downloader
+	set    *Settings
+	mu     sync.Mutex
+	store  *Store // nil until setup picks a vault folder
+	pairs  map[string]time.Time
+	warn   map[string]time.Time // last time each warning was shown as a Windows notification
+	upd    string               // newer version waiting, if any
+	moving bool
+	health string // vault drive health, "" when unknown
+	eng    *Engines
+	dl     *Downloader
 }
 
 func main() {
