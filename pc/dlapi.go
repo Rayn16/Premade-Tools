@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The Downloader's calls: /api/ui/dl/… for the PC window, /api/phone/dl/… for paired phones, and plain-text
@@ -107,6 +108,14 @@ func (a *App) dlRoutes(m *http.ServeMux) {
 	// Poll until it's ready: "WAIT 42" while it runs, then the file (several come as one zip), or "ERR: why".
 	ph("GET /api/phone/dl/ios/get/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		j := a.dl.Get(r.PathValue("id"))
+		for i := 0; i < 40 && j != nil && (j.State == "queued" || j.State == "running"); i++ { // wait up to 20 s, so the Shortcut asks less often
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+			j = a.dl.Get(j.ID)
+		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		switch {
 		case j == nil:

@@ -6,10 +6,16 @@ if (qs.get('t')) { try { localStorage.setItem('vaultToken', qs.get('t')); } catc
 const TOKEN = qs.get('t') || (() => { try { return localStorage.getItem('vaultToken'); } catch (e) { return null; } })();
 const NATIVE = window.Vault || null; // Android bridge, absent on iPhone
 
-const S = { tab: 'deleted', phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null, view: 'grid' };
-try { S.view = localStorage.getItem('vaultView') || 'grid'; } catch (e) {}
+const S = { tool: 'download', tab: 'dl', drawer: false, phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null, view: 'grid' };
+try { S.view = localStorage.getItem('vaultView') || 'grid'; S.tool = localStorage.getItem('ptTool') || 'download'; } catch (e) {}
+// Each tool has its own bottom tabs; the ☰ sidebar switches tools.
+const TOOLS = { download: { name: 'Downloader', icon: 'dl', tabs: [['dl', 'Download', 'dl'], ['history', 'History', 'clock'], ['dlsettings', 'Settings', 'settings']] },
+  vault: { name: 'Vault', icon: 'shield', tabs: [['deleted', 'Deleted', 'deleted'], ['phones', 'Phones', 'phones'], ['settings', 'Settings', 'settings']] } };
+if (!TOOLS[S.tool]) S.tool = 'download';
+S.tab = TOOLS[S.tool].tabs[0][0];
 const FLOW = {}; // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null, ITEMS = [], OFFLINE = false, LAST = '';
+let DL = null; // /api/phone/dl, drawn by mdl.js
 const $app = document.getElementById('app');
 
 async function api(path, body) {
@@ -22,15 +28,16 @@ async function api(path, body) {
 
 async function refresh() {
   try {
-    [ST, ITEMS] = await Promise.all([api('/api/phone/state'), api('/api/phone/deleted')]);
+    [ST, ITEMS, DL] = await Promise.all([api('/api/phone/state'), api('/api/phone/deleted'), api('/api/phone/dl').catch(() => DL)]);
     OFFLINE = false;
+    dlAfterRefresh();
     try { localStorage.setItem('vaultCache', JSON.stringify([ST, ITEMS])); } catch (e) {}
   } catch (e) {
     OFFLINE = true;
     if (!ST) { try { [ST, ITEMS] = JSON.parse(localStorage.getItem('vaultCache')) || []; } catch (e2) {} }
   }
-  const now = JSON.stringify([ST, ITEMS, OFFLINE]);
-  if (now !== LAST || S.tab !== 'deleted') render();
+  const now = JSON.stringify([ST, ITEMS, OFFLINE, DL]);
+  if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl')) render();
   LAST = now;
 }
 
@@ -44,20 +51,24 @@ const LEDE = { deleted: 'Everything you deleted on your phones, newest first.', 
 
 function render() {
   if (!TOKEN) {
-    $app.innerHTML = `<div class="topbar">${crest}<span class="wordmark-app">Vault</span></div><div class="titlerow"><div><h1 class="pagetitle">Not paired yet</h1><p class="pagelede">Open Vault on your PC, choose Phones, then Add a phone, and scan the code with this phone.</p></div></div>`;
+    $app.innerHTML = `<div class="topbar">${crest}<span class="wordmark-app">Premade Tools</span></div><div class="titlerow"><div><h1 class="pagetitle">Not paired yet</h1><p class="pagelede">Open Premade Tools on your PC, choose Phones, then Add a phone, and scan the code with this phone.</p></div></div>`;
     return;
   }
   const keep = [...$app.querySelectorAll('.scroller')].map((n) => n.scrollTop);
   const c = ST?.config || {};
   $app.dataset.theme = c.theme || 'red';
   $app.style.setProperty('--c', c.custom || '#d9202d');
-  const tabs = [['deleted', 'Deleted'], ['phones', 'Phones'], ['settings', 'Settings']].map(([id, l]) =>
-    `<button type="button" class="tab" data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}>${icon(id)}<span>${l}</span></button>`).join('');
+  const keepFocus = document.activeElement?.id;
+  const tool = TOOLS[S.tool];
+  const tabs = tool.tabs.map(([id, l, ic]) =>
+    `<button type="button" class="tab" data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></button>`).join('');
   const off = OFFLINE ? `<div class="offline">Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : 'This shows what was there last time.'}</div>` : '';
-  const head = `<div class="topbar">${crest}<span class="wordmark-app">Vault</span></div>`;
-  const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : S.tab === 'phones' ? phonesView(off) : S.tab === 'settings' ? settingsView(off) : deletedView(off);
-  $app.innerHTML = `${head}${body}<nav class="tabbar" aria-label="Sections">${tabs}</nav>${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}`;
+  const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
+  const views = { phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView };
+  const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : (views[S.tab] || deletedView)(off);
+  $app.innerHTML = `${head}${body}<nav class="tabbar" aria-label="Sections">${tabs}</nav>${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
+  if (keepFocus && document.getElementById(keepFocus)) document.getElementById(keepFocus).focus();
   lazyMedia($app);
 }
 
@@ -218,6 +229,17 @@ function otherPhone(p, n) {
     <span class="phonecard-right"><span>${ios ? whenShort(new Date(p.LastSeen)) : ago(p.LastSeen)}</span><span>${n} saved</span></span></div>`;
 }
 
+function drawerView() {
+  const c = ST?.config || {};
+  const tools = Object.entries(TOOLS).map(([id, t]) => `<button type="button" class="drawer-tool" data-tool="${id}" aria-current="${S.tool === id ? 'page' : 'false'}">${icon(t.icon)}<span>${t.name}</span></button>`).join('');
+  return `<div class="drawer-back" data-closedrawer><nav class="drawer" aria-label="Tools">
+    <div class="drawer-head">${crest}<span class="wordmark-app">Premade Tools</span></div>
+    <p class="drawer-label">Tools</p>${tools}
+    <div class="drawer-foot"><p class="drawer-label">Look</p><div class="themes">${THEMES.map(([id, l, bg, panel, ac]) => `<button type="button" class="mswatch" data-theme-pick="${id}" aria-pressed="${c.theme === id}"><span class="mswatch-preview" style="background:${bg}"><i style="background:${panel}"></i><u style="background:${ac}"></u>${c.theme === id ? `<em>${icon('check')}</em>` : ''}</span><span class="mswatch-name">${l}</span></button>`).join('')}</div>
+    <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>
+  </nav></div>`;
+}
+
 function settingsView(off) {
   const c = ST.config;
   return `${titleRow('Settings')}<div class="headrule"></div>
@@ -226,13 +248,13 @@ function settingsView(off) {
       <div class="block"><h2 class="block-title">Keep deleted files</h2><div class="chips">${KEEP.map(([id, l]) => `<button type="button" class="pill" data-keep="${id}" aria-pressed="${c.keep === id}">${c.keep === id ? icon('check') : ''}${l}</button>`).join('')}</div><p class="block-hint">Only files deleted longer ago than this are cleared.</p></div>
       <div class="block"><h2 class="block-title">Stored on your PC</h2><p class="vaultpath-m">${esc(c.vaultDir)}</p>${ST.free ? `<p class="capstat"><b>${esc(nice(ST.free))}</b> free</p>` : ''}<p class="block-hint">You can move it from Settings on the PC.</p></div>
     </div></section>
-    <section class="group"><div class="sectionhead"><b>Look</b><i></i></div><div class="panel"><div class="block"><h2 class="block-title">Colours</h2><div class="themes">${THEMES.map(([id, l, bg, panel, ac]) => `<button type="button" class="mswatch" data-theme-pick="${id}" aria-pressed="${c.theme === id}"><span class="mswatch-preview" style="background:${bg}"><i style="background:${panel}"></i><u style="background:${ac}"></u>${c.theme === id ? `<em>${icon('check')}</em>` : ''}</span><span class="mswatch-name">${l}</span></button>`).join('')}</div></div></div></section>
     <div class="appfoot">${crest}<span>Premade Tools ${esc(ST.version)}</span></div></div>`;
 }
 
 $app.addEventListener('click', async (e) => {
   if (e.target.dataset?.close !== undefined && e.target.classList.contains('msheet')) { closeSheet(); return; }
   if (e.target.dataset?.closeask !== undefined) { S.ask = null; render(); return; }
+  if (e.target.dataset?.closedrawer !== undefined) { S.drawer = false; render(); return; }
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.copy !== undefined) { // clipboard API needs https; a selected field + execCommand works over plain http
@@ -243,6 +265,8 @@ $app.addEventListener('click', async (e) => {
   const d = b.dataset;
   try {
     if (d.tab) { S.tab = d.tab; render(); }
+    else if (d.drawer !== undefined) { S.drawer = !S.drawer; render(); }
+    else if (d.tool) { S.tool = d.tool; S.tab = TOOLS[d.tool].tabs[0][0]; S.drawer = false; try { localStorage.setItem('ptTool', d.tool); } catch (e2) {} render(); }
     else if (d.phone) { S.phone = d.phone; render(); }
     else if (d.type) { S.type = d.type; render(); }
     else if (d.view) { S.view = d.view; try { localStorage.setItem('vaultView', d.view); } catch (e2) {} render(); }
@@ -293,4 +317,8 @@ $app.addEventListener('input', (e) => { if (e.target.id === 'q') { S.q = e.targe
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 window.vaultRefresh = refresh; // the Android app calls this after it sends something
 refresh();
-setInterval(() => { if (!document.hidden && !S.sheet && !S.ask && document.activeElement?.id !== 'q') refresh(); }, 30000);
+let slow = 0;
+setInterval(() => { // every 2 s while a download runs, else every 30 s
+  if (document.hidden || S.sheet || S.ask || S.drawer || ['q', 'dlurl'].includes(document.activeElement?.id)) return;
+  if (dlBusy() || ++slow >= 15) { slow = 0; refresh(); }
+}, 2000);
