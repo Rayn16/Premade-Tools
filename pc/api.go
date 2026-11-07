@@ -254,6 +254,7 @@ func (a *App) routes() http.Handler {
 		r.Body = io.NopCloser(bytes.NewReader(b))
 		a.saveSettings(w, r)
 	})
+	a.dlRoutes(m)
 	return m
 }
 
