@@ -41,6 +41,21 @@ func TestStore(t *testing.T) {
 	if _, err := os.Stat(st.objPath(b.Sha)); err != nil {
 		t.Fatal("shared object was removed")
 	}
+	// Dismiss deletes the stored content but remembers the key, so the phone won't send it again.
+	c, _ := st.Add(Item{Key: "k4", Name: "d.jpg", Phone: "p", DeletedAt: time.Now()}, strings.NewReader("only-d"), "")
+	cp := st.objPath(c.Sha)
+	if err := st.Dismiss(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cp); !os.IsNotExist(err) || !st.Has("p", "k4") {
+		t.Fatal("dismiss should delete the object and keep the key")
+	}
+	for _, it := range st.Deleted() {
+		if it.ID == c.ID {
+			t.Fatal("dismissed item still listed")
+		}
+	}
+	st.Dismiss(b.ID) // b's object was shared with a, which is gone now, so it is deleted too
 	st2, _ := OpenStore(dir)
 	if len(st2.items) != len(st.items) {
 		t.Fatal("index not saved")

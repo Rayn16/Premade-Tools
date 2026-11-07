@@ -173,7 +173,7 @@ function actions(it) {
   const f = FLOW[it.id], p = phoneById(it.phone);
   if (f?.done) return `<div class="done">${icon('check')}<span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>on ${esc(f.name)}</em></span></div><div class="actions-quiet"><button type="button" class="quiet" data-flowclear="${it.id}">Done</button></div>`;
   if (f?.wait || p?.Pending?.includes(it.id)) return `<div class="restoring"><div class="restoring-row">${icon('spin', 'spin')}Restoring…</div><div class="progline"><span></span></div>${f?.wait ? `<p>${esc(f.wait)}</p>` : ''}</div>`;
-  if (f === 'confirm') return `<div class="confirm"><p class="confirm-text">Dismiss this from the vault?</p><p class="confirm-sub">It leaves this list. The file stays in the vault folder until your keep time runs out.</p>
+  if (f === 'confirm') return `<div class="confirm"><p class="confirm-text">Delete this from the vault?</p><p class="confirm-sub">The copy on this PC is deleted. It can't be brought back.</p>
     <div class="confirm-row"><button type="button" class="btn small" data-flowclear="${it.id}">Keep it</button><button type="button" class="btn small danger" data-dismiss="${it.id}">Dismiss</button></div></div>`;
   return `<div class="actions-stack">
       ${p ? `<button type="button" class="btn primary block" data-restore="${it.id}">Restore to ${esc(p.Name)}</button>` : ''}

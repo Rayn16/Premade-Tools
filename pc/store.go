@@ -197,7 +197,7 @@ func (s *Store) Deleted() []Item {
 	defer s.mu.Unlock()
 	out := []Item{}
 	for _, it := range s.items {
-		if !it.Hidden && !(it.Missed && it.Dismissed) {
+		if !it.Hidden && !it.Dismissed {
 			out = append(out, *it)
 		}
 	}
@@ -205,15 +205,26 @@ func (s *Store) Deleted() []Item {
 	return out
 }
 
+// Dismiss deletes the stored copy. The entry stays (without content) so the phone
+// doesn't send the same file again while it's still in its bin; Clear drops it later.
 func (s *Store) Dismiss(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var sha string
 	for _, it := range s.items {
-		if it.ID == id {
-			it.Dismissed = true
+		if it.ID == id && !it.Hidden {
+			it.Dismissed, sha, it.Sha = true, it.Sha, ""
 		}
 	}
-	return s.saveLocked()
+	if err := s.saveLocked(); err != nil || sha == "" {
+		return err
+	}
+	for _, it := range s.items {
+		if it.Sha == sha {
+			return nil // another entry still points to the same content
+		}
+	}
+	return os.Remove(s.objPath(sha))
 }
 
 // Expired lists deleted files older than the cutoff. Hidden iPhone copies (still on the phone) never expire.
