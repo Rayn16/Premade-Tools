@@ -274,6 +274,9 @@ func (d *Downloader) probe(u string) *Probe {
 	out, err := cmd.Output()
 	if err == nil {
 		if p := parseProbe(out); p != nil {
+			if p.Site == "Generic" {
+				p.Site = siteOf(u)
+			}
 			return p
 		}
 	}

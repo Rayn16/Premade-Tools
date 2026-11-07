@@ -144,6 +144,7 @@ func (a *App) tokenOnly(h func(http.ResponseWriter, *http.Request, *Phone)) http
 
 func (a *App) dlState() map[string]any {
 	c := a.set.Get()
+	os.MkdirAll(c.DownloadDir(), 0o755)
 	free, _ := diskSpace(c.DownloadDir())
 	return map[string]any{"jobs": a.dl.Jobs(""), "engines": a.eng.List(), "ready": a.eng.Ready(), "dir": c.DownloadDir(),
 		"free": human(int64(free)), "nightly": c.DlNightly, "logins": a.dl.LoggedIn()}

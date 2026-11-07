@@ -1,7 +1,7 @@
 // Vault's PC window. Plain JS: the server sends state, this draws it in Premade's look.
 'use strict';
 
-const S = { page: 'deleted', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null };
+const S = { page: 'download', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null };
 const FLOW = {};    // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null;      // /api/ui/state
 let ITEMS = [];     // /api/ui/deleted
@@ -19,12 +19,12 @@ async function api(path, body) {
 
 async function refresh() {
   try {
-    [ST, ITEMS] = await Promise.all([api('/api/ui/state'), api('/api/ui/deleted')]);
+    [ST, ITEMS] = await Promise.all([api('/api/ui/state'), api('/api/ui/deleted'), dlRefresh()]);
     if (!S.drives || S.page === 'settings') S.drives = await api('/api/ui/drives');
   } catch (e) { return; }
   if (!ST.config.setupDone && S.page !== 'setup') S.page = 'setup';
-  const now = JSON.stringify([ST, ITEMS, S.drives]);
-  if (now !== LAST || S.page !== 'deleted') render();
+  const now = JSON.stringify([ST, ITEMS, S.drives, DL]);
+  if (now !== LAST || (S.page !== 'deleted' && S.page !== 'download')) render();
   LAST = now;
 }
 
@@ -40,32 +40,44 @@ function render() {
   if (!ST) return;
   const c = ST.config;
   const keep = [...$app.querySelectorAll('.scroller')].map((n) => n.scrollTop);
+  const act = document.activeElement, focusId = act?.id, caret = [act?.selectionStart, act?.selectionEnd];
   $app.dataset.theme = c.theme || 'red';
   $app.style.setProperty('--c', c.custom || '#d9202d');
   setSize(c.size || 100);
-  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">Vault</span></header>`;
+  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">${S.page === 'download' ? 'Downloader' : S.page === 'settings' ? 'Settings' : 'Vault'}</span></header>`;
   if (S.page === 'setup') { $app.innerHTML = title + setupView(); $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; }); return; }
   const live = liveItems(ITEMS);
-  const nav = [['deleted', 'Deleted', live.length], ['phones', 'Phones', ST.phones.length], ['settings', 'Settings', '']].map(([id, l, n]) =>
-    `<button type="button" class="navitem" data-go="${id}" ${S.page === id ? 'aria-current="page"' : ''}>${icon(id)}<span class="navitem-label">${l}</span><span class="navitem-count">${n}</span></button>`).join('');
+  const item = ([id, l, n]) =>
+    `<button type="button" class="navitem" data-go="${id}" ${S.page === id ? 'aria-current="page"' : ''}>${icon(id)}<span class="navitem-label">${l}</span><span class="navitem-count">${n}</span></button>`;
+  const dlDone = (DL?.jobs || []).filter((j) => j.state === 'done').length;
+  const nav = `<div class="rail-group eyebrow">Downloader</div><div class="rail-nav">${item(['download', 'Download', dlDone || ''])}</div>
+    <div class="rail-group eyebrow">Vault</div><div class="rail-nav">${[['deleted', 'Deleted', live.length], ['phones', 'Phones', ST.phones.length]].map(item).join('')}</div>
+    <div class="rail-sep"></div><div class="rail-nav" style="margin-top:8px">${item(['settings', 'Settings', ''])}</div>`;
   const d = vaultDrive();
-  $app.innerHTML = `${title}
-  <div class="shell">
-    <nav class="rail" aria-label="Sections">
-      <div class="rail-head eyebrow">Vault</div>
-      <div class="rail-nav">${nav}</div>
-      <div class="vaultbox">
+  const box = S.page === 'download' && DL ? `<div class="vaultbox">
+        <div class="eyebrow">Downloads go to</div>
+        <div class="vaultbox-path">${esc(DL.dir)}</div>
+        <div class="vaultbox-stat"><b>${dlDone}</b> saved · <b>${esc(nice(DL.free))}</b> free</div>
+        <div class="vaultbox-stat">and back to the phone that sent the link</div>
+      </div>` : `<div class="vaultbox">
         <div class="eyebrow">Saved on this PC</div>
         <div class="vaultbox-path">${esc(c.vaultDir || 'Not picked yet')}</div>
         ${d ? `<div class="capacity"><i style="width:${usedPct(d).toFixed(1)}%"></i></div>` : ''}
         ${ST.free ? `<div class="vaultbox-stat"><b>${esc(nice(ST.free))}</b> free</div>` : ''}
         <div class="vaultbox-stat">${live.length ? `<b>${live.length}</b> deleted ${live.length === 1 ? 'item' : 'items'} kept` : 'Nothing deleted yet'}</div>
-      </div>
+      </div>`;
+  $app.innerHTML = `${title}
+  <div class="shell">
+    <nav class="rail" aria-label="Sections">
+      <div>${nav}</div><div></div>
+      ${box}
     </nav>
-    ${S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : deletedView()}
+    ${S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : S.page === 'download' ? downloadView() : deletedView()}
   </div>
   ${statusBar()}${S.pair && S.page === 'phones' ? pairSheet() : ''}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
+  const f = focusId && document.getElementById(focusId);
+  if (f && f !== document.activeElement) { f.focus(); try { f.setSelectionRange(caret[0], caret[1]); } catch (e) {} }
   lazyMedia($app);
 }
 
@@ -85,6 +97,9 @@ function statusBar() {
   if (!ST.phones.length && c.vaultDir) bits.push(['is-idle', 'Vault on ' + c.vaultDir.slice(0, 2), (ST.free ? nice(ST.free) : '?') + ' free']);
   if (ST.moving) bits.push(['is-warn', 'Moving the vault…', '']);
   for (const w of ST.warnings || []) bits.push(['is-warn', w, '']);
+  const running = (DL?.jobs || []).filter((j) => j.state === 'running' || j.state === 'queued').length;
+  if (running) bits.push(['', 'Downloading', String(running)]);
+  if (DL && !DL.ready) bits.push(['is-idle', 'Download engines', 'setting up']);
   const row = ([cls, name, text]) => `<span class="st ${cls}"><i class="dotlight"></i><b>${esc(name)}${text ? ':' : ''}</b>${text ? `<span>${esc(text)}</span>` : ''}</span>`;
   return `<footer class="statusbar">${bits.map(row).join('')}<span class="statusbar-ver">Premade Tools ${esc(ST.version)}</span></footer>`;
 }
@@ -247,8 +262,10 @@ function settingsView() {
   const healthBad = (ST.warnings || []).some((w) => /health/i.test(w));
   const total = d ? toBytes(d.Total) : 0, vaultPct = total ? toBytes(ST.bytes) / total * 100 : 0, usedTotal = d ? usedPct(d) : 0;
   const ask = S.ask?.keep;
-  return `<main class="plain"><div class="pagehead"><div><h1 class="pagetitle">Settings</h1><p class="pagelede">Where the vault lives, how long it keeps things, and how the app looks.</p></div></div>
+  return `<main class="plain"><div class="pagehead"><div><h1 class="pagetitle">Settings</h1><p class="pagelede">Downloads and logins, where the vault lives, and how the app looks.</p></div></div>
   <div class="settings scroller">
+    ${dlSettings()}
+    <h2 class="group-label" style="margin-top:22px">Vault</h2>
     <section class="hero">
       <div class="hero-head"><p class="eyebrow">Your vault</p>${c.warnHealth ? `<span class="health ${healthBad ? 'is-warn' : ''}"><i class="dotlight"></i>Drive health <b>${healthBad ? 'Needs a look' : 'No warnings'}</b></span>` : ''}</div>
       <div class="vaultpath"><div>${esc(c.vaultDir)}</div><button type="button" class="btn" data-move ${ST.moving ? 'disabled' : ''}>Move…</button></div>
@@ -457,9 +474,9 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.pair &
 let timer;
 const soon = () => { clearTimeout(timer); timer = setTimeout(tick, 3000); };
 async function tick() {
-  const typing = document.activeElement && ['q', 'folder'].includes(document.activeElement.id);
+  const typing = document.activeElement && ['q', 'folder', 'dlurl'].includes(document.activeElement.id);
   if (!typing) await refresh();
   clearTimeout(timer);
-  timer = setTimeout(tick, S.pair || S.page === 'setup' ? 3000 : 30000);
+  timer = setTimeout(tick, dlRunning() || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' ? 3000 : 30000);
 }
 refresh().then(() => { if (S.page === 'setup') enterStep(1); soon(); });
