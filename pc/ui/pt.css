@@ -438,3 +438,17 @@ html:has(.boxpage),html:has(.boxpage) body{overflow:auto}
 .box p{font-size:13px;color:var(--muted)}
 .wordrow{display:flex;align-items:center;gap:10px}
 @media (prefers-reduced-motion:reduce){.pt *{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important}.beacon::before,.beacon::after{display:none}}
+/* Home: one card per tool */
+.home{min-height:0}
+.toolcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;padding:6px 18px 24px}
+.toolcard{display:flex;align-items:flex-start;gap:14px;padding:18px!important;border-radius:10px;background:var(--panel)!important;border:1px solid var(--line)!important;box-shadow:var(--hi);text-align:left;color:var(--fg)!important;cursor:pointer;transition:border-color .15s,background-color .15s}
+.toolcard:hover{border-color:var(--gold-line)!important;background:var(--raised)!important}
+.toolcard-icon{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:9px;background:var(--tint);border:1px solid var(--gold-line);color:var(--gold)}
+.toolcard-icon svg.i{font-size:22px}
+.toolcard-text{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:5px}
+.toolcard-name{font:700 18px/1.1 var(--display);color:var(--gold-hi);letter-spacing:.01em}
+.toolcard-what{font-size:12.5px;line-height:1.4;color:var(--muted)}
+.toolcard-stat{margin-top:6px;font:500 11.5px var(--mono);color:var(--muted)}
+.toolcard-stat b{color:var(--fg);font-weight:500}
+.toolcard-go{flex:none;align-self:center;font-size:18px;color:var(--dim)}
+.toolcard:hover .toolcard-go{color:var(--gold)}

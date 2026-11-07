@@ -1,7 +1,7 @@
 // Vault's PC window. Plain JS: the server sends state, this draws it in Premade's look.
 'use strict';
 
-const S = { page: 'download', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null, updLater: '', updBusy: '' };
+const S = { page: 'home', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null, updLater: '', updBusy: '' };
 const FLOW = {};    // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null;      // /api/ui/state
 let ITEMS = [];     // /api/ui/deleted
@@ -47,19 +47,20 @@ function render() {
   $app.dataset.theme = c.theme || 'red';
   $app.style.setProperty('--c', c.custom || '#d9202d');
   setSize(c.size || 100);
-  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">${S.page === 'download' ? 'Downloader' : S.page === 'convert' ? 'Converter' : S.page === 'settings' ? 'Settings' : 'Vault'}</span></header>`;
+  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">${S.page === 'home' ? 'Home' : S.page === 'download' ? 'Downloader' : S.page === 'convert' ? 'Converter' : S.page === 'settings' ? 'Settings' : 'Vault'}</span></header>`;
   if (S.page === 'setup') { $app.innerHTML = title + setupView(); $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; }); return; }
   const live = liveItems(ITEMS);
   const item = ([id, l, n]) =>
     `<button type="button" class="navitem" data-go="${id}" ${S.page === id ? 'aria-current="page"' : ''}>${icon(id)}<span class="navitem-label">${l}</span><span class="navitem-count">${n}</span></button>`;
   const dlDone = (DL?.jobs || []).filter((j) => j.state === 'done').length;
   const cvDone = (CV?.jobs || []).filter((j) => j.state === 'done').length;
-  const nav = `<div class="rail-group eyebrow">Downloader</div><div class="rail-nav">${item(['download', 'Download', dlDone || ''])}</div>
+  const nav = `<div class="rail-nav">${item(['home', 'Home', ''])}</div>
+    <div class="rail-group eyebrow">Downloader</div><div class="rail-nav">${item(['download', 'Download', dlDone || ''])}</div>
     <div class="rail-group eyebrow">Converter</div><div class="rail-nav">${item(['convert', 'Convert', cvDone || ''])}</div>
     <div class="rail-group eyebrow">Vault</div><div class="rail-nav">${[['deleted', 'Deleted', live.length], ['phones', 'Phones', ST.phones.length]].map(item).join('')}</div>
     <div class="rail-sep"></div><div class="rail-nav" style="margin-top:8px">${item(['settings', 'Settings', ''])}</div>`;
   const d = vaultDrive();
-  const box = S.page === 'convert' && CV ? `<div class="vaultbox">
+  const box = S.page === 'home' ? '' : S.page === 'convert' && CV ? `<div class="vaultbox">
         <div class="eyebrow">Converted files go to</div>
         <div class="vaultbox-path">${esc(CV.dir)}</div>
         <div class="vaultbox-stat"><b>${cvDone}</b> done · <b>${esc(nice(CV.free))}</b> free</div>
@@ -82,7 +83,7 @@ function render() {
       <div>${nav}</div><div></div>
       ${box}
     </nav>
-    ${S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : S.page === 'download' ? downloadView() : S.page === 'convert' ? convertView() : deletedView()}
+    ${S.page === 'home' ? homeView(live, dlDone, cvDone) : S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : S.page === 'download' ? downloadView() : S.page === 'convert' ? convertView() : deletedView()}
   </div>
   ${statusBar()}${S.pair && S.page === 'phones' ? pairSheet() : ''}${updSheet()}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
@@ -114,6 +115,19 @@ function statusBar() {
   if (DL && !DL.ready) bits.push(['is-idle', 'Download engines', 'setting up']);
   const row = ([cls, name, text]) => `<span class="st ${cls}"><i class="dotlight"></i><b>${esc(name)}${text ? ':' : ''}</b>${text ? `<span>${esc(text)}</span>` : ''}</span>`;
   return `<footer class="statusbar">${bits.map(row).join('')}<span class="statusbar-ver">Premade Tools ${esc(ST.version)}</span></footer>`;
+}
+
+// ---------- Home ----------
+function homeView(live, dlDone, cvDone) {
+  const dlRun = (DL?.jobs || []).filter((j) => j.state === 'running' || j.state === 'queued').length;
+  const cvRun = (CV?.jobs || []).filter((j) => j.state === 'running' || j.state === 'queued').length;
+  return `<main class="home scroller">
+    <div class="pagehead"><div><h1 class="pagetitle">Your tools</h1><p class="pagelede">Pick a tool to open it. Everything runs on this PC.</p></div></div>
+    ${homeCards('go', [
+      ['download', 'dl', 'Downloader', 'Paste a link from TikTok, Instagram, YouTube and more, and save it.', dlRun ? `<b>${dlRun}</b> downloading now` : tally(dlDone, 'download saved', 'downloads saved')],
+      ['convert', 'convert', 'Converter', 'Turn photos, videos, audio and documents into other formats.', cvRun ? `<b>${cvRun}</b> converting now` : tally(cvDone, 'file converted', 'files converted')],
+      ['deleted', 'shield', 'Vault', 'Keeps what you delete on your phones, so you can get it back.', `${tally(live.length, 'deleted item', 'deleted items')} kept · ${tally(ST.phones.length, 'phone', 'phones')}`]])}
+  </main>`;
 }
 
 // ---------- Deleted ----------
@@ -470,7 +484,7 @@ $app.addEventListener('click', async (e) => {
         await refresh();
         enterStep(2);
       } else if (S.step < 4) enterStep(S.step + 1);
-      else { await api('/api/ui/settings', { setupDone: true }); S.page = 'deleted'; S.pair = null; refresh(); }
+      else { await api('/api/ui/settings', { setupDone: true }); S.page = 'home'; S.pair = null; refresh(); }
     }
   } catch (err) { S.updBusy = ''; S.msg = err.message; S.updMsg = S.page === 'settings' ? err.message : S.updMsg; render(); }
 });

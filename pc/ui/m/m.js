@@ -6,14 +6,13 @@ if (qs.get('t')) { try { localStorage.setItem('vaultToken', qs.get('t')); } catc
 const TOKEN = qs.get('t') || (() => { try { return localStorage.getItem('vaultToken'); } catch (e) { return null; } })();
 const NATIVE = window.Vault || null; // Android bridge, absent on iPhone
 
-const S = { tool: 'download', tab: 'dl', drawer: false, phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null, view: 'grid' };
-try { S.view = localStorage.getItem('vaultView') || 'grid'; S.tool = localStorage.getItem('ptTool') || 'download'; } catch (e) {}
+const S = { tool: 'home', tab: 'home', drawer: false, phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null, view: 'grid' };
+try { S.view = localStorage.getItem('vaultView') || 'grid'; } catch (e) {}
 // Each tool has its own bottom tabs; the ☰ sidebar switches tools.
-const TOOLS = { download: { name: 'Downloader', icon: 'dl', tabs: [['dl', 'Download', 'dl'], ['history', 'History', 'clock'], ['dlsettings', 'Settings', 'settings']] },
+const TOOLS = { home: { name: 'Home', icon: 'home', tabs: [['home', 'Home', 'home']] },
+  download: { name: 'Downloader', icon: 'dl', tabs: [['dl', 'Download', 'dl'], ['history', 'History', 'clock'], ['dlsettings', 'Settings', 'settings']] },
   convert: { name: 'Converter', icon: 'convert', tabs: [['convert', 'Convert', 'convert'], ['cvhistory', 'History', 'clock'], ['cvsettings', 'Settings', 'settings']] },
   vault: { name: 'Vault', icon: 'shield', tabs: [['deleted', 'Deleted', 'deleted'], ['phones', 'Phones', 'phones'], ['settings', 'Settings', 'settings']] } };
-if (!TOOLS[S.tool]) S.tool = 'download';
-S.tab = TOOLS[S.tool].tabs[0][0];
 const FLOW = {}; // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null, ITEMS = [], OFFLINE = false, LAST = '';
 let DL = null; // /api/phone/dl, drawn by mdl.js
@@ -71,12 +70,21 @@ function render() {
     `<button type="button" class="tab" data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></button>`).join('');
   const off = OFFLINE ? `<div class="offline">Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : 'This shows what was there last time.'}</div>` : '';
   const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
-  const views = { phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView };
+  const views = { home: homeView, phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView };
   const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : (views[S.tab] || deletedView)(off);
-  $app.innerHTML = `${head}${body}<nav class="tabbar" aria-label="Sections">${tabs}</nav>${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}${updView()}`;
+  $app.innerHTML = `${head}${body}${tool.tabs.length > 1 ? `<nav class="tabbar" aria-label="Sections">${tabs}</nav>` : ''}${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}${updView()}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
   if (keepFocus && document.getElementById(keepFocus)) document.getElementById(keepFocus).focus();
   lazyMedia($app);
+}
+
+function homeView(off) {
+  const done = (jobs) => jobs.filter((j) => j.state === 'done').length;
+  return `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">Your tools</h1><p class="pagelede">Pick a tool to open it.</p></div></div>
+    <div class="feed scroller">${off}${homeCards('tool', [
+      ['download', 'dl', 'Downloader', 'Save videos and photos from any link.', tally(done(dlJobs()), 'download saved', 'downloads saved')],
+      ['convert', 'convert', 'Converter', 'Turn files into other formats on your PC.', tally(done(typeof cvJobs === 'function' ? cvJobs() : []), 'file converted', 'files converted')],
+      ['vault', 'shield', 'Vault', 'Get back what you deleted on your phones.', tally(live().length, 'deleted item', 'deleted items') + ' kept']])}</div>`;
 }
 
 function shown() {
@@ -283,7 +291,7 @@ $app.addEventListener('click', async (e) => {
   try {
     if (d.tab) { S.tab = d.tab; render(); }
     else if (d.drawer !== undefined) { S.drawer = !S.drawer; render(); }
-    else if (d.tool) { S.tool = d.tool; S.tab = TOOLS[d.tool].tabs[0][0]; S.drawer = false; try { localStorage.setItem('ptTool', d.tool); } catch (e2) {} render(); }
+    else if (d.tool) { S.tool = d.tool; S.tab = TOOLS[d.tool].tabs[0][0]; S.drawer = false; render(); }
     else if (d.phone) { S.phone = d.phone; render(); }
     else if (d.type) { S.type = d.type; render(); }
     else if (d.view) { S.view = d.view; try { localStorage.setItem('vaultView', d.view); } catch (e2) {} render(); }

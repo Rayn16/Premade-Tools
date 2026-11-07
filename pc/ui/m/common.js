@@ -25,6 +25,12 @@ const ICON = {
   spin: '<path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5"/>'
 };
 const PLAY = '<svg class="i play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>';
+ICON.home = '<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/>';
+ICON.chev = '<path d="M9 6l6 6-6 6"/>';
+// Home's tool cards, for the PC window (data-go) and the phone (data-tool): [target, icon, name, what it does, live stat]
+const homeCards = (attr, cards) => `<div class="toolcards">${cards.map(([to, ic, name, what, stat]) =>
+  `<button type="button" class="toolcard" data-${attr}="${to}"><span class="toolcard-icon">${icon(ic)}</span><span class="toolcard-text"><span class="toolcard-name">${name}</span><span class="toolcard-what">${what}</span><span class="toolcard-stat">${stat}</span></span>${icon('chev', 'toolcard-go')}</button>`).join('')}</div>`;
+const tally = (n, one, many) => `<b>${n}</b> ${n === 1 ? one : many}`;
 const icon = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const KEEP = [['forever', 'Forever'], ['2y', '2 years'], ['1y', '1 year'], ['6m', '6 months'], ['3m', '3 months']];

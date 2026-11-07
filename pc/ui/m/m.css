@@ -211,3 +211,5 @@
 .m .ask-title{margin:4px 0 8px;font:700 19px var(--display);color:var(--gold-hi)}
 .m .ask-text{margin:0;color:var(--muted);font-size:13.5px}.m .ask-text b{color:var(--fg)}
 .m .dlask{display:grid;gap:8px}
+.m .toolcards{grid-template-columns:1fr;gap:10px;padding:12px 0 0}
+.m .toolcard{padding:16px!important}
