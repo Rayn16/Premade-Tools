@@ -31,6 +31,7 @@ type App struct {
 	health string // vault drive health, "" when unknown
 	eng    *Engines
 	dl     *Downloader
+	cv     *Converter
 }
 
 func main() {
@@ -59,6 +60,7 @@ func main() {
 	a := &App{set: LoadSettings(), pairs: map[string]time.Time{}, warn: map[string]time.Time{}}
 	a.eng = NewEngines(func() bool { return a.set.Get().DlNightly })
 	a.dl = NewDownloader(a.eng, func() string { return a.set.Get().DownloadDir() })
+	a.cv = NewConverter(a.cvBin, func() string { return a.set.Get().ConvertDir() })
 	if c := a.set.Get(); c.VaultDir != "" {
 		if a.store, err = OpenStore(c.VaultDir); err != nil {
 			log.Printf("vault at %s: %v", c.VaultDir, err)

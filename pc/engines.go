@@ -32,6 +32,8 @@ var engineList = []engine{
 	{"gallery-dl", "mikf/gallery-dl", `^gallery-dl\.exe$`, nil, 6 * time.Hour},
 	{"ffmpeg", "yt-dlp/FFmpeg-Builds", `^ffmpeg-n[0-9.]+-latest-win64-gpl-[0-9.]+\.zip$`, []string{"ffmpeg.exe", "ffprobe.exe"}, 30 * 24 * time.Hour},
 	{"deno", "denoland/deno", `^deno-x86_64-pc-windows-msvc\.zip$`, []string{"deno.exe"}, 30 * 24 * time.Hour},
+	// The Converter's picture engine (reads iPhone HEIC photos). Its portable build is a .7z, unpacked whole into engines\magick.
+	{"magick", "ImageMagick/ImageMagick", `^ImageMagick-[0-9.]+-[0-9]+-portable-Q16-x64\.7z$`, nil, 30 * 24 * time.Hour},
 }
 
 type EngineState struct {
@@ -74,6 +76,9 @@ func NewEngines(nightly func() bool) *Engines {
 func (e *Engines) Bin(name string) string {
 	if runtime.GOOS != "windows" {
 		return name
+	}
+	if name == "magick" {
+		return filepath.Join(e.dir, "magick", "magick.exe")
 	}
 	return filepath.Join(e.dir, name+".exe")
 }
@@ -208,6 +213,9 @@ func (e *Engines) download(cl *http.Client, en engine, url string) error {
 	defer os.Remove(tmp)
 	if err != nil {
 		return err
+	}
+	if strings.HasSuffix(url, ".7z") {
+		return unpack7z(tmp, filepath.Join(e.dir, en.Name))
 	}
 	if en.Inner == nil {
 		return replaceFile(tmp, e.Bin(en.Name))

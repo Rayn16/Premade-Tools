@@ -19,12 +19,12 @@ async function api(path, body) {
 
 async function refresh() {
   try {
-    [ST, ITEMS] = await Promise.all([api('/api/ui/state'), api('/api/ui/deleted'), dlRefresh()]);
+    [ST, ITEMS] = await Promise.all([api('/api/ui/state'), api('/api/ui/deleted'), dlRefresh(), cvRefresh()]);
     if (!S.drives || S.page === 'settings') S.drives = await api('/api/ui/drives');
   } catch (e) { return; }
   if (!ST.config.setupDone && S.page !== 'setup') S.page = 'setup';
-  const now = JSON.stringify([ST, ITEMS, S.drives, DL]);
-  if (now !== LAST || (S.page !== 'deleted' && S.page !== 'download')) render();
+  const now = JSON.stringify([ST, ITEMS, S.drives, DL, CV]);
+  if (now !== LAST || (S.page !== 'deleted' && S.page !== 'download' && S.page !== 'convert')) render();
   LAST = now;
 }
 
@@ -44,17 +44,24 @@ function render() {
   $app.dataset.theme = c.theme || 'red';
   $app.style.setProperty('--c', c.custom || '#d9202d');
   setSize(c.size || 100);
-  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">${S.page === 'download' ? 'Downloader' : S.page === 'settings' ? 'Settings' : 'Vault'}</span></header>`;
+  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">${S.page === 'download' ? 'Downloader' : S.page === 'convert' ? 'Converter' : S.page === 'settings' ? 'Settings' : 'Vault'}</span></header>`;
   if (S.page === 'setup') { $app.innerHTML = title + setupView(); $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; }); return; }
   const live = liveItems(ITEMS);
   const item = ([id, l, n]) =>
     `<button type="button" class="navitem" data-go="${id}" ${S.page === id ? 'aria-current="page"' : ''}>${icon(id)}<span class="navitem-label">${l}</span><span class="navitem-count">${n}</span></button>`;
   const dlDone = (DL?.jobs || []).filter((j) => j.state === 'done').length;
+  const cvDone = (CV?.jobs || []).filter((j) => j.state === 'done').length;
   const nav = `<div class="rail-group eyebrow">Downloader</div><div class="rail-nav">${item(['download', 'Download', dlDone || ''])}</div>
+    <div class="rail-group eyebrow">Converter</div><div class="rail-nav">${item(['convert', 'Convert', cvDone || ''])}</div>
     <div class="rail-group eyebrow">Vault</div><div class="rail-nav">${[['deleted', 'Deleted', live.length], ['phones', 'Phones', ST.phones.length]].map(item).join('')}</div>
     <div class="rail-sep"></div><div class="rail-nav" style="margin-top:8px">${item(['settings', 'Settings', ''])}</div>`;
   const d = vaultDrive();
-  const box = S.page === 'download' && DL ? `<div class="vaultbox">
+  const box = S.page === 'convert' && CV ? `<div class="vaultbox">
+        <div class="eyebrow">Converted files go to</div>
+        <div class="vaultbox-path">${esc(CV.dir)}</div>
+        <div class="vaultbox-stat"><b>${cvDone}</b> done · <b>${esc(nice(CV.free))}</b> free</div>
+        <div class="vaultbox-stat">and back to the phone that sent them</div>
+      </div>` : S.page === 'download' && DL ? `<div class="vaultbox">
         <div class="eyebrow">Downloads go to</div>
         <div class="vaultbox-path">${esc(DL.dir)}</div>
         <div class="vaultbox-stat"><b>${dlDone}</b> saved · <b>${esc(nice(DL.free))}</b> free</div>
@@ -72,7 +79,7 @@ function render() {
       <div>${nav}</div><div></div>
       ${box}
     </nav>
-    ${S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : S.page === 'download' ? downloadView() : deletedView()}
+    ${S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : S.page === 'download' ? downloadView() : S.page === 'convert' ? convertView() : deletedView()}
   </div>
   ${statusBar()}${S.pair && S.page === 'phones' ? pairSheet() : ''}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
@@ -99,6 +106,8 @@ function statusBar() {
   for (const w of ST.warnings || []) bits.push(['is-warn', w, '']);
   const running = (DL?.jobs || []).filter((j) => j.state === 'running' || j.state === 'queued').length;
   if (running) bits.push(['', 'Downloading', String(running)]);
+  const converting = (CV?.jobs || []).filter((j) => j.state === 'running' || j.state === 'queued').length;
+  if (converting) bits.push(['', 'Converting', String(converting)]);
   if (DL && !DL.ready) bits.push(['is-idle', 'Download engines', 'setting up']);
   const row = ([cls, name, text]) => `<span class="st ${cls}"><i class="dotlight"></i><b>${esc(name)}${text ? ':' : ''}</b>${text ? `<span>${esc(text)}</span>` : ''}</span>`;
   return `<footer class="statusbar">${bits.map(row).join('')}<span class="statusbar-ver">Premade Tools ${esc(ST.version)}</span></footer>`;
@@ -262,9 +271,10 @@ function settingsView() {
   const healthBad = (ST.warnings || []).some((w) => /health/i.test(w));
   const total = d ? toBytes(d.Total) : 0, vaultPct = total ? toBytes(ST.bytes) / total * 100 : 0, usedTotal = d ? usedPct(d) : 0;
   const ask = S.ask?.keep;
-  return `<main class="plain"><div class="pagehead"><div><h1 class="pagetitle">Settings</h1><p class="pagelede">Downloads and logins, where the vault lives, and how the app looks.</p></div></div>
+  return `<main class="plain"><div class="pagehead"><div><h1 class="pagetitle">Settings</h1><p class="pagelede">Downloads and logins, the converter, where the vault lives, and how the app looks.</p></div></div>
   <div class="settings scroller">
     ${dlSettings()}
+    ${cvSettings()}
     <h2 class="group-label" style="margin-top:22px">Vault</h2>
     <section class="hero">
       <div class="hero-head"><p class="eyebrow">Your vault</p>${c.warnHealth ? `<span class="health ${healthBad ? 'is-warn' : ''}"><i class="dotlight"></i>Drive health <b>${healthBad ? 'Needs a look' : 'No warnings'}</b></span>` : ''}</div>
@@ -477,6 +487,6 @@ async function tick() {
   const typing = document.activeElement && ['q', 'folder', 'dlurl'].includes(document.activeElement.id);
   if (!typing) await refresh();
   clearTimeout(timer);
-  timer = setTimeout(tick, dlRunning() || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' ? 3000 : 30000);
+  timer = setTimeout(tick, dlRunning() || cvRunning() || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' ? 3000 : 30000);
 }
 refresh().then(() => { if (S.page === 'setup') enterStep(1); soon(); });
