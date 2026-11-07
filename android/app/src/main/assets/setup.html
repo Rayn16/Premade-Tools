@@ -8,7 +8,7 @@ function vaultRefresh() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (h === 'pair') {
     box.innerHTML = `<span class="brand">Premade Tools</span><h1>Pair with your PC</h1>
-      <p class="muted">Open Vault on your PC, choose Phones, then Pair a phone. Scan the code with this phone's camera and tap Pair this phone on the page it opens.</p>`;
+      <p class="muted">Open Vault on your PC, choose Phones, then Add a phone. Scan the code with this phone's camera and tap Pair this phone on the page it opens.</p>`;
     return;
   }
   if (h === 'pairing') { box.innerHTML = `<span class="brand">Premade Tools</span><h1>Pairing…</h1>`; return; }
@@ -18,7 +18,7 @@ function vaultRefresh() {
     return;
   }
   const s = JSON.parse(Vault.status());
-  const row = (ok, yes, no, fix, why) => `<div class="item"><b class="${ok ? 'ok' : 'no'}">${ok ? '✓' : '✕'}</b><span>${ok ? yes : no}${ok ? '' : `<br><small class="muted">${why}</small>`}</span>${ok ? '' : `<button onclick="Vault.fix('${fix}')">${fix === 'bin' ? 'Open Gallery' : 'Allow'}</button>`}</div>`;
+  const row = (ok, yes, no, fix, why) => `<div class="item"><b class="mark ${ok ? 'ok' : 'no'}">${ok ? '✓' : '✕'}</b><span>${ok ? yes : no}${ok ? '' : `<br><small class="muted">${why}</small>`}</span>${ok ? '' : `<button onclick="Vault.fix('${fix}')">${fix === 'bin' ? 'Open Gallery' : 'Allow'}</button>`}</div>`;
   box.innerHTML = `<span class="brand">Premade Tools · Vault</span><h1>Paired with your PC</h1>
     <p class="muted">Three things let Vault save what you delete on the ${s.phone}:</p>
     <div class="card">

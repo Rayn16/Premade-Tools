@@ -1,33 +1,13 @@
 // Vault's PC window. Plain JS: the server sends state, this draws it in Premade's look.
 'use strict';
 
-const S = { page: 'deleted', phone: 'all', type: 'all', q: '', sel: null, msg: '', pair: null, pairFor: null, step: 1, drive: null, folder: '', basePhones: 0, updMsg: '' };
+const S = { page: 'deleted', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null };
+const FLOW = {};    // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null;      // /api/ui/state
 let ITEMS = [];     // /api/ui/deleted
+let LAST = '';      // the last data drawn, so an unchanged poll doesn't redraw (and stop a playing video)
 const $app = document.getElementById('app');
-
-const ICON = {
-  deleted: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
-  phones: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
-  settings: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
-  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
-  photo: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 8"/>',
-  video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>',
-  voice: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
-  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
-  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
-  x: '<path d="M6 6l12 12M18 6L6 18"/>',
-  alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  restore: '<path d="M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4"/>',
-  save: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'
-};
-const icon = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const TINT = { photo: 'var(--gold)', video: 'var(--accent)', voice: 'var(--good)', file: 'var(--muted)' };
-const KEEP = [['forever', 'Forever'], ['2y', '2 years'], ['1y', '1 year'], ['6m', '6 months'], ['3m', '3 months']];
-const KEEPDAYS = { forever: Infinity, '2y': 730, '1y': 365, '6m': 182, '3m': 91 };
-const THEMES = [['red', 'Red and black', '#d9202d'], ['league', 'League', '#c8aa6e'], ['light', 'Light', '#f2eee4'], ['purple', 'Purple', '#7c4dff'], ['green', 'Green', '#27c381'], ['mono', 'Mono', '#ffffff'], ['custom', 'Custom', null]];
+const $ = (id) => document.getElementById(id);
 
 async function api(path, body) {
   const opt = { headers: { 'X-Vault': '1' } };
@@ -40,272 +20,339 @@ async function api(path, body) {
 async function refresh() {
   try {
     [ST, ITEMS] = await Promise.all([api('/api/ui/state'), api('/api/ui/deleted')]);
+    if (!S.drives || S.page === 'settings') S.drives = await api('/api/ui/drives');
   } catch (e) { return; }
   if (!ST.config.setupDone && S.page !== 'setup') S.page = 'setup';
-  render();
+  const now = JSON.stringify([ST, ITEMS, S.drives]);
+  if (now !== LAST || S.page !== 'deleted') render();
+  LAST = now;
 }
 
-// ---------- time and size labels ----------
-const pad = (n) => String(n).padStart(2, '0');
-const hm = (d) => pad(d.getHours()) + ':' + pad(d.getMinutes());
-function dayOf(d) {
-  const t = new Date(); t.setHours(0, 0, 0, 0);
-  const diff = (t - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5;
-  return diff <= 0 ? 'Today' : diff === 1 ? 'Yesterday' : 'Earlier';
-}
-function whenShort(d) {
-  const day = dayOf(d);
-  return day === 'Earlier' ? d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + hm(d) : hm(d);
-}
-function whenLong(d) {
-  const day = dayOf(d);
-  return (day === 'Earlier' ? d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : day) + ', ' + hm(d);
-}
-function ago(iso) {
-  const s = (Date.now() - new Date(iso)) / 1000;
-  if (s < 90) return 'just now';
-  if (s < 3600) return Math.round(s / 60) + ' minutes ago';
-  if (s < 86400) return Math.round(s / 3600) + ' hours ago';
-  return Math.round(s / 86400) + ' days ago';
-}
-function size(b) {
-  if (b >= 1 << 30) return (b / (1 << 30)).toFixed(1) + ' GB';
-  if (b >= 1 << 20) return (b / (1 << 20)).toFixed(1) + ' MB';
-  if (b >= 1 << 10) return Math.round(b / 1024) + ' KB';
-  return b + ' B';
-}
 const phoneById = (id) => (ST.phones || []).find((p) => p.ID === id);
 const phoneName = (id) => phoneById(id)?.Name || 'Removed phone';
-const kindLabel = (it) => it.kind === 'photo' ? (/screenshot/i.test(it.folder + it.name) ? 'Screenshot' : 'Photo') : it.kind === 'video' ? 'Video' : it.kind === 'voice' ? 'Voice recording' : (it.name.split('.').pop() || 'File').toUpperCase();
+const fileUrl = (id) => `/api/ui/file/${id}`;
+const vaultDrive = () => (S.drives || []).find((d) => d.Root.slice(0, 2).toLowerCase() === (ST.config.vaultDir || '').slice(0, 2).toLowerCase());
+const usedPct = (d) => { const t = toBytes(d.Total); return t ? Math.min(100, Math.max(0, (1 - d.FreeB / t) * 100)) : 0; };
+const fresh = (p) => Date.now() - new Date(p.LastSeen) < 2 * 3600e3;
 
 // ---------- frame ----------
 function render() {
   if (!ST) return;
   const c = ST.config;
+  const keep = [...$app.querySelectorAll('.scroller')].map((n) => n.scrollTop);
   $app.dataset.theme = c.theme || 'red';
   $app.style.setProperty('--c', c.custom || '#d9202d');
-  document.documentElement.style.zoom = (c.size || 100) / 100;
-  const nav = [['deleted', 'Deleted'], ['phones', 'Phones'], ['settings', 'Settings']].map(([id, l]) =>
-    `<button type="button" class="navb" data-go="${id}" ${S.page === id ? 'aria-current="page"' : ''}>${icon(id)}<span>${l}</span></button>`).join('');
-  const kept = ST.count ? `${ST.count} deleted files kept` : 'Nothing deleted yet';
-  $app.innerHTML = `
-  <div class="wrap">
+  setSize(c.size || 100);
+  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">Vault</span></header>`;
+  if (S.page === 'setup') { $app.innerHTML = title + setupView(); $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; }); return; }
+  const live = liveItems(ITEMS);
+  const nav = [['deleted', 'Deleted', live.length], ['phones', 'Phones', ST.phones.length], ['settings', 'Settings', '']].map(([id, l, n]) =>
+    `<button type="button" class="navitem" data-go="${id}" ${S.page === id ? 'aria-current="page"' : ''}>${icon(id)}<span class="navitem-label">${l}</span><span class="navitem-count">${n}</span></button>`).join('');
+  const d = vaultDrive();
+  $app.innerHTML = `${title}
+  <div class="shell">
     <nav class="rail" aria-label="Sections">
-      <div class="brand">Premade Tools</div>
-      <div class="eyebrow">Vault</div>
-      ${S.page === 'setup' ? '' : nav}
-      <div class="railfoot">
-        <span class="eyebrow" style="margin:0">Saved on this PC</span>
-        <span class="mono">${esc(c.vaultDir || 'Not picked yet')}</span>
-        <span class="small muted">${kept}</span>
+      <div class="rail-head eyebrow">Vault</div>
+      <div class="rail-nav">${nav}</div>
+      <div class="vaultbox">
+        <div class="eyebrow">Saved on this PC</div>
+        <div class="vaultbox-path">${esc(c.vaultDir || 'Not picked yet')}</div>
+        ${d ? `<div class="capacity"><i style="width:${usedPct(d).toFixed(1)}%"></i></div>` : ''}
+        ${ST.free ? `<div class="vaultbox-stat"><b>${esc(nice(ST.free))}</b> free</div>` : ''}
+        <div class="vaultbox-stat">${live.length ? `<b>${live.length}</b> deleted ${live.length === 1 ? 'item' : 'items'} kept` : 'Nothing deleted yet'}</div>
       </div>
     </nav>
-    <main>${S.page === 'setup' ? setupView() : S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : deletedView()}</main>
+    ${S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : deletedView()}
   </div>
-  ${statusBar()}`;
+  ${statusBar()}${S.pair && S.page === 'phones' ? pairSheet() : ''}`;
+  $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
+  lazyMedia($app);
+}
+
+function setSize(pct) {
+  document.documentElement.style.zoom = pct / 100;
+  $app.style.setProperty('--z', pct / 100);
 }
 
 function statusBar() {
   const c = ST.config, bits = [];
   for (const p of ST.phones) {
-    const st = p.Status ? p.Status : {};
-    const fresh = Date.now() - new Date(p.LastSeen) < 2 * 3600e3;
-    if (p.Kind === 'iphone') bits.push(`${esc(p.Name)}: backed up ${whenShort(new Date(p.LastSeen))}`);
-    else bits.push(`${esc(p.Name)}: ${fresh && st.watching !== false ? 'watching the bin' : 'last seen ' + ago(p.LastSeen)}`);
+    const st = p.Status || {};
+    if (p.Kind === 'iphone') bits.push(['is-idle', p.Name, `backed up ${whenShort(new Date(p.LastSeen))}`]);
+    else if (fresh(p) && st.watching !== false) bits.push(['', p.Name, 'watching the bin']);
+    else bits.push(['is-warn', p.Name, 'last seen ' + ago(p.LastSeen)]);
   }
-  if (c.vaultDir) bits.push(`Vault on ${esc(c.vaultDir.slice(0, 2))} · ${esc(ST.free || '?')} free`);
-  if (ST.moving) bits.push('<span class="w">Moving the vault…</span>');
-  for (const w of ST.warnings || []) bits.push(`<span class="w">${esc(w)}</span>`);
-  return `<footer class="statusbar">${bits.map((b) => `<span>${b}</span>`).join('')}<span class="end">Premade Tools ${esc(ST.version)}</span></footer>`;
+  if (!ST.phones.length && c.vaultDir) bits.push(['is-idle', 'Vault on ' + c.vaultDir.slice(0, 2), (ST.free ? nice(ST.free) : '?') + ' free']);
+  if (ST.moving) bits.push(['is-warn', 'Moving the vault…', '']);
+  for (const w of ST.warnings || []) bits.push(['is-warn', w, '']);
+  const row = ([cls, name, text]) => `<span class="st ${cls}"><i class="dotlight"></i><b>${esc(name)}${text ? ':' : ''}</b>${text ? `<span>${esc(text)}</span>` : ''}</span>`;
+  return `<footer class="statusbar">${bits.map(row).join('')}<span class="statusbar-ver">Premade Tools ${esc(ST.version)}</span></footer>`;
 }
 
 // ---------- Deleted ----------
 function shownItems() {
   const q = S.q.trim().toLowerCase();
-  return ITEMS.filter((it) => (S.phone === 'all' || it.phone === S.phone) && (S.type === 'all' || it.kind === S.type) &&
+  return ITEMS.filter((it) => !it.dismissed && (S.phone === 'all' || it.phone === S.phone) && (S.type === 'all' || it.kind === S.type) &&
     (!q || (it.name + ' ' + it.folder).toLowerCase().includes(q)));
 }
 
 function deletedView() {
-  const phoneOpts = [['all', 'All phones'], ...ST.phones.map((p) => [p.ID, p.Name])];
-  const typeOpts = [['all', 'All types'], ['photo', 'Photos'], ['video', 'Videos'], ['voice', 'Voice'], ['file', 'Files']];
-  const pills = (opts, key) => opts.map(([id, l]) => `<button type="button" class="pill" data-${key}="${esc(id)}" aria-pressed="${S[key] === id}">${esc(l)}</button>`).join('');
-  return `
-  <div class="head">
-    <div><h1>Deleted</h1><p>Everything you deleted on your phones since setup, newest first.</p></div>
-    <label class="search">${icon('search')}<span class="sr">Search deleted files</span>
-      <input type="search" id="q" value="${esc(S.q)}" placeholder="Search by name"></label>
-  </div>
-  <div class="filters">
-    ${phoneOpts.length > 2 ? `<div class="pills" role="group" aria-label="Phone">${pills(phoneOpts, 'phone')}</div>` : ''}
-    <div class="pills" role="group" aria-label="Type">${pills(typeOpts, 'type')}</div>
-    <span class="small muted" id="count"></span>
-  </div>
-  <div id="dl">${deletedBody()}</div>`;
+  const live = liveItems(ITEMS), n = (f) => live.filter(f).length;
+  const phoneOpts = [['all', 'All phones', live.length], ...ST.phones.map((p) => [p.ID, p.Name, n((i) => i.phone === p.ID)])];
+  const typeOpts = [['all', 'All types', live.length], ['photo', 'Photos', n((i) => i.kind === 'photo')], ['video', 'Videos', n((i) => i.kind === 'video')], ['voice', 'Voice', n((i) => i.kind === 'voice')], ['file', 'Files', n((i) => i.kind === 'file')]];
+  const pills = (opts, key) => opts.map(([id, l, c]) => `<button type="button" class="pill" data-${key}="${esc(id)}" aria-pressed="${S[key] === id}">${esc(l)} <i>${c}</i></button>`).join('');
+  const twoPhones = phoneOpts.length > 2;
+  const count = '<span class="visiblecount" id="count"></span>';
+  const body = deletedBody();
+  const it = items().find((i) => i.id === S.sel);
+  return `<main class="page" data-panel="${it ? 'open' : 'closed'}">
+    <section class="feed">
+      <div class="pagehead">
+        <div><h1 class="pagetitle">Deleted</h1><p class="pagelede">Everything you deleted on your phones since setup, newest first.</p></div>
+        <label class="search">${icon('search')}<span class="sr">Search deleted files</span><input type="search" id="q" value="${esc(S.q)}" placeholder="Search by name or folder"></label>
+      </div>
+      <div class="filterbar">
+        ${twoPhones ? `<div class="filterrow" role="group" aria-label="Phone"><span class="filterlabel">Phone</span>${pills(phoneOpts, 'phone')}${count}</div>` : ''}
+        <div class="filterrow" role="group" aria-label="Type"><span class="filterlabel">Type</span>${pills(typeOpts, 'type')}${twoPhones ? '' : count}</div>
+      </div>
+      <div id="dl">${body}</div>
+    </section>
+    <aside class="inspector" id="insp" aria-label="Selected file">${it ? inspector(it) : ''}</aside>
+  </main>`;
 }
+
+const items = () => shownItems().filter((it) => !it.missed);
+const countLabel = () => `<b>${items().length}</b> ${items().length === 1 ? 'item' : 'items'}`;
 
 function deletedBody() {
-  const all = shownItems();
-  const missed = all.filter((it) => it.missed);
-  const items = all.filter((it) => !it.missed);
-  if (!items.find((it) => it.id === S.sel)) S.sel = items[0]?.id || null;
-  const notes = missed.map((it) => `<div class="notice" role="status">${icon('alert')}<span><b>${esc(it.name)}</b> couldn't be saved. ${esc(it.note || 'It was deleted from ' + phoneName(it.phone) + ' without using the Recycle bin.')}</span><button type="button" class="btn" data-dismiss="${it.id}">Dismiss</button></div>`).join('');
-  if (!ITEMS.filter((i) => !i.missed).length) return notes + `<div class="card empty"><h2>Nothing deleted yet</h2><p>From now on, anything you delete on your phones shows up here, newest first.</p></div>`;
-  let rows = '', last = null;
-  for (const it of items) {
-    const d = new Date(it.deletedAt), day = dayOf(d);
-    if (day !== last) { rows += `<div class="dayh">${day}</div>`; last = day; }
-    const thumb = it.kind === 'photo' && !/\.(heic|heif|dng)$/i.test(it.name) ? `<img src="/api/ui/file/${it.id}" alt="" loading="lazy">` : icon(it.kind);
-    rows += `<button type="button" class="row" data-sel="${it.id}" aria-selected="${S.sel === it.id}">
-      <span class="thumb" style="--t:${TINT[it.kind]}">${thumb}</span>
-      <span class="rowmain"><span class="name">${esc(it.name)}</span><span class="where">${esc(phoneName(it.phone))} · ${esc(it.folder)}</span></span>
-      <span class="rowend"><span>${it.byTime ? 'by ' : ''}${whenShort(d)}</span><span>${size(it.size)}</span></span></button>`;
+  const all = shownItems(), list = all.filter((i) => !i.missed);
+  if (!list.find((i) => i.id === S.sel)) S.sel = S.closed ? null : list[0]?.id || null;
+  const notes = all.filter((i) => i.missed).map((it) => `<div class="failnote" role="status">${icon('alert')}<span><b>${esc(it.name)}</b> couldn't be saved. ${esc(it.note || 'It was deleted from ' + phoneName(it.phone) + ' without using the Recycle bin.')}</span><button type="button" class="quiet" data-dismiss="${it.id}">Dismiss</button></div>`).join('');
+  setTimeout(() => { const n = $('count'); if (n) n.innerHTML = countLabel(); });
+  if (!liveItems(ITEMS).length) return notes + `<div class="empty">${icon('deleted')}<h2>Nothing deleted yet</h2><p>From now on, anything you delete on your phones shows up here, newest first.</p></div>`;
+  if (!list.length) return notes + `<div class="empty">${icon('search')}<h2>Nothing matches that</h2><p>Try another name, or clear the filters.</p></div>`;
+  const groups = [];
+  for (const it of list) {
+    const day = dayOf(new Date(it.deletedAt));
+    if (groups.at(-1)?.day !== day) groups.push({ day, cards: [] });
+    groups.at(-1).cards.push(cardView(it));
   }
-  const list = items.length ? `<div class="card list" role="listbox" aria-label="Deleted files">${rows}</div>` : `<div class="card empty">Nothing deleted matches that.</div>`;
-  setTimeout(() => { const n = document.getElementById('count'); if (n) n.textContent = items.length + (items.length === 1 ? ' file' : ' files'); });
-  return notes + `<div class="split">${list}${detailView(items.find((it) => it.id === S.sel))}</div>`;
+  return notes + `<div class="gridscroll scroller">${groups.map((g) => `<section class="daygroup"><div class="dayhead"><b>${g.day}</b><span>${g.cards.length}</span><i></i></div><div class="grid">${g.cards.join('')}</div></section>`).join('')}</div>`;
 }
 
-function detailView(it) {
-  if (!it) return '<div></div>';
-  const src = `/api/ui/file/${it.id}`;
+function cardView(it) {
+  const d = new Date(it.deletedAt);
+  return `<button type="button" class="card" data-sel="${it.id}" aria-pressed="${S.sel === it.id}">
+    <span class="media">${tile(it, fileUrl(it.id), /\.(heic|heif|dng)$/i.test(it.name))}${FLOW[it.id]?.done ? `<span class="restoredmark">${icon('check')}</span>` : ''}</span>
+    <span class="card-meta"><span class="card-name">${esc(it.name)}</span><span class="card-phone">${esc(phoneName(it.phone))}</span>
+    <span class="card-when">${it.byTime ? 'by ' : ''}${whenShort(d)}</span><span class="card-days ${keptClass(it, ST.config.keep)}">${keptLabel(it, ST.config.keep)}</span></span></button>`;
+}
+
+function inspector(it) {
+  const src = fileUrl(it.id);
   const pv = it.kind === 'photo' ? `<img src="${src}" alt="Preview of ${esc(it.name)}" onerror="this.replaceWith(document.createTextNode('No preview for this photo type'))">`
     : it.kind === 'video' ? `<video src="${src}#t=0.1" controls preload="metadata"></video>`
-    : it.kind === 'voice' ? `<audio src="${src}" controls preload="none"></audio>` : icon('file');
-  const p = phoneById(it.phone);
-  const keep = ST.config.keep === 'forever' ? 'Forever' : 'Until ' + new Date(new Date(it.deletedAt).getTime() + KEEPDAYS[ST.config.keep] * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  return `<aside class="card detail" aria-label="Selected file">
-    <div class="preview">${pv}</div>
-    <h2 style="overflow-wrap:anywhere">${esc(it.name)}</h2>
-    <dl class="kv">
-      <dt>Deleted</dt><dd>${it.byTime ? 'By ' : ''}${whenLong(new Date(it.deletedAt))}</dd>
-      <dt>From</dt><dd>${esc(phoneName(it.phone))}</dd>
-      <dt>Was in</dt><dd>${esc(it.folder)}</dd>
-      <dt>Type and size</dt><dd>${kindLabel(it)}, ${size(it.size)}</dd>
-      <dt>Kept</dt><dd>${keep}</dd>
-    </dl>
-    <div class="acts">
-      ${p ? `<button type="button" class="btn primary" data-restore="${it.id}">${icon('restore')}Restore to ${esc(p.Name)}</button>` : ''}
-      <button type="button" class="btn" data-save="${it.id}">${icon('save')}Save to PC</button>
+    : it.kind === 'voice' ? `${wave(it.id, 44)}<audio src="${src}" controls preload="none"></audio>` : `${doc()}<span class="tag is-doc">${esc(ext(it.name) || 'FILE')}</span>`;
+  return `<div class="inspector-head"><span class="eyebrow">${kicker(it)}</span><button type="button" class="iconbtn" data-closeinsp aria-label="Close">${icon('x')}</button></div>
+    <div class="inspector-body scroller">
+      <div class="preview">${pv}</div>
+      <p class="detail-name">${esc(it.name)}</p>
+      <p class="detail-kind">${kindLabel(it)}, ${size(it.size)}</p>
+      <dl class="kv">
+        <div><dt>Deleted</dt><dd class="mono">${it.byTime ? 'By ' : ''}${whenShort(new Date(it.deletedAt))}</dd></div>
+        <div><dt>From</dt><dd>${esc(phoneName(it.phone))}</dd></div>
+        <div><dt>Was in</dt><dd class="mono">${esc(it.folder)}</dd></div>
+        <div><dt>Type and size</dt><dd>${kindLabel(it)}, ${size(it.size)}</dd></div>
+        <div><dt>Kept</dt><dd class="mono ${keptClass(it, ST.config.keep)}">${keptLabel(it, ST.config.keep)}</dd></div>
+      </dl>
+    </div>
+    <div class="actions">${actions(it)}</div>`;
+}
+
+function actions(it) {
+  const f = FLOW[it.id], p = phoneById(it.phone);
+  if (f?.done) return `<div class="done">${icon('check')}<span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>on ${esc(f.name)}</em></span></div><div class="actions-quiet"><button type="button" class="quiet" data-flowclear="${it.id}">Done</button></div>`;
+  if (f?.wait || p?.Pending?.includes(it.id)) return `<div class="restoring"><div class="restoring-row">${icon('spin', 'spin')}Restoring…</div><div class="progline"><span></span></div>${f?.wait ? `<p>${esc(f.wait)}</p>` : ''}</div>`;
+  if (f === 'confirm') return `<div class="confirm"><p class="confirm-text">Dismiss this from the vault?</p><p class="confirm-sub">It leaves this list. The file stays in the vault folder until your keep time runs out.</p>
+    <div class="confirm-row"><button type="button" class="btn small" data-flowclear="${it.id}">Keep it</button><button type="button" class="btn small danger" data-dismiss="${it.id}">Dismiss</button></div></div>`;
+  return `<div class="actions-stack">
+      ${p ? `<button type="button" class="btn primary block" data-restore="${it.id}">Restore to ${esc(p.Name)}</button>` : ''}
+      <button type="button" class="btn block" data-save="${it.id}">Save to PC</button>
     </div>
     <div class="msg" role="status">${esc(S.msg)}</div>
-  </aside>`;
+    <div class="actions-quiet"><button type="button" class="quiet" data-askdismiss="${it.id}">Dismiss</button></div>`;
+}
+
+function paintInspector() {
+  const it = items().find((i) => i.id === S.sel);
+  const page = $app.querySelector('.page[data-panel]');
+  if (!page) return;
+  page.dataset.panel = it ? 'open' : 'closed';
+  $('insp').innerHTML = it ? inspector(it) : '';
 }
 
 // ---------- Phones ----------
-function pairBox() {
-  return `<section class="card pair" aria-label="Pair a phone">
-    <div class="qr">${S.pair ? `<img src="${S.pair.qr}" alt="QR code to pair a phone">` : ''}</div>
-    <div style="display:grid;gap:10px;flex:1 1 320px;min-width:0">
-      <h2>Scan with the phone's camera</h2>
-      <ol class="steps">
-        <li>Android: install Premade Tools from the page it opens, then allow All files access.</li>
-        <li>iPhone: in Safari, tap Share, then Add to Home Screen, then add the Vault shortcut.</li>
-      </ol>
-      <span class="small muted"><span class="dot pulse"></span> Waiting for a phone… The phone must be on the same Wi-Fi as this PC.</span>
-      <span class="mono small muted">${esc(S.pair?.url || '')}</span>
-    </div></section>`;
+function phoneFig(p, dot) {
+  return `<div class="phonefig ${p.Kind === 'iphone' ? 'is-ios' : ''}"><div class="phonefig-body"><div class="phonefig-screen"><span class="phonefig-cam"></span><span class="phonefig-glow"></span></div></div><span class="statedot ${dot}"></span></div>`;
 }
+const forgetFoot = (p) => S.ask?.forget === p.ID
+  ? `<div class="pcard-foot"><span class="forget-text">Forget ${esc(p.Name)}? <span>It stops sending deleted files. Files already saved stay in the vault.</span></span><button type="button" class="btn small" data-askclear>Keep it</button><button type="button" class="btn small danger" data-forget="${p.ID}">Forget</button></div>`
+  : `<div class="pcard-foot"><button type="button" class="quiet" data-askforget="${p.ID}">Forget this phone</button></div>`;
+const countBox = (n, month) => `<div class="pcard-count"><span class="count-n">${n}</span><span class="count-label">${n === 1 ? 'item' : 'items'} saved</span>${month === undefined ? '' : `<span class="count-month">${month} this month</span>`}</div>`;
 
 function phonesView() {
+  const live = liveItems(ITEMS);
   const cards = ST.phones.map((p) => {
-    const st = p.Status || {};
-    const fresh = Date.now() - new Date(p.LastSeen) < 2 * 3600e3;
-    const ok = (b, yes, no) => `<li>${b ? icon('check', 'good') : icon('x', 'bad')}${b ? yes : no}</li>`;
-    if (p.Kind === 'iphone') return `<section class="card phone">
-      <div class="top">${icon('phones')}<h2>${esc(p.Name)}</h2><span class="badge ${fresh ? 'good' : 'warn'}">Backs up at home</span></div>
-      <dl class="kv"><dt>Last backup</dt><dd>${whenLong(new Date(p.LastSeen))}</dd>
-      <dt>Runs when</dt><dd>It joins your home Wi-Fi, and when it starts charging</dd>
-      <dt>Covers</dt><dd>Photos and videos, screenshots, screen recordings, WhatsApp and Telegram media</dd>
-      <dt>Not covered</dt><dd>Voice memos and call recordings</dd></dl>
-      <p class="hint">The iPhone hides its Recently Deleted album from apps, so this PC keeps a hidden copy and shows a file here once it's gone from the iPhone.</p>
-      <div><button type="button" class="btn" data-forget="${p.ID}">Forget this phone</button></div></section>`;
-    const month = ITEMS.filter((i) => i.phone === p.ID && !i.missed && Date.now() - new Date(i.deletedAt) < 30 * 864e5).length;
-    return `<section class="card phone">
-      <div class="top">${icon('phones')}<h2>${esc(p.Name)}</h2><span class="badge ${fresh ? 'good' : 'warn'}">${fresh ? 'Watching the bin' : 'Not seen lately'}</span></div>
-      <dl class="kv"><dt>Last check</dt><dd>${ago(p.LastSeen)}</dd>
-      <dt>How it works</dt><dd>Anything that lands in the Recycle bin is sent here.</dd>
-      <dt>Saved this month</dt><dd>${month} files</dd>
-      ${p.Restores ? `<dt>Waiting to restore</dt><dd>${p.Restores} files</dd>` : ''}</dl>
-      <ul class="checks">${ok(st.allFiles, 'All files access allowed', 'All files access is off')}${ok(st.battery, 'Battery set to Unrestricted', 'Battery is not Unrestricted')}${ok(st.binOn !== false, "Gallery's Recycle bin is on", "Gallery's Recycle bin looks off")}</ul>
-      <p class="hint">Files an app deletes without the bin can't be saved. You'll see a note when that happens.</p>
-      <div><button type="button" class="btn" data-forget="${p.ID}">Forget this phone</button></div></section>`;
+    const st = p.Status || {}, up = fresh(p), saved = live.filter((i) => i.phone === p.ID);
+    if (p.Kind === 'iphone') return `<section class="pcard"><div class="pcard-top">${phoneFig(p, '')}
+      <div class="pcard-main"><div class="pcard-id"><span class="pcard-name">${esc(p.Name)}</span><span class="kindtag">iPhone</span></div>
+        <div class="pcard-state"><span class="sbadge"><i></i>Backs up at home</span><span class="lastseen">Last backup ${whenShort(new Date(p.LastSeen))}</span></div>
+        <dl class="ipkv"><div><dt>Runs when</dt><dd>It joins your home Wi-Fi, and when it starts charging</dd></div>
+        <div><dt>Covers</dt><dd>Photos and videos, screenshots, screen recordings, WhatsApp and Telegram media</dd></div>
+        <div><dt>Not covered</dt><dd class="muted">Voice memos and call recordings</dd></div></dl></div>
+      ${countBox(saved.length)}</div>
+      <div class="pnote">${icon('info')}<span>The iPhone hides its Recently Deleted album from apps, so this PC keeps a hidden copy and shows a file here once it's gone from the iPhone.</span></div>${forgetFoot(p)}</section>`;
+    const month = saved.filter((i) => Date.now() - new Date(i.deletedAt) < 30 * 864e5).length;
+    const checks = [[st.binOn !== false, 'Recycle bin on', "Gallery's Recycle bin looks off"], [st.allFiles, 'All files access', 'All files access is off'], [st.battery, 'Battery Unrestricted', 'Battery is not Unrestricted']];
+    const bad = checks.find(([ok]) => !ok);
+    return `<section class="pcard"><div class="pcard-top">${phoneFig(p, up ? 'is-good' : 'is-warn')}
+      <div class="pcard-main"><div class="pcard-id"><span class="pcard-name">${esc(p.Name)}</span><span class="kindtag">Android</span></div>
+        <div class="pcard-state"><span class="sbadge ${up ? 'is-good' : 'is-warn'}"><i></i>${up ? 'Watching the bin' : 'Not seen lately'}</span><span class="lastseen">${up ? 'Last check' : 'Last seen'} ${ago(p.LastSeen)}${p.Restores ? ` · ${plural(p.Restores, 'file')} waiting to restore` : ''}</span></div>
+        <ul class="checks">${checks.map(([ok, yes]) => `<li class="check ${ok ? '' : 'is-bad'}">${icon(ok ? 'check' : 'x')}${yes}</li>`).join('')}</ul></div>
+      ${countBox(saved.length, month)}</div>
+      ${bad ? `<div class="fixstrip">${icon('alert')}<span><b>${bad[2]}.</b> Open Vault on the phone and tap Fix.</span></div>` : ''}${forgetFoot(p)}</section>`;
   }).join('');
-  return `<div class="head"><div><h1>Phones</h1><p>The phones that send what you delete to this PC.</p></div>
-    <button type="button" class="btn primary" data-pair>${icon('plus')}Pair a phone</button></div>
-    ${S.pair ? pairBox() : ''}
-    ${cards ? `<div class="grid2">${cards}</div>` : '<div class="card empty">No phones yet. Tap Pair a phone.</div>'}`;
+  return `<main class="plain"><div class="pagehead"><div><h1 class="pagetitle">Phones</h1><p class="pagelede">The phones that send what you delete to this PC.</p></div>
+      <button type="button" class="btn primary" data-pair>${icon('plus')}Add a phone</button></div>
+    <p class="hint">${icon('info')}Files an app deletes without the bin can't be saved. You'll see a note when that happens.</p>
+    <div class="phonelist scroller">${cards || `<div class="empty">${icon('phones')}<h2>No phones yet</h2><p>Add a phone and it starts sending what you delete to this PC.</p></div>`}</div></main>`;
+}
+
+function pairSheet() {
+  const got = ST.phones.length > S.pairBase ? ST.phones.at(-1) : null;
+  return `<div class="backdrop" data-closepair><section class="sheet" role="dialog" aria-label="Add a phone">
+    <div class="sheet-head"><div><h2 class="sheet-title">Add a phone</h2><p class="sheet-sub">Scan with the phone's camera.</p></div><button type="button" class="iconbtn" data-closepair aria-label="Close">${icon('x')}</button></div>
+    <div class="sheet-body"><div class="qr"><img src="${S.pair.qr}" alt="QR code to pair a phone"></div>
+      <div class="osteps"><div><b>Android</b><p>Install Premade Tools from the page it opens, then allow All files access.</p></div>
+      <div><b>iPhone</b><p>In Safari, tap Share, then Add to Home Screen, then add the Vault shortcut.</p></div></div></div>
+    <div class="waitrow">${got ? `<span class="good">${icon('check')}</span><span>${esc(got.Name)} connected.</span>` : `<i class="pulse"></i><span>Waiting for a phone… <span>The phone must be on the same Wi-Fi as this PC.</span></span>`}</div>
+    <div class="sheet-foot">${esc(S.pair.url)}</div></section></div>`;
 }
 
 // ---------- Settings ----------
 function settingsView() {
-  const c = ST.config;
-  const toggle = (k, label) => `<label class="toggle"><input type="checkbox" data-set="${k}" ${c[k] ? 'checked' : ''}>${label}</label>`;
-  return `<div class="head"><div><h1>Settings</h1><p>Where the vault lives, how long it keeps things, and how the app looks.</p></div></div>
-  <div class="set">
-    <section class="card"><h2>Vault</h2>
-      <div class="field"><span>Where it lives</span><div style="display:grid;gap:6px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="mono">${esc(c.vaultDir)}</span><button type="button" class="btn" data-move ${ST.moving ? 'disabled' : ''}>Move…</button></div><p class="hint">Pick a new folder and the vault moves there in the background.</p></div></div>
-      <div class="field"><span>Keep deleted files</span><div style="display:grid;gap:6px"><div class="pills">${KEEP.map(([id, l]) => `<button type="button" class="pill" data-keep="${id}" aria-pressed="${c.keep === id}">${l}</button>`).join('')}</div><p class="hint">Only files deleted longer ago than this are cleared. Shortening it shows you what would go first.</p></div></div>
-      <div class="field"><span>Space saver</span><div style="display:grid;gap:6px"><label class="toggle"><input type="checkbox" disabled>Shrink old deleted videos</label><p class="hint">Videos deleted more than 3 months ago get shrunk by your graphics card. They look almost the same but aren't the exact originals. Coming in a later update.</p></div></div>
+  const c = ST.config, d = vaultDrive();
+  const sw = (k, label, hint) => `<label class="row"><span class="row-text"><span class="row-title">${label}</span>${hint ? `<span class="row-hint">${hint}</span>` : ''}</span><input type="checkbox" class="switch" role="switch" data-set="${k}" ${c[k] ? 'checked' : ''}></label>`;
+  const themes = [...THEMES.map(([id, l, bg, , ac]) => [id, l, bg, ac]), ['custom', 'Custom', '#1d1d20', c.custom]];
+  const healthBad = (ST.warnings || []).some((w) => /health/i.test(w));
+  const total = d ? toBytes(d.Total) : 0, vaultPct = total ? toBytes(ST.bytes) / total * 100 : 0, usedTotal = d ? usedPct(d) : 0;
+  const ask = S.ask?.keep;
+  return `<main class="plain"><div class="pagehead"><div><h1 class="pagetitle">Settings</h1><p class="pagelede">Where the vault lives, how long it keeps things, and how the app looks.</p></div></div>
+  <div class="settings scroller">
+    <section class="hero">
+      <div class="hero-head"><p class="eyebrow">Your vault</p>${c.warnHealth ? `<span class="health ${healthBad ? 'is-warn' : ''}"><i class="dotlight"></i>Drive health <b>${healthBad ? 'Needs a look' : 'No warnings'}</b></span>` : ''}</div>
+      <div class="vaultpath"><div>${esc(c.vaultDir)}</div><button type="button" class="btn" data-move ${ST.moving ? 'disabled' : ''}>Move…</button></div>
+      <p class="hero-hint">${ST.moving ? 'Moving the vault…' : 'Pick a new folder and the vault moves there in the background.'}</p>
+      ${d ? `<div class="hero-rule"></div>
+      <div class="drive-line"><b>Drive ${esc(d.Root.slice(0, 2))} ${d.Label ? `"${esc(d.Label)}"` : ''}</b><span>${esc(nice(d.Total))}</span></div>
+      <div class="cap"><i class="cap-vault" style="width:${vaultPct.toFixed(2)}%"></i><i class="cap-other" style="width:${Math.max(0, usedTotal - vaultPct).toFixed(2)}%"></i></div>
+      <ul class="caplegend"><li><i class="legdot is-vault"></i>Vault <b>${esc(ST.bytes || '0 B')}</b></li><li><i class="legdot is-other"></i>Other files</li><li><i class="legdot is-free"></i>Free <b>${esc(nice(d.Free))}</b> of ${esc(nice(d.Total))}</li></ul>` : ''}
     </section>
-    <section class="card"><h2>Look</h2>
-      <div class="field"><span>Theme</span><div class="swatches">${THEMES.map(([id, l, col]) => `<button type="button" class="sw" data-theme-pick="${id}" aria-pressed="${c.theme === id}"><i style="background:${col || c.custom}"></i>${l}</button>`).join('')}
-        ${c.theme === 'custom' ? `<label class="toggle">Colour <input type="color" id="custom" value="${esc(c.custom)}"></label>` : ''}</div></div>
-      <div class="field"><span>App size: ${c.size}%</span><input type="range" min="80" max="140" step="10" value="${c.size}" id="size" aria-label="App size"></div>
-    </section>
-    <section class="card"><h2>Warnings</h2>
-      ${toggle('warnPhone', "When a phone hasn't checked in for 3 days")}
-      ${toggle('warnHealth', "When the vault drive's health drops")}
-      ${toggle('warnSpace', 'When the vault drive runs low on space')}
-    </section>
-    <section class="card"><h2>App</h2>
-      ${toggle('startWin', 'Start with Windows')}
-      <div class="field"><span>Version</span><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="mono">${esc(ST.version)}</span><button type="button" class="btn" data-update>Check for updates</button><span class="small muted" role="status">${esc(S.updMsg)}</span></div></div>
-      <div><button type="button" class="btn" data-rerun>Show setup again</button></div>
-    </section>
-  </div>`;
+    <div class="cols">
+      <div class="col">
+        <section><h2 class="group-label">Keeping</h2><div class="rows">
+          <div class="row is-stacked"><div class="row-text"><span class="row-title">Keep deleted items</span><span class="row-hint">Only files deleted longer ago than this are cleared. Shortening it shows you what would go first.</span></div>
+            <div class="row-ctl"><div class="seg">${KEEP.map(([id, l]) => `<button type="button" data-keep="${id}" aria-pressed="${(ask?.id || c.keep) === id}">${l}</button>`).join('')}</div></div></div>
+          ${ask ? `<div class="row is-stacked"><div class="confirm"><p class="confirm-text">This clears ${plural(ask.count, 'file')} (${esc(ask.size)}) deleted more than ${esc(ask.label)} ago.</p><p class="confirm-sub">They can't be brought back.</p>
+            <div class="confirm-row"><button type="button" class="btn small" data-askclear>Keep them</button><button type="button" class="btn small danger" data-keepyes="${ask.id}">Clear them</button></div></div></div>` : ''}
+          <label class="row"><span class="row-text"><span class="row-title">Shrink old deleted videos</span><span class="row-hint">Videos deleted more than 3 months ago get shrunk by your graphics card. They look almost the same but aren't the exact originals. Coming in a later update.</span></span><input type="checkbox" class="switch" role="switch" disabled></label>
+        </div></section>
+        <section><h2 class="group-label">App</h2><div class="rows">
+          ${sw('startWin', 'Start with Windows')}
+          <div class="row"><div class="row-text"><span class="row-title mono">Premade Tools ${esc(ST.version)}</span>${S.updMsg ? `<span class="row-hint" role="status">${esc(S.updMsg)}</span>` : ''}</div><button type="button" class="btn small" data-update>Check for updates</button></div>
+          <div class="row"><div class="row-text"><span class="row-title">Setup</span></div><button type="button" class="btn small" data-rerun>Show setup again</button></div>
+        </div></section>
+      </div>
+      <div class="col">
+        <section><h2 class="group-label">Look</h2><div class="rows">
+          <div class="row is-stacked"><div class="row-text"><span class="row-title">Theme</span></div>
+            <div class="row-ctl swatches">${themes.map(([id, l, bg, ac]) => `<button type="button" class="swatch" data-theme-pick="${id}" aria-pressed="${c.theme === id}" style="--sw-bg:${bg};--sw-ac:${esc(ac)}"><i></i><span>${l}</span></button>`).join('')}</div>
+            ${c.theme === 'custom' ? `<label class="colorpick">Colour <input type="color" id="custom" value="${esc(c.custom)}"></label>` : ''}</div>
+          <div class="row is-stacked"><div class="row-head"><div class="row-text"><span class="row-title">App size</span></div><span class="row-value" id="sizeval">${c.size}%</span></div>
+            <div class="row-ctl"><div class="sizerow"><span>80%</span><input class="range" type="range" min="80" max="140" step="10" value="${c.size}" id="size" aria-label="App size"><span>140%</span></div></div></div>
+        </div></section>
+        <section><h2 class="group-label">Warnings</h2><div class="rows">
+          ${sw('warnPhone', "When a phone hasn't checked in for 3 days")}
+          ${sw('warnHealth', "When the vault drive's health drops")}
+          ${sw('warnSpace', 'When the vault drive runs low on space')}
+        </div></section>
+      </div>
+    </div>
+  </div></main>`;
 }
 
 // ---------- Setup ----------
+const STEPS = ['Where your vault lives', 'Your Android phone', 'Your iPhone', "You're set"];
 function setupView() {
   const n = S.step;
-  let body = '';
+  const marks = STEPS.map((l, i) => {
+    const state = i + 1 < n ? 'done' : i + 1 === n ? 'current' : 'next';
+    return `<div class="steprow" data-state="${state}"><span class="stepmark">${state === 'done' ? icon('check') : i + 1}</span><span class="steptext"><span class="steplabel">${l}</span>${state === 'next' ? '' : `<span class="stepnote">${state === 'done' ? 'Done' : 'Now'}</span>`}</span></div>`;
+  }).join('');
+  let title, lede = '', body, note;
+  const kind = n === 2 ? 'android' : 'iphone', ofKind = ST.phones.filter((p) => p.Kind === kind);
+  const got = (n === 2 || n === 3) && ofKind.length > (S.basePhones || 0);
   if (n === 1) {
-    const ds = S.drives || [];
-    body = `<h1>Where should your vault live?</h1>
-      <p class="muted" style="margin:0">This is where everything you delete on your phones is kept. Pick the drive with the most room. You can move it later in Settings.</p>
-      <div class="drivelist">${ds.map((d) => `<button type="button" class="drive" data-drive="${esc(d.Root)}" aria-pressed="${S.drive === d.Root}">
-        <span class="rowmain"><span class="name">${esc(d.Root.slice(0, 2))} ${esc(d.Label || 'Local disk')}</span><span class="where">${d.System ? 'Windows drive · ' : ''}${esc(d.Total)}</span></span>
-        <span class="rowend"><span>${esc(d.Free)} free</span></span></button>`).join('')}</div>
-      <div class="field"><span>Folder</span><div style="display:grid;gap:6px"><div style="display:flex;gap:8px"><input class="text" id="folder" value="${esc(S.folder)}" aria-label="Vault folder"><button type="button" class="btn" data-pickfolder>Change…</button></div><p class="hint">Opens Windows' folder picker, so you can choose any folder.</p></div></div>
-      <div class="callout">The vault holds the only copy of what you delete, so Vault keeps an eye on this drive's health and warns you early if it starts to fail.</div>
+    title = 'Where should your vault live?';
+    lede = 'This is where everything you delete on your phones is kept. Pick the drive with the most room. You can move it later in Settings.';
+    note = 'You can move the vault later in Settings.';
+    body = `<p class="grouplabel">Pick a drive</p>
+      <div class="drives" role="radiogroup" aria-label="Drive">${(S.drives || []).map((d) => {
+        const used = usedPct(d), tight = used > 80;
+        return `<button type="button" class="drive" role="radio" data-drive="${esc(d.Root)}" aria-checked="${S.drive === d.Root}"><span class="radio"></span><span>
+          <span class="drive-top"><span class="drive-name"><span class="mono">${esc(d.Root.slice(0, 2))}</span> ${esc(d.Label || 'Local disk')}</span>${d.System ? '<span class="drivetag">Windows drive</span>' : ''}<span class="drive-size">${esc(nice(d.Total))}</span></span>
+          <span class="capacity" style="display:block"><i class="${tight ? 'is-tight' : ''}" style="width:${used.toFixed(1)}%"></i></span>
+          <span class="drive-free ${tight ? 'is-tight' : ''}" style="display:block"><b>${esc(nice(d.Free))}</b> free</span></span></button>`;
+      }).join('')}</div>
+      <p class="grouplabel">Vault folder</p>
+      <div class="folderrow"><label class="folderfield">${icon('folder')}<input id="folder" value="${esc(S.folder)}" aria-label="Vault folder"></label><button type="button" class="btn" data-pickfolder>Change…</button></div>
+      <div class="callout">${icon('shield')}<p>The vault holds the only copy of what you delete, so Vault keeps an eye on this drive's health and warns you early if it starts to fail.</p></div>
       <div class="msg bad" role="status">${esc(S.msg)}</div>`;
   } else if (n === 2 || n === 3) {
-    const kind = n === 2 ? 'android' : 'iphone';
-    const got = ST.phones.filter((p) => p.Kind === kind).length > (S.basePhones || 0);
-    const steps = n === 2 ? `<li>Open the camera on the phone and scan this code.</li><li>Install Premade Tools from the page it opens.</li><li>Allow All files access, and set the battery to Unrestricted when the app asks.</li><li>Keep Gallery's Recycle bin on (Gallery › Menu › Settings › Recycle bin).</li>`
-      : `<li>Scan this code with the iPhone's camera. Vault opens in Safari.</li><li>Tap Share, then Add to Home Screen.</li><li>Open Vault from your home screen and tap Add the shortcut. It then walks you through its two automations: joining home Wi-Fi and starting to charge.</li><li>In WhatsApp and Telegram, turn on Save to Photos.</li>`;
-    body = `<h1>Connect your ${n === 2 ? 'Android phone' : 'iPhone'}</h1>
-      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
-        <div class="qr">${S.pair ? `<img src="${S.pair.qr}" alt="QR code to pair">` : ''}</div>
-        <div style="display:grid;gap:12px;flex:1 1 300px"><ol class="steps">${steps}</ol>
-        ${got ? `<span class="good">${icon('check')} ${esc(ST.phones.filter((p) => p.Kind === kind).slice(-1)[0].Name)} connected.${n === 2 ? " It's watching the Recycle bin." : ' It backs up when it joins your home Wi-Fi or starts charging.'}</span>`
-          : `<span class="small muted"><span class="dot pulse"></span> Waiting for your ${n === 2 ? 'phone' : 'iPhone'}… It must be on the same Wi-Fi as this PC.</span>`}</div>
-      </div>`;
+    title = `Connect your ${n === 2 ? 'Android phone' : 'iPhone'}`;
+    note = 'You can add this phone later from Phones.';
+    const steps = n === 2 ? `<li><span>Open the camera on the phone and <b>scan this code</b>.</span></li><li><span>Install <b>Premade Tools</b> from the page it opens.</span></li><li><span>Allow <b>All files access</b>, and set the battery to <b>Unrestricted</b> when the app asks.</span></li><li><span>Keep Gallery's <b>Recycle bin</b> on <span class="path">(Gallery › Menu › Settings › Recycle bin)</span>.</span></li>`
+      : `<li><span><b>Scan this code</b> with the iPhone's camera. Vault opens in Safari.</span></li><li><span>Tap Share, then <b>Add to Home Screen</b>.</span></li><li><span>Open Vault from your home screen and tap <b>Add the shortcut</b>. It then walks you through its two automations: joining home Wi-Fi and starting to charge.</span></li><li><span>In WhatsApp and Telegram, turn on <b>Save to Photos</b>.</span></li>`;
+    body = `<div class="pairgrid"><div class="qrwrap"><div class="qr">${S.pair ? `<img src="${S.pair.qr}" alt="QR code to pair">` : ''}</div><span class="qrnote">Pairing code for this PC</span></div><ol class="howto">${steps}</ol></div>
+      ${got ? `<div class="waiting is-on"><span class="checkmark">${icon('check')}</span><span class="waiting-text"><span class="waiting-title">${esc(ofKind.at(-1).Name)} connected.</span><span class="waiting-sub">${n === 2 ? "It's watching the Recycle bin." : 'It backs up when it joins your home Wi-Fi or starts charging.'}</span></span></div>`
+        : `<div class="waiting"><span class="beacon"><i></i></span><span class="waiting-text"><span class="waiting-title">Waiting for your ${n === 2 ? 'phone' : 'iPhone'}…</span><span class="waiting-sub">It must be on the same Wi-Fi as this PC.</span></span></div>`}`;
   } else {
-    body = `<h1>You're set</h1><p class="muted" style="margin:0">From now on, anything you delete on your phones shows up in Deleted, newest first, and stays here after the phone's own bin empties.</p>`;
+    title = "You're set";
+    note = 'You can change any of this later in Settings.';
+    const d = vaultDrive();
+    body = `<div class="done-hero"><span class="done-seal">${icon('check')}</span><p class="done-copy">From now on, anything you delete on your phones shows up in <b>Deleted</b>, newest first, and stays here after the phone's own bin empties.</p></div>
+      <div class="summary"><p class="eyebrow">Your setup</p>
+        <div class="summary-row"><span>Vault</span><span class="summary-val"><span class="mono">${esc(ST.config.vaultDir)}</span>${d ? `<small>Drive ${esc(d.Root.slice(0, 1))} "${esc(d.Label || 'Local disk')}", ${esc(nice(d.Total))}, ${esc(nice(d.Free))} free</small>` : ''}</span></div>
+        <div class="summary-row"><span>Phones</span><span class="summary-val">${ST.phones.length ? ST.phones.map((p) => `<span class="phoneline"><i class="dotlight"></i>${esc(p.Name)}</span>`).join('') : '<span class="phoneline is-idle"><i class="dotlight"></i>No phones yet <em>add one from Phones</em></span>'}</span></div>
+      </div>`;
   }
-  const next = n === 4 ? 'Open Vault' : n === 1 ? 'Next' : (ST.phones.filter((p) => p.Kind === (n === 2 ? 'android' : 'iphone')).length > (S.basePhones || 0) ? 'Next' : "Skip, I don't have one");
-  return `<div class="card wizard"><span class="stepno">Step ${n} of 4</span>${body}
-    <div class="wfoot"><span>${n > 1 && n < 4 ? '<button type="button" class="btn" data-back>Back</button>' : ''}</span><button type="button" class="btn primary" data-next>${next}</button></div></div>`;
+  const primary = n === 1 || n === 4 || got;
+  const next = n === 4 ? 'Open Vault' : primary ? 'Next' : "Skip, I don't have one";
+  return `<div class="setup">
+    <aside class="brandpanel"><div class="brand-head"><span class="bigcrest"><img src="/icon.svg" alt=""></span><h1 class="brand-title">Vault</h1><p class="brand-lede">A safety net for what you delete on your phones. Four short steps.</p></div>
+      <div class="steps">${marks}</div><div class="brand-foot">Premade Tools ${esc(ST.version)}</div></aside>
+    <main class="stage"><div class="stagehead"><p class="stagekicker">Step ${n} of 4</p><h1 class="stagetitle">${esc(title)}</h1>${lede ? `<p class="stagelede">${lede}</p>` : ''}</div>
+      <div class="stagebody scroller">${body}</div>
+      <div class="stagefoot"><button type="button" class="btn" data-back ${n === 1 ? 'disabled' : ''}>Back</button><span>${note}</span><button type="button" class="btn ${primary ? 'primary' : ''}" data-next>${next}</button></div></main>
+  </div>`;
 }
 
 async function enterStep(n) {
   S.step = n; S.msg = '';
-  if (n === 1 && !S.drives) {
+  if (n === 1) {
     S.drives = await api('/api/ui/drives');
     const best = [...S.drives].sort((a, b) => (a.System - b.System) || (b.FreeB - a.FreeB))[0];
-    if (best && !S.drive) { S.drive = best.Root; S.folder = ST.config.vaultDir || best.Root + 'Premade Vault'; }
+    if (best && !S.drive) { S.drive = vaultDrive()?.Root || best.Root; S.folder = ST.config.vaultDir || best.Root + 'Premade Vault'; }
   }
   if (n === 2 || n === 3) {
     S.basePhones = ST.phones.filter((p) => p.Kind === (n === 2 ? 'android' : 'iphone')).length;
@@ -316,33 +363,47 @@ async function enterStep(n) {
 
 // ---------- events ----------
 $app.addEventListener('click', async (e) => {
+  if (e.target.classList?.contains('backdrop')) { S.pair = null; render(); return; }
   const b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
   try {
-    if (d.go) { S.page = d.go; S.msg = ''; if (d.go !== 'phones') S.pair = null; render(); }
+    if (d.go) { S.page = d.go; S.msg = ''; S.ask = null; if (d.go !== 'phones') S.pair = null; render(); if (d.go === 'settings') refresh(); }
     else if (d.phone) { S.phone = d.phone; render(); }
     else if (d.type) { S.type = d.type; render(); }
-    else if (d.sel) { S.sel = d.sel; S.msg = ''; document.getElementById('dl').innerHTML = deletedBody(); }
-    else if (d.dismiss) { await api('/api/ui/dismiss/' + d.dismiss, {}); refresh(); }
-    else if (d.save) { const r = await api('/api/ui/save/' + d.save, {}); S.msg = 'Saved to ' + r.path; render(); }
+    else if (d.sel) {
+      S.sel = d.sel; S.closed = false; S.msg = '';
+      $app.querySelectorAll('.card[aria-pressed="true"]').forEach((n) => n.setAttribute('aria-pressed', 'false'));
+      b.setAttribute('aria-pressed', 'true');
+      paintInspector();
+    }
+    else if (d.closeinsp !== undefined) { S.closed = true; S.sel = null; S.msg = ''; render(); }
+    else if (d.askdismiss) { FLOW[d.askdismiss] = 'confirm'; paintInspector(); }
+    else if (d.flowclear) { delete FLOW[d.flowclear]; render(); }
+    else if (d.dismiss) { await api('/api/ui/dismiss/' + d.dismiss, {}); delete FLOW[d.dismiss]; refresh(); }
+    else if (d.save) { const r = await api('/api/ui/save/' + d.save, {}); S.msg = 'Saved to ' + r.path; paintInspector(); }
     else if (d.restore) {
       await api('/api/ui/restore/' + d.restore, {});
       const it = ITEMS.find((i) => i.id === d.restore), p = phoneById(it.phone);
-      S.msg = p.Kind === 'iphone' ? 'Queued. It goes back into Photos the next time the iPhone backs up.' : `Waiting for the ${p.Name} to pick it up (within 15 minutes, sooner when the phone is in use). It goes back into ${it.folder}.`;
+      FLOW[it.id] = { wait: p.Kind === 'iphone' ? 'Queued. It goes back into Photos the next time the iPhone backs up.' : `Waiting for the ${p.Name} to pick it up (within 15 minutes, sooner when the phone is in use). It goes back into ${it.folder}.` };
+      S.msg = ''; paintInspector();
       refresh();
       if (p.Kind !== 'iphone') watchRestore(it);
     }
-    else if (d.pair !== undefined) { S.pair = await api('/api/ui/pair'); render(); }
-    else if (d.forget) { if (confirm('Forget this phone? It stops sending deleted files. Files already saved stay in the vault.')) { await api('/api/ui/forget/' + d.forget, {}); refresh(); } }
+    else if (d.pair !== undefined) { S.pair = await api('/api/ui/pair'); S.pairBase = ST.phones.length; render(); soon(); }
+    else if (d.closepair !== undefined) { S.pair = null; render(); }
+    else if (d.askforget) { S.ask = { forget: d.askforget }; render(); }
+    else if (d.askclear !== undefined) { S.ask = null; render(); }
+    else if (d.forget) { await api('/api/ui/forget/' + d.forget, {}); S.ask = null; refresh(); }
     else if (d.keep) {
-      const cur = KEEPDAYS[ST.config.keep], nw = KEEPDAYS[d.keep];
-      if (nw < cur) {
+      S.ask = null;
+      if (KEEPDAYS[d.keep] < KEEPDAYS[ST.config.keep]) {
         const p = await api('/api/ui/keep-preview?keep=' + d.keep);
-        if (p.count && !confirm(`This clears ${p.count} files (${p.size}) deleted more than ${b.textContent.toLowerCase()} ago. They can't be brought back. Go ahead?`)) return;
+        if (p.count) { S.ask = { keep: { id: d.keep, count: p.count, size: p.size, label: b.textContent.toLowerCase() } }; render(); return; }
       }
       await api('/api/ui/settings', { keep: d.keep }); refresh();
     }
+    else if (d.keepyes) { await api('/api/ui/settings', { keep: d.keepyes }); S.ask = null; refresh(); }
     else if (d.themePick) { await api('/api/ui/settings', { theme: d.themePick }); refresh(); }
     else if (d.move !== undefined) {
       const r = await api('/api/ui/pickfolder', {});
@@ -355,14 +416,14 @@ $app.addEventListener('click', async (e) => {
     else if (d.back !== undefined) enterStep(S.step - 1);
     else if (d.next !== undefined) {
       if (S.step === 1) {
-        const dir = (document.getElementById('folder')?.value || S.folder).trim();
+        const dir = ($('folder')?.value || S.folder).trim();
         if (dir !== ST.config.vaultDir) await api('/api/ui/vault', { dir });
         await refresh();
         enterStep(2);
       } else if (S.step < 4) enterStep(S.step + 1);
       else { await api('/api/ui/settings', { setupDone: true }); S.page = 'deleted'; S.pair = null; refresh(); }
     }
-  } catch (err) { S.msg = err.message; render(); }
+  } catch (err) { S.msg = err.message; S.updMsg = S.page === 'settings' ? err.message : S.updMsg; render(); }
 });
 
 // Shows "Restored" once the phone has put the file back (it leaves that phone's waiting list).
@@ -373,14 +434,16 @@ function watchRestore(it) {
     const p = phoneById(it.phone);
     if (p && (p.Pending || []).includes(it.id) && Date.now() - t0 < 60 * 60e3) return;
     clearInterval(t);
-    if (S.sel === it.id && p && !(p.Pending || []).includes(it.id)) { S.msg = `Restored. It's back on the ${p.Name}, in ${it.folder}.`; render(); }
+    if (p && !(p.Pending || []).includes(it.id)) FLOW[it.id] = { done: true, name: p.Name, folder: it.folder };
+    else delete FLOW[it.id];
+    render();
   }, 5000);
 }
 $app.addEventListener('input', async (e) => {
   const t = e.target;
-  if (t.id === 'q') { S.q = t.value; document.getElementById('dl').innerHTML = deletedBody(); }
+  if (t.id === 'q') { S.q = t.value; $('dl').innerHTML = deletedBody(); paintInspector(); lazyMedia($app); }
   else if (t.id === 'folder') S.folder = t.value;
-  else if (t.id === 'size') { document.documentElement.style.zoom = t.value / 100; }
+  else if (t.id === 'size') { setSize(+t.value); $('sizeval').textContent = t.value + '%'; }
 });
 $app.addEventListener('change', async (e) => {
   const t = e.target;
@@ -388,11 +451,15 @@ $app.addEventListener('change', async (e) => {
   else if (t.id === 'size') { await api('/api/ui/settings', { size: +t.value }); refresh(); }
   else if (t.id === 'custom') { await api('/api/ui/settings', { custom: t.value }); refresh(); }
 });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.pair && S.page === 'phones') { S.pair = null; render(); } });
 
 // Poll fast while waiting for a phone to pair, slowly otherwise.
+let timer;
+const soon = () => { clearTimeout(timer); timer = setTimeout(tick, 3000); };
 async function tick() {
   const typing = document.activeElement && ['q', 'folder'].includes(document.activeElement.id);
   if (!typing) await refresh();
-  setTimeout(tick, S.pair || S.page === 'setup' ? 3000 : 30000);
+  clearTimeout(timer);
+  timer = setTimeout(tick, S.pair || S.page === 'setup' ? 3000 : 30000);
 }
-refresh().then(() => { if (S.page === 'setup') enterStep(1); setTimeout(tick, 3000); });
+refresh().then(() => { if (S.page === 'setup') enterStep(1); soon(); });
