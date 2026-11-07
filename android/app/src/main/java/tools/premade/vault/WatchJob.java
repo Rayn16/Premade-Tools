@@ -29,7 +29,9 @@ public class WatchJob extends JobService {
     }
 
     static void now(Context c) {
-        c.getSystemService(JobScheduler.class).schedule(new JobInfo.Builder(NOW, new ComponentName(c, WatchJob.class)).setExpedited(true).build());
+        JobInfo.Builder b = new JobInfo.Builder(NOW, new ComponentName(c, WatchJob.class));
+        if (android.os.Build.VERSION.SDK_INT >= 31) b.setExpedited(true); else b.setOverrideDeadline(0);
+        c.getSystemService(JobScheduler.class).schedule(b.build());
     }
 
     @Override public boolean onStartJob(JobParameters p) {
