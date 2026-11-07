@@ -111,7 +111,7 @@ public class MainActivity extends Activity {
 
         line("\n== Other places to check ==");
         for (String p : new String[]{".Trash", "Android/data/com.sec.android.gallery3d",
-                "Android/data/com.sec.android.app.myfiles", "Android/data/com.sec.android.app.voicenotes"}) {
+                "Android/data/com.sec.android.app.myfiles", "Android/data/com.sec.android.app.voicenotes", "Recordings", "Recordings/.trash", "Voice Recorder"}) {
             File f = new File(root, p);
             String[] k = f.list();
             line(p + ": " + (!f.exists() ? "not there" : k == null ? "exists, NOT readable" : k.length + " entries " + Arrays.toString(k)));
@@ -137,23 +137,30 @@ public class MainActivity extends Activity {
         line("\nDone.");
     }
 
+    /** Lists every file under dir (any depth), showing the path inside the bin, which on Samsung holds the original location. */
     private void listTree(File dir, int depth) {
-        String pad = "  ".repeat(depth);
-        if (!dir.exists()) { line(pad + dir.getName() + "/ not there"); return; }
+        if (!dir.exists()) { line(dir.getName() + "/ not there"); return; }
         File[] kids = dir.listFiles();
-        if (kids == null) { line(pad + dir.getName() + "/ exists, NOT readable"); return; }
-        line(pad + dir.getName() + "/ (" + kids.length + " entries)");
-        Arrays.sort(kids, (x, y) -> Long.compare(y.lastModified(), x.lastModified()));
+        if (kids == null) { line(dir.getName() + "/ exists, NOT readable"); return; }
+        java.util.List<File> files = new java.util.ArrayList<>();
+        collect(dir, files);
+        files.sort((x, y) -> Long.compare(y.lastModified(), x.lastModified()));
+        line(files.size() + " files");
         int shown = 0;
-        for (File k : kids) {
-            if (k.isDirectory()) { if (depth < 4) listTree(k, depth + 1); continue; }
-            if (newest == null || k.lastModified() > newest.lastModified()) newest = k;
-            if (shown++ >= 15) continue;
+        for (File k : files) {
+            if (!k.getName().equals(".nomedia") && (newest == null || k.lastModified() > newest.lastModified())) newest = k;
+            if (shown++ >= 40) continue;
             String read;
             try { read = "read OK sha " + sha(k).substring(0, 10); } catch (Exception e) { read = "read FAILED " + e.getClass().getSimpleName(); }
-            line(pad + "  " + k.getName() + "  " + k.length() + " B  " + fmt.format(new Date(k.lastModified())) + "  " + read);
+            line("  " + k.getPath().substring(dir.getPath().length() + 1) + "\n    " + k.length() + " B  " + fmt.format(new Date(k.lastModified())) + "  " + read);
         }
-        if (shown > 15) line(pad + "  … " + (shown - 15) + " more files");
+        if (shown > 40) line("  ... " + (shown - 40) + " more files");
+    }
+
+    private static void collect(File d, java.util.List<File> out) {
+        File[] kids = d.listFiles();
+        if (kids == null) return;
+        for (File k : kids) if (k.isDirectory()) collect(k, out); else out.add(k);
     }
 
     private void mediaStoreTrash() {
