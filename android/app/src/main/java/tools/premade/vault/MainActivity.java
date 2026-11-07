@@ -26,6 +26,8 @@ public class MainActivity extends Activity {
     private WebView web;
     private android.webkit.ValueCallback<Uri[]> picked; // the page's file picker (Converter), waiting for a choice
     private static final int PICK = 7;
+    private android.media.MediaRecorder rec; // Transcribe's Record button
+    private java.io.File recFile;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -190,6 +192,61 @@ public class MainActivity extends Activity {
             }).start();
         }
         @JavascriptInterface public void watchDownloads() { WatchJob.downloads(MainActivity.this, null); }
+        /** Transcribe's Record button: "ok", "perm" (Android is asking for the mic; tap again) or "error". The
+         *  page can't use the mic itself, because it comes from the PC over plain http. */
+        @JavascriptInterface public synchronized String recordStart() {
+            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                runOnUiThread(() -> requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 8));
+                return "perm";
+            }
+            try {
+                recFile = new java.io.File(getCacheDir(), "recording.m4a");
+                rec = new android.media.MediaRecorder();
+                rec.setAudioSource(android.media.MediaRecorder.AudioSource.MIC);
+                rec.setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4);
+                rec.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC);
+                rec.setAudioSamplingRate(44100);
+                rec.setAudioEncodingBitRate(96000);
+                rec.setOutputFile(recFile.getPath());
+                rec.prepare();
+                rec.start();
+                return "ok";
+            } catch (Exception e) {
+                if (rec != null) rec.release();
+                rec = null;
+                return "error";
+            }
+        }
+        /** Stops recording; when keep is set, sends it to the PC to transcribe (to: text or en) and tells the page
+         *  through trRecorded(job id or "ERR: why"). */
+        @JavascriptInterface public synchronized void recordStop(boolean keep, String to) {
+            if (rec == null) return;
+            boolean ok;
+            try { rec.stop(); ok = true; } catch (Exception e) { ok = false; } // stopped within a moment of starting
+            rec.release();
+            rec = null;
+            if (!keep) return;
+            final boolean got = ok;
+            final String name = "Recording " + new java.text.SimpleDateFormat("yyyy-MM-dd HH.mm", java.util.Locale.US).format(new java.util.Date()) + ".m4a";
+            new Thread(() -> {
+                String res;
+                if (!got) res = "ERR: The recording was too short.";
+                else try {
+                    java.net.HttpURLConnection h = Vault.open(MainActivity.this, "POST", "/api/phone/tr/ios/start?name="
+                            + java.net.URLEncoder.encode(name, "UTF-8") + "&to=" + ("en".equals(to) ? "en" : "text"));
+                    try {
+                        h.setDoOutput(true);
+                        h.setFixedLengthStreamingMode(recFile.length());
+                        h.setReadTimeout(120_000);
+                        try (java.io.OutputStream o = h.getOutputStream()) { java.nio.file.Files.copy(recFile.toPath(), o); }
+                        res = h.getResponseCode() == 200 ? Vault.read(h.getInputStream()) : "ERR: The PC said " + h.getResponseCode() + ".";
+                    } finally { h.disconnect(); }
+                } catch (Exception e) { res = "ERR: Couldn't reach your PC."; }
+                recFile.delete();
+                final String js = "window.trRecorded && trRecorded(" + JSONObject.quote(res) + ")";
+                runOnUiThread(() -> web.evaluateJavascript(js, null));
+            }).start();
+        }
         @JavascriptInterface public String clipboard() {
             android.content.ClipData c = getSystemService(android.content.ClipboardManager.class).getPrimaryClip();
             return c == null || c.getItemCount() == 0 ? "" : String.valueOf(c.getItemAt(0).coerceToText(MainActivity.this));

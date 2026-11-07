@@ -7,7 +7,7 @@ ICON.copy = '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2
 
 let TRST = null; // GET TRAPI.base
 const T = { files: [], to: 'text', up: -1, err: '', open: {}, text: {}, copied: '', rec: null, recAt: 0 };
-const trCanRecord = () => !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder && window.isSecureContext);
+const trCanRecord = () => !!(window.Vault?.recordStart || (navigator.mediaDevices?.getUserMedia && window.MediaRecorder && window.isSecureContext));
 
 const trJobs = () => TRST?.jobs || [];
 const trBusy = () => trJobs().some((j) => j.state === 'queued' || j.state === 'running') || TRST?.engine?.state === 'installing';
@@ -43,7 +43,7 @@ function trBox() {
       <label class="btn small" for="trfile">${icon('plus')}Add</label><button type="button" class="btn small" data-tr="clear">Start over</button></div>
       <div class="dlunder">${bad ? `<span class="detected is-bad">${icon('alert')}<span>${esc(bad.name)} has no sound. Pick a voice memo, video or sound file.</span></span>`
         : `<span class="detected"><i class="dotlight"></i><span><b>${T.files.length} ${T.files.length === 1 ? 'file' : 'files'}</b></span></span>`}</div>`;
-  const rec = !trCanRecord() || T.files.length ? '' : T.rec
+  const rec = !trCanRecord() || T.files.length ? '' : T.up >= 0 ? `<div class="trrec"><span class="row-hint">${icon('spin', 'spin')} Sending the recording to the PC…</span></div>` : T.rec
     ? `<div class="trrec is-on"><span class="pulse"></span><b>Recording</b><span class="mono" id="trclock">${trClock()}</span><span class="grow"></span><button type="button" class="btn small" data-tr="recstop">${icon('check')}Stop and transcribe</button><button type="button" class="iconbtn" data-tr="reccancel" aria-label="Throw away the recording">${icon('x')}</button></div>`
     : `<div class="trrec"><span class="row-hint">Or talk now:</span><button type="button" class="btn small" data-tr="rec">${icon('transcribe')}Record</button></div>`;
   const note = trEngineNote();
@@ -113,7 +113,23 @@ function trSend() {
 const trClock = () => { const s = Math.floor((Date.now() - T.recAt) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 let trTick = null;
 
+// The S23 app records natively (window.Vault) and sends the sound to the PC itself, then calls trRecorded.
+function trRecordNative() {
+  const r = window.Vault.recordStart();
+  if (r !== 'ok') { T.err = r === 'perm' ? 'Allow the microphone, then tap Record again.' : "The microphone couldn't start. Close other apps using it and try again."; render(); return; }
+  T.rec = { stop() { clearInterval(trTick); T.rec = null; if (this.cancelled) window.Vault.recordStop(false, T.to); else { T.up = 0; window.Vault.recordStop(true, T.to); } render(); } };
+  T.recAt = Date.now(); T.err = '';
+  trTick = setInterval(() => { const c = document.getElementById('trclock'); if (c) c.textContent = trClock(); }, 500);
+  render();
+}
+window.trRecorded = async (res) => {
+  T.up = -1;
+  if (res.startsWith('ERR')) T.err = res.replace(/^ERR:\s*/, '');
+  await trRefresh(); render(); TRAPI.after();
+};
+
 async function trRecord() {
+  if (window.Vault?.recordStart) return trRecordNative();
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) {
     T.err = 'The microphone is off for Premade Tools. Allow it in the question at the top of the window, or in Windows Settings › Privacy › Microphone.'; render(); return;
