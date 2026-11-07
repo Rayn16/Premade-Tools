@@ -8,3 +8,6 @@
 .trbar{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .trbar .btn{text-decoration:none}
 .m .trtext{max-height:50vh;font-size:15px}
+.trrec{display:flex;align-items:center;gap:10px;margin-top:10px}
+.trrec.is-on{padding:14px 16px;border:1px solid var(--gold-line);border-radius:6px;background:var(--panel)}
+.trrec .mono{font-variant-numeric:tabular-nums}

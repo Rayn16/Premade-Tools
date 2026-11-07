@@ -6,7 +6,8 @@ ICON.transcribe = '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 1
 ICON.copy = '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>';
 
 let TRST = null; // GET TRAPI.base
-const T = { files: [], to: 'text', up: -1, err: '', open: {}, text: {}, copied: '' };
+const T = { files: [], to: 'text', up: -1, err: '', open: {}, text: {}, copied: '', rec: null, recAt: 0 };
+const trCanRecord = () => !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder && window.isSecureContext);
 
 const trJobs = () => TRST?.jobs || [];
 const trBusy = () => trJobs().some((j) => j.state === 'queued' || j.state === 'running') || TRST?.engine?.state === 'installing';
@@ -42,9 +43,12 @@ function trBox() {
       <label class="btn small" for="trfile">${icon('plus')}Add</label><button type="button" class="btn small" data-tr="clear">Start over</button></div>
       <div class="dlunder">${bad ? `<span class="detected is-bad">${icon('alert')}<span>${esc(bad.name)} has no sound. Pick a voice memo, video or sound file.</span></span>`
         : `<span class="detected"><i class="dotlight"></i><span><b>${T.files.length} ${T.files.length === 1 ? 'file' : 'files'}</b></span></span>`}</div>`;
+  const rec = !trCanRecord() || T.files.length ? '' : T.rec
+    ? `<div class="trrec is-on"><span class="pulse"></span><b>Recording</b><span class="mono" id="trclock">${trClock()}</span><span class="grow"></span><button type="button" class="btn small" data-tr="recstop">${icon('check')}Stop and transcribe</button><button type="button" class="iconbtn" data-tr="reccancel" aria-label="Throw away the recording">${icon('x')}</button></div>`
+    : `<div class="trrec"><span class="row-hint">Or talk now:</span><button type="button" class="btn small" data-tr="rec">${icon('transcribe')}Record</button></div>`;
   const note = trEngineNote();
   const ready = T.files.length && !bad && T.up < 0;
-  return `${files}
+  return `${T.rec ? '' : files}${rec}
     <div class="cvopts"><label class="audiosw"><input type="checkbox" class="switch" role="switch" id="trto" ${T.to === 'en' ? 'checked' : ''}>Translate to English</label><span class="grow"></span>
       ${T.files.length ? `<button type="button" class="btn primary" data-tr="go" ${ready ? '' : 'disabled'}>${T.up >= 0 ? `${icon('spin', 'spin')}Sending ${T.up}%` : `${icon('transcribe')}Transcribe`}</button>` : ''}</div>
     <p class="row-hint cvhint">${T.to === 'en' ? 'Any language in, English text out.' : 'It hears the language by itself, Arabic and English included.'}</p>
@@ -105,6 +109,33 @@ function trSend() {
   T.up = 0; T.err = ''; render(); x.send(fd);
 }
 
+// ---------- recording (the PC window only: phones reach the PC over http, where browsers keep the mic off) ----------
+const trClock = () => { const s = Math.floor((Date.now() - T.recAt) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+let trTick = null;
+
+async function trRecord() {
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) {
+    T.err = 'The microphone is off for Premade Tools. Allow it in the question at the top of the window, or in Windows Settings › Privacy › Microphone.'; render(); return;
+  }
+  const mr = new MediaRecorder(stream), parts = [];
+  mr.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+  mr.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    clearInterval(trTick);
+    const keep = !mr.cancelled && parts.length, at = new Date(T.recAt);
+    T.rec = null; render();
+    if (!keep) return;
+    const name = `Recording ${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')} ${hm(at).replace(':', '.')}.webm`;
+    T.files = [new File(parts, name, { type: 'audio/webm' })];
+    trSend();
+  };
+  T.rec = mr; T.recAt = Date.now(); T.err = '';
+  mr.start(1000);
+  trTick = setInterval(() => { const c = document.getElementById('trclock'); if (c) c.textContent = trClock(); }, 500);
+  render();
+}
+
 // Copying works without HTTPS too (the phones reach the PC over plain http, where navigator.clipboard is missing).
 function trCopy(text) {
   if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
@@ -129,6 +160,8 @@ document.getElementById('app').addEventListener('click', async (e) => {
   const a = b.dataset.tr, id = b.dataset.id, j = trJobs().find((x) => x.id === id);
   try {
     if (a === 'go') trSend();
+    else if (a === 'rec') trRecord();
+    else if (a === 'recstop' || a === 'reccancel') { if (T.rec) { T.rec.cancelled = a === 'reccancel'; T.rec.stop(); } }
     else if (a === 'clear') { T.files = []; T.err = ''; render(); }
     else if (a === 'drop') { T.files.splice(+b.dataset.i, 1); render(); }
     else if (a === 'open') { T.open[id] = !T.open[id]; if (T.open[id] && j && typeof T.text[id] !== 'string') trLoad(j); render(); }
