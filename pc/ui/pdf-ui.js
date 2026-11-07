@@ -9,7 +9,7 @@ const PDFAPI = {
   after: () => soon(),
   from: (j) => fromName(j),
   where: (j) => j.state !== 'done' ? '' : j.from ? (j.fetched ? `Sent back to ${esc(fromName(j))}` : `Waiting for ${esc(fromName(j))} to pick it up`) : 'On this PC',
-  acts: (j) => `${j.state === 'done' ? `<button class="btn small" data-pdfpc="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}
+  acts: (j) => `${j.state === 'done' ? `<button class="btn small" data-pdfpc="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}${frShareBtn('pdf', j)}
     <button class="iconbtn" data-pdfpc="remove" data-id="${j.id}" aria-label="Remove from history" title="Remove from history">${icon('x')}</button>`,
 };
 

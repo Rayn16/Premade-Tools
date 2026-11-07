@@ -103,7 +103,7 @@ function histRow(j) {
       ${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
       ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
     <div class="hacts">
-      ${j.state === 'done' ? `<button class="btn small" data-dl="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}
+      ${j.state === 'done' ? `<button class="btn small" data-dl="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}${frShareBtn('dl', j)}
       ${j.state === 'done' && (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') ? `<button class="btn small" data-trdl="${j.id}">${icon('transcribe')}Transcribe</button>` : ''}
       ${j.login ? `<button class="btn small" data-dl="login" data-site="${siteKey(j.login) || ''}">Log in</button>` : ''}
       <button class="btn small" data-dl="again" data-id="${j.id}">${j.state === 'failed' ? 'Try again' : 'Again'}</button>

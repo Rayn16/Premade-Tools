@@ -1,7 +1,7 @@
 // Premade Tools' Friends relay: who has the app, and files waiting for them.
 // D1 keeps people and the list of waiting files; R2 keeps the files themselves.
-// Every call but /join, / and /m/* needs "Authorization: Bearer <token>".
-import page from './web.html';
+// Every call but /join needs "Authorization: Bearer <token>". The phone-only page (public/, made by build.sh) is
+// served as static files before any of this runs.
 
 const DAY = 864e5;
 const KEEP = 7 * DAY;      // files wait a week, then the daily clean-up deletes them
@@ -33,7 +33,6 @@ export default {
   async fetch(req, env) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     const url = new URL(req.url), path = url.pathname, now = Date.now();
-    if (req.method === 'GET' && (path === '/' || path === '/index.html')) return new Response(page, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 
     // Anyone with the app can ask to join. The very first person becomes the one who approves everyone else.
     if (req.method === 'POST' && path === '/join') {

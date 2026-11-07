@@ -10,7 +10,7 @@ const TRAPI = {
   from: (j) => dlFrom(j),
   url: (j, n, dl) => `/api/phone/tr/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`,
   where: () => '',
-  acts: () => '',
+  acts: (j) => frShareBtn('tr', j),
 };
 
 function trToolsView(off) {

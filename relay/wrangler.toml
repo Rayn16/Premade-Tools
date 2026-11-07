@@ -1,5 +1,8 @@
 name = "premade-friends"
 main = "worker.js"
+
+[assets]
+directory = "./public"
 compatibility_date = "2026-10-01"
 
 [triggers]

@@ -14,15 +14,15 @@ const PDFAPI = {
   after: () => pdfPoll(),
   from: (j) => dlFrom(j),
   where: (j) => j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'Saved' : 'In Documents') : j.from === ST?.me && NATIVE?.savePdf ? 'Saving…' : 'On the PC',
-  acts: (j) => {
-    if (j.state !== 'done') return '';
+  acts: (j) => j.state === 'done' ? pdfSaveBtn(j) + frShareBtn('pdf', j) : '',
+};
+function pdfSaveBtn(j) {
     if (NATIVE?.savePdf) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn small" data-pdfsave="${j.id}">${icon('save')}Save</button>`;
     const files = pdfBlobs[j.id];
     if (Array.isArray(files) && navigator.canShare?.({ files })) return `<button type="button" class="btn small primary" data-pdfshare="${j.id}">${icon('share')}Save</button>`;
     if (files === 'loading') return `<span class="btn small" aria-disabled="true">${icon('spin', 'spin')}Getting it</span>`;
     return j.files.length === 1 ? `<a class="btn small" href="${pdfURL(j, 0, true)}">${icon('save')}Get</a>` : `<button type="button" class="btn small" data-pdfget="${j.id}">${icon('save')}Get</button>`;
-  },
-};
+}
 
 // After each refresh: what this phone sent and is ready goes to Documents (S23) or is fetched ahead (iPhone).
 async function pdfPhoneRefresh() {

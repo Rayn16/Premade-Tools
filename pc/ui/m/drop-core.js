@@ -67,7 +67,7 @@ function dropRow(it) {
       <div class="hmeta"><span class="sitetag">${it.kind === 'files' ? plural(it.files.length, 'file') : it.kind === 'link' ? 'Link' : 'Text'}</span><span>${dir} · ${hm(new Date(it.at))}${sz}</span>${waiting}
         ${!mine && it.fetched ? `<span class="where">${icon('check')}${it.kind === 'files' ? 'Saved' : 'Copied'}</span>` : ''}</div>
       ${it.kind === 'text' && it.text.includes('\n') ? `<div class="hmeta clip">${esc(it.text.split('\n').slice(1).join(' '))}</div>` : ''}</div>
-    <div class="hacts">${DROPAPI.acts(it)}<button type="button" class="iconbtn" data-drop="remove" data-id="${it.id}" aria-label="Remove from the list" title="Remove from the list">${icon('x')}</button></div></div>`;
+    <div class="hacts">${DROPAPI.acts(it)}${it.kind === 'files' && typeof frShareBtn === 'function' ? frShareBtn('drop', it) : ''}<button type="button" class="iconbtn" data-drop="remove" data-id="${it.id}" aria-label="Remove from the list" title="Remove from the list">${icon('x')}</button></div></div>`;
 }
 
 function dropList(items, empty) {
