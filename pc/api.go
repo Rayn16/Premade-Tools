@@ -266,6 +266,7 @@ func (a *App) routes() http.Handler {
 	a.cvRoutes(m)
 	a.pdfRoutes(m)
 	a.trRoutes(m)
+	a.friendsRoutes(m)
 	a.dropRoutes(m)
 	return m
 }

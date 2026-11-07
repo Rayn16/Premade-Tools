@@ -1,0 +1,15 @@
+name = "premade-friends"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[triggers]
+crons = ["17 3 * * *"]
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "premade-friends"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "premade-friends"
+database_id = "DB_ID" # the deploy workflow fills this in
