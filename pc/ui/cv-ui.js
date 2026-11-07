@@ -182,13 +182,14 @@ $app.addEventListener('change', (e) => {
   else if (e.target.id === 'cvcombine') C.combine = e.target.checked;
 });
 // Dropping files anywhere in the window opens them in the Converter.
-document.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); document.querySelector('#cvdrop,#pdfdrop,#trdrop')?.classList.add('is-over'); } });
-document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.querySelector('#cvdrop,#pdfdrop,#trdrop')?.classList.remove('is-over'); });
+document.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); document.querySelector('#cvdrop,#pdfdrop,#trdrop,#dropzone')?.classList.add('is-over'); } });
+document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.querySelector('#cvdrop,#pdfdrop,#trdrop,#dropzone')?.classList.remove('is-over'); });
 document.addEventListener('drop', (e) => {
   if (!e.dataTransfer?.files?.length) return;
   e.preventDefault();
   if (S.page === 'setup') return;
   const files = [...e.dataTransfer.files];
+  if (S.page === 'drop') { FD.files = FD.files.concat(files); FD.err = ''; render(); return; }
   if (S.page === 'transcribe') { T.files = T.files.concat(files); T.err = ''; render(); return; }
   if (files.every(pdfIsPdf)) { S.page = 'pdf'; pdfAdd(files, P.op !== 'merge'); return; } // PDFs go to the PDF tools
   S.page = 'convert'; cvAdd(files);

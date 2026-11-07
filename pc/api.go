@@ -48,6 +48,7 @@ func (a *App) routes() http.Handler {
 	m.Handle("GET /cv.css", static)
 	m.Handle("GET /pdf.css", static)
 	m.Handle("GET /tr.css", static)
+	m.Handle("GET /drop.css", static)
 	m.HandleFunc("GET /download/PremadeTools.apk", func(w http.ResponseWriter, r *http.Request) {
 		b, err := apkFile.ReadFile("apk/PremadeTools.apk")
 		if err != nil {
@@ -252,7 +253,7 @@ func (a *App) routes() http.Handler {
 		var in map[string]json.RawMessage
 		json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in)
 		out := map[string]json.RawMessage{}
-		for _, k := range []string{"keep", "theme", "custom"} { // a phone may change only these
+		for _, k := range []string{"keep", "theme", "custom", "clipSync"} { // a phone may change only these
 			if v, ok := in[k]; ok {
 				out[k] = v
 			}
@@ -265,6 +266,7 @@ func (a *App) routes() http.Handler {
 	a.cvRoutes(m)
 	a.pdfRoutes(m)
 	a.trRoutes(m)
+	a.dropRoutes(m)
 	return m
 }
 
@@ -494,6 +496,8 @@ func (a *App) saveSettings(w http.ResponseWriter, r *http.Request) {
 				json.Unmarshal(v, &c.WarnSpace)
 			case "setupDone":
 				json.Unmarshal(v, &c.SetupDone)
+			case "clipSync":
+				json.Unmarshal(v, &c.ClipSync)
 			case "startWin":
 				json.Unmarshal(v, &c.StartWin)
 				err = setAutostart(c.StartWin)

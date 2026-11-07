@@ -20,14 +20,14 @@ async function api(path, body) {
 
 async function refresh() {
   try {
-    [ST, ITEMS] = await Promise.all([api('/api/ui/state'), api('/api/ui/deleted'), dlRefresh(), cvRefresh(), pdfRefresh(), trRefresh()]);
+    [ST, ITEMS] = await Promise.all([api('/api/ui/state'), api('/api/ui/deleted'), dlRefresh(), cvRefresh(), pdfRefresh(), trRefresh(), dropRefresh()]);
     if (!S.drives || S.page === 'settings') S.drives = await api('/api/ui/drives');
   } catch (e) { return; }
   if (VER && VER !== ST.version) { location.reload(); return; } // the PC just updated itself
   VER = ST.version;
   if (!ST.config.setupDone && S.page !== 'setup') S.page = 'setup';
-  const now = JSON.stringify([ST, ITEMS, S.drives, DL, CV, PDFST, TRST]);
-  if (now !== LAST || (S.page !== 'deleted' && S.page !== 'download' && S.page !== 'convert' && S.page !== 'pdf' && S.page !== 'transcribe')) render();
+  const now = JSON.stringify([ST, ITEMS, S.drives, DL, CV, PDFST, TRST, DROPST]);
+  if (now !== LAST || (S.page !== 'deleted' && S.page !== 'download' && S.page !== 'convert' && S.page !== 'pdf' && S.page !== 'transcribe' && S.page !== 'drop')) render();
   LAST = now;
 }
 
@@ -47,7 +47,7 @@ function render() {
   $app.dataset.theme = c.theme || 'red';
   $app.style.setProperty('--c', c.custom || '#d9202d');
   setSize(c.size || 100);
-  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">${S.page === 'home' ? 'Home' : S.page === 'download' ? 'Downloader' : S.page === 'convert' ? 'Converter' : S.page === 'pdf' ? 'PDF' : S.page === 'transcribe' ? 'Transcribe' : S.page === 'settings' ? 'Settings' : 'Vault'}</span></header>`;
+  const title = `<header class="titlebar"><span class="crest"><img src="/icon.svg" alt=""></span><span class="wordmark">Premade Tools</span><span class="wordmark-sep">/</span><span class="wordmark-app">${S.page === 'home' ? 'Home' : S.page === 'download' ? 'Downloader' : S.page === 'convert' ? 'Converter' : S.page === 'pdf' ? 'PDF' : S.page === 'transcribe' ? 'Transcribe' : S.page === 'drop' ? 'File drop' : S.page === 'settings' ? 'Settings' : 'Vault'}</span></header>`;
   if (S.page === 'setup') { $app.innerHTML = title + setupView(); $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; }); return; }
   const live = liveItems(ITEMS);
   const item = ([id, l, n]) =>
@@ -60,10 +60,16 @@ function render() {
     <div class="rail-group eyebrow">Converter</div><div class="rail-nav">${item(['convert', 'Convert', cvDone || ''])}</div>
     <div class="rail-group eyebrow">PDF</div><div class="rail-nav">${item(['pdf', 'PDF tools', pdfDone || ''])}</div>
     <div class="rail-group eyebrow">Transcribe</div><div class="rail-nav">${item(['transcribe', 'Transcribe', trJobs().filter((j) => j.state === 'done').length || ''])}</div>
+    <div class="rail-group eyebrow">File drop</div><div class="rail-nav">${item(['drop', 'File drop', dropNew() || ''])}</div>
     <div class="rail-group eyebrow">Vault</div><div class="rail-nav">${[['deleted', 'Deleted', live.length], ['phones', 'Phones', ST.phones.length]].map(item).join('')}</div>
     <div class="rail-sep"></div><div class="rail-nav" style="margin-top:8px">${item(['settings', 'Settings', ''])}</div>`;
   const d = vaultDrive();
-  const box = S.page === 'home' ? '' : S.page === 'transcribe' && TRST ? `<div class="vaultbox">
+  const box = S.page === 'home' ? '' : S.page === 'drop' && DROPST ? `<div class="vaultbox">
+        <div class="eyebrow">Files sent here go to</div>
+        <div class="vaultbox-path">${esc(DROPST.dir)}</div>
+        <div class="vaultbox-stat"><b>${dropJobs().length}</b> in the last 7 days</div>
+        <div class="vaultbox-stat">Clipboard sync ${DROPST.clipSync ? '<b>on</b>' : 'off'}</div>
+      </div>` : S.page === 'transcribe' && TRST ? `<div class="vaultbox">
         <div class="eyebrow">Text and subtitles go to</div>
         <div class="vaultbox-path">${esc(TRST.dir)}</div>
         <div class="vaultbox-stat"><b>${trJobs().filter((j) => j.state === 'done').length}</b> done · <b>${esc(nice(TRST.free))}</b> free</div>
@@ -96,7 +102,7 @@ function render() {
       <div>${nav}</div><div></div>
       ${box}
     </nav>
-    ${S.page === 'home' ? homeView(live, dlDone, cvDone) : S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : S.page === 'download' ? downloadView() : S.page === 'convert' ? convertView() : S.page === 'pdf' ? pdfView() : S.page === 'transcribe' ? trView() : deletedView()}
+    ${S.page === 'home' ? homeView(live, dlDone, cvDone) : S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : S.page === 'download' ? downloadView() : S.page === 'convert' ? convertView() : S.page === 'pdf' ? pdfView() : S.page === 'transcribe' ? trView() : S.page === 'drop' ? dropView() : deletedView()}
   </div>
   ${statusBar()}${S.pair && S.page === 'phones' ? pairSheet() : ''}${updSheet()}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
@@ -146,6 +152,7 @@ function homeView(live, dlDone, cvDone) {
       ['convert', 'convert', 'Converter', 'Turn photos, videos, audio and documents into other formats.', cvRun ? `<b>${cvRun}</b> converting now` : tally(cvDone, 'file converted', 'files converted')],
       ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', pdfBusy() ? '<b>Working</b> on PDFs now' : tally(pdfJobs().filter((j) => j.state === 'done').length, 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text and subtitles.', trBusy() ? '<b>Listening</b> now' : tally(trJobs().filter((j) => j.state === 'done').length, 'file transcribed', 'files transcribed')],
+      ['drop', 'drop', 'File drop', 'Send files, links and text between this PC and your phones.', dropNew() ? `<b>${dropNew()}</b> new from your phones` : tally(dropJobs().length, 'drop this week', 'drops this week')],
       ['deleted', 'shield', 'Vault', 'Keeps what you delete on your phones, so you can get it back.', `${tally(live.length, 'deleted item', 'deleted items')} kept · ${tally(ST.phones.length, 'phone', 'phones')}`]])}
   </main>`;
 }
@@ -319,12 +326,13 @@ function settingsView() {
   const healthBad = (ST.warnings || []).some((w) => /health/i.test(w));
   const total = d ? toBytes(d.Total) : 0, vaultPct = total ? toBytes(ST.bytes) / total * 100 : 0, usedTotal = d ? usedPct(d) : 0;
   const ask = S.ask?.keep;
-  return `<main class="plain"><div class="pagehead"><div><h1 class="pagetitle">Settings</h1><p class="pagelede">Downloads and logins, the converter, PDF tools and Transcribe, where the vault lives, and how the app looks.</p></div></div>
+  return `<main class="plain"><div class="pagehead"><div><h1 class="pagetitle">Settings</h1><p class="pagelede">Downloads and logins, the converter, PDF tools, Transcribe, File drop, where the vault lives, and how the app looks.</p></div></div>
   <div class="settings scroller">
     ${dlSettings()}
     ${cvSettings()}
     ${pdfSettings()}
     ${trSettings()}
+    ${dropSettings()}
     <h2 class="group-label" style="margin-top:22px">Vault</h2>
     <section class="hero">
       <div class="hero-head"><p class="eyebrow">Your vault</p>${c.warnHealth ? `<span class="health ${healthBad ? 'is-warn' : ''}"><i class="dotlight"></i>Drive health <b>${healthBad ? 'Needs a look' : 'No warnings'}</b></span>` : ''}</div>
@@ -545,6 +553,6 @@ async function tick() {
   const typing = document.activeElement && ['q', 'folder', 'dlurl', 'pdfpw'].includes(document.activeElement.id);
   if (!typing) await refresh();
   clearTimeout(timer);
-  timer = setTimeout(tick, dlRunning() || cvRunning() || pdfBusy() || trBusy() || PDFST?.gs === 'installing' || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' ? 3000 : 30000);
+  timer = setTimeout(tick, dlRunning() || cvRunning() || pdfBusy() || trBusy() || PDFST?.gs === 'installing' || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' || S.page === 'drop' ? 3000 : 30000);
 }
 refresh().then(() => { if (S.page === 'setup') enterStep(1); soon(); });

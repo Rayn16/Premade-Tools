@@ -39,3 +39,8 @@ func diskSpace(dir string) (free, total uint64) {
 func hidden(c *exec.Cmd) *exec.Cmd                         { return c }
 func showInFolder(path string)                             { log.Println("show:", path) }
 func startEdge(profile string, port int, url string) error { return errors.New("logins need Windows") }
+func say(title, msg string)                                { log.Println("say:", msg) }
+func openURL(u string)                                     { log.Println("open:", u) }
+func clipSeqNow() uint32                                   { return 0 }
+func clipGet() (string, bool)                              { return "", false }
+func clipSet(s string)                                     {}

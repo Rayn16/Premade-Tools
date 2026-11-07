@@ -36,6 +36,8 @@ type Config struct {
 	CvDir      string   `json:"cvDir"`     // where converted files go; empty = Downloads\Premade\Converted
 	PdfDir     string   `json:"pdfDir"`    // where PDF tools save; empty = Downloads\Premade\PDF
 	TrDir      string   `json:"trDir"`     // where transcripts go; empty = Downloads\Premade\Transcripts
+	DropDir    string   `json:"dropDir"`   // where File drop saves; empty = Downloads\Premade\Drop
+	ClipSync   bool     `json:"clipSync"`  // pass copied text between the PC and phones
 	Phones     []*Phone `json:"phones"`
 }
 
@@ -60,7 +62,7 @@ func appDir() string {
 
 func LoadSettings() *Settings {
 	s := &Settings{path: filepath.Join(appDir(), "vault.json")}
-	s.c = Config{Keep: "forever", Theme: "red", Custom: "#d9202d", Size: 100, WarnPhone: true, WarnHealth: true, WarnSpace: true, StartWin: true}
+	s.c = Config{Keep: "forever", Theme: "red", Custom: "#d9202d", Size: 100, WarnPhone: true, WarnHealth: true, WarnSpace: true, StartWin: true, ClipSync: true}
 	if b, err := os.ReadFile(s.path); err == nil {
 		json.Unmarshal(b, &s.c)
 	}
@@ -113,6 +115,14 @@ func (c Config) PdfOutDir() string {
 		return c.PdfDir
 	}
 	return filepath.Join(c.DownloadDir(), "PDF")
+}
+
+// DropOutDir is where File drop saves what's sent to this PC.
+func (c Config) DropOutDir() string {
+	if c.DropDir != "" {
+		return c.DropDir
+	}
+	return filepath.Join(c.DownloadDir(), "Drop")
 }
 
 // TrOutDir is where Transcribe saves text and subtitles.

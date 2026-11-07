@@ -75,6 +75,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
+        setIntent(i);
         if (!handlePair(i)) show();
     }
 
@@ -114,7 +115,14 @@ public class MainActivity extends Activity {
         else {
             WatchJob.schedule(this);
             WatchJob.now(this);
-            web.loadUrl("http://" + Vault.host(this) + "/m/#t=" + Vault.token(this));
+            String tool = getIntent().getStringExtra("tool"); // a File drop notification was tapped
+            setIntent(new Intent());
+            web.loadUrl("http://" + Vault.host(this) + "/m/#t=" + Vault.token(this) + (tool != null ? "&tool=" + Uri.encode(tool) : ""));
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    && !Vault.prefs(this).getBoolean("askedNotify", false)) { // once: File drop says when something arrives
+                Vault.prefs(this).edit().putBoolean("askedNotify", true).apply();
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 9);
+            }
         }
     }
 
@@ -190,6 +198,19 @@ public class MainActivity extends Activity {
                 Downloads.saveOne(MainActivity.this, id, "/api/phone/pdf");
                 runOnUiThread(() -> web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null));
             }).start();
+        }
+        @JavascriptInterface public void saveDrop(String id) {
+            new Thread(() -> {
+                if (Downloads.saveOne(MainActivity.this, id, "/api/phone/drop")) Downloads.toast(MainActivity.this, "Saved into Premade folders on this phone.");
+                runOnUiThread(() -> web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null));
+            }).start();
+        }
+        /** File drop's clipboard sync while the app is on screen: state is {me, clip} from /api/phone/drop. */
+        @JavascriptInterface public void dropClip(String state, boolean canRead) {
+            try {
+                JSONObject s = new JSONObject(state);
+                new Thread(() -> Drops.syncClip(MainActivity.this, s.optString("me"), s.optJSONObject("clip"), canRead && visible)).start();
+            } catch (Exception ignored) {}
         }
         @JavascriptInterface public void watchDownloads() { WatchJob.downloads(MainActivity.this, null); }
         /** Transcribe's Record button: "ok", "perm" (Android is asking for the mic; tap again) or "error". The
