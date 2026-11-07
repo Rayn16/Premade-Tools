@@ -21,48 +21,11 @@ func (a *App) cvRoutes(m *http.ServeMux) {
 
 	ui("GET /api/ui/cv", func(w http.ResponseWriter, r *http.Request) { writeJ(w, a.cvState("")) })
 	ui("POST /api/ui/cv/start", func(w http.ResponseWriter, r *http.Request) { a.cvStart(w, r, "") })
-	ui("POST /api/ui/cv/cancel/{id}", func(w http.ResponseWriter, r *http.Request) { a.cv.Cancel(r.PathValue("id")); writeJ(w, "ok") })
-	ui("POST /api/ui/cv/remove/{id}", func(w http.ResponseWriter, r *http.Request) { a.cv.Remove(r.PathValue("id")); writeJ(w, "ok") })
-	ui("POST /api/ui/cv/show/{id}", func(w http.ResponseWriter, r *http.Request) {
-		if j := a.cv.Get(r.PathValue("id")); j != nil {
-			if p, ok := a.cv.Path(j, 0); ok {
-				showInFolder(p)
-			}
-		}
-		writeJ(w, "ok")
-	})
-	ui("GET /api/ui/cv/file/{id}/{n}", func(w http.ResponseWriter, r *http.Request) { a.cvFile(w, r, false) })
-	ui("POST /api/ui/cv/folder", func(w http.ResponseWriter, r *http.Request) {
-		if dir := pickFolder(); dir != "" {
-			a.set.With(func(c *Config) bool { c.CvDir = dir; return true })
-		}
-		writeJ(w, map[string]string{"dir": a.set.Get().ConvertDir()})
-	})
+	a.queueRoutes(m, "cv", a.cv, func(c *Config, dir string) { c.CvDir = dir })
 	ui("POST /api/ui/cv/office", func(w http.ResponseWriter, r *http.Request) { go a.installOffice(); writeJ(w, "ok") })
 
 	ph("GET /api/phone/cv", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.cvState(p.ID)) })
 	ph("POST /api/phone/cv/start", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.cvStart(w, r, p.ID) })
-	ph("POST /api/phone/cv/cancel/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
-		if j := a.cv.Get(r.PathValue("id")); j != nil && j.From == p.ID {
-			a.cv.Cancel(j.ID)
-		}
-		writeJ(w, "ok")
-	})
-	ph("POST /api/phone/cv/remove/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
-		if j := a.cv.Get(r.PathValue("id")); j != nil && j.From == p.ID {
-			a.cv.Remove(j.ID)
-		}
-		writeJ(w, "ok")
-	})
-	ph("GET /api/phone/cv/file/{id}/{n}", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.cvFile(w, r, false) })
-	ph("POST /api/phone/cv/fetched/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
-		a.cv.update(r.PathValue("id"), func(j *CvJob) {
-			if j.From == p.ID {
-				j.Fetched = true
-			}
-		})
-		writeJ(w, "ok")
-	})
 
 	// The Shortcut, step 1: what can this file become? One choice per line, or "ERR: why".
 	ph("GET /api/phone/cv/ios/targets", func(w http.ResponseWriter, r *http.Request, p *Phone) {
@@ -126,10 +89,10 @@ func (a *App) cvRoutes(m *http.ServeMux) {
 			fmt.Fprintf(w, "WAIT %d", int(j.Pct))
 		case len(j.Files) == 1:
 			a.cv.update(j.ID, func(j *CvJob) { j.Fetched = true })
-			a.cvFile(w, r, true)
+			a.queueFile(w, r, a.cv, true)
 		default:
 			a.cv.update(j.ID, func(j *CvJob) { j.Fetched = true })
-			a.cvZip(w, j)
+			queueZip(w, a.cv, j, "converted-")
 		}
 	})
 }
@@ -158,14 +121,29 @@ func (a *App) cvState(from string) map[string]any {
 // cvStart takes a multipart upload of files ("f") with ?to=jpg&small=1&combine=1 and queues the job.
 func (a *App) cvStart(w http.ResponseWriter, r *http.Request, from string) {
 	q := r.URL.Query()
-	mr, err := r.MultipartReader()
+	id := newID()
+	names, _, err := recvUpload(r, a.cv.InputDir(id))
 	if err != nil {
-		http.Error(w, "bad request", 400)
+		http.Error(w, err.Error(), 400)
 		return
 	}
-	id := newID()
-	dir := a.cv.InputDir(id)
+	j, why := a.cv.Start(id, names, strings.ToLower(q.Get("to")), q.Get("small") == "1", q.Get("combine") == "1", from)
+	if j == nil {
+		http.Error(w, why, 400)
+		return
+	}
+	writeJ(w, j)
+}
+
+// recvUpload saves a multipart upload's files ("f") into dir, in the order sent, and returns their names and
+// the other (small) fields.
+func recvUpload(r *http.Request, dir string) ([]string, map[string]string, error) {
+	mr, err := r.MultipartReader()
+	if err != nil {
+		return nil, nil, fmt.Errorf("bad request")
+	}
 	var names []string
+	fields := map[string]string{}
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
@@ -173,10 +151,14 @@ func (a *App) cvStart(w http.ResponseWriter, r *http.Request, from string) {
 		}
 		if err != nil {
 			os.RemoveAll(dir)
-			http.Error(w, "The files didn't arrive whole. Try again.", 400)
-			return
+			return nil, nil, fmt.Errorf("The files didn't arrive whole. Try again.")
 		}
-		if part.FormName() != "f" || part.FileName() == "" {
+		if part.FileName() == "" {
+			b, _ := io.ReadAll(io.LimitReader(part, 4<<10))
+			fields[part.FormName()] = string(b)
+			continue
+		}
+		if part.FormName() != "f" {
 			continue
 		}
 		name := cleanName(part.FileName(), len(names))
@@ -187,17 +169,11 @@ func (a *App) cvStart(w http.ResponseWriter, r *http.Request, from string) {
 		}
 		if err := saveBody(part, dir, name); err != nil {
 			os.RemoveAll(dir)
-			http.Error(w, "The files didn't arrive whole. Try again.", 400)
-			return
+			return nil, nil, fmt.Errorf("The files didn't arrive whole. Try again.")
 		}
 		names = append(names, name)
 	}
-	j, why := a.cv.Start(id, names, strings.ToLower(q.Get("to")), q.Get("small") == "1", q.Get("combine") == "1", from)
-	if j == nil {
-		http.Error(w, why, 400)
-		return
-	}
-	writeJ(w, j)
+	return names, fields, nil
 }
 
 // cleanName keeps a sent file name safe to use on disk.
@@ -231,15 +207,68 @@ func saveBody(r io.Reader, dir, name string) error {
 	return err
 }
 
-// cvFile serves result n of a job, as a download when attach is set or ?dl is given.
-func (a *App) cvFile(w http.ResponseWriter, r *http.Request, attach bool) {
-	j := a.cv.Get(r.PathValue("id"))
+// queueRoutes adds the calls every job tool has, under /api/ui/<p>/… and /api/phone/<p>/….
+func (a *App) queueRoutes(m *http.ServeMux, p string, q *Converter, setDir func(c *Config, dir string)) {
+	ui := func(path string, h http.HandlerFunc) { m.Handle(path, localOnly(h)) }
+	ph := func(path string, h func(http.ResponseWriter, *http.Request, *Phone)) {
+		m.HandleFunc(path, a.tokenOnly(h))
+	}
+	ui("POST /api/ui/"+p+"/cancel/{id}", func(w http.ResponseWriter, r *http.Request) { q.Cancel(r.PathValue("id")); writeJ(w, "ok") })
+	ui("POST /api/ui/"+p+"/remove/{id}", func(w http.ResponseWriter, r *http.Request) { q.Remove(r.PathValue("id")); writeJ(w, "ok") })
+	ui("POST /api/ui/"+p+"/show/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if j := q.Get(r.PathValue("id")); j != nil {
+			if path, ok := q.Path(j, 0); ok {
+				showInFolder(path)
+			}
+		}
+		writeJ(w, "ok")
+	})
+	ui("GET /api/ui/"+p+"/file/{id}/{n}", func(w http.ResponseWriter, r *http.Request) { a.queueFile(w, r, q, false) })
+	ui("POST /api/ui/"+p+"/folder", func(w http.ResponseWriter, r *http.Request) {
+		if dir := pickFolder(); dir != "" {
+			a.set.With(func(c *Config) bool { setDir(c, dir); return true })
+		}
+		writeJ(w, map[string]string{"dir": q.dir()})
+	})
+
+	mine := func(r *http.Request, ph *Phone) *CvJob {
+		if j := q.Get(r.PathValue("id")); j != nil && j.From == ph.ID {
+			return j
+		}
+		return nil
+	}
+	ph("POST /api/phone/"+p+"/cancel/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
+		if j := mine(r, p); j != nil {
+			q.Cancel(j.ID)
+		}
+		writeJ(w, "ok")
+	})
+	ph("POST /api/phone/"+p+"/remove/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
+		if j := mine(r, p); j != nil {
+			q.Remove(j.ID)
+		}
+		writeJ(w, "ok")
+	})
+	ph("GET /api/phone/"+p+"/file/{id}/{n}", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.queueFile(w, r, q, false) })
+	ph("POST /api/phone/"+p+"/fetched/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
+		q.update(r.PathValue("id"), func(j *CvJob) {
+			if j.From == p.ID {
+				j.Fetched = true
+			}
+		})
+		writeJ(w, "ok")
+	})
+}
+
+// queueFile serves result n of a job, as a download when attach is set or ?dl is given.
+func (a *App) queueFile(w http.ResponseWriter, r *http.Request, q *Converter, attach bool) {
+	j := q.Get(r.PathValue("id"))
 	n, _ := strconv.Atoi(r.PathValue("n"))
 	if j == nil {
 		http.NotFound(w, r)
 		return
 	}
-	path, ok := a.cv.Path(j, n)
+	path, ok := q.Path(j, n)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -263,12 +292,12 @@ func (a *App) cvFile(w http.ResponseWriter, r *http.Request, attach bool) {
 	http.ServeContent(w, r, "", fi.ModTime(), f)
 }
 
-func (a *App) cvZip(w http.ResponseWriter, j *CvJob) {
+func queueZip(w http.ResponseWriter, q *Converter, j *CvJob, prefix string) {
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": "converted-" + j.ID + ".zip"}))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": prefix + j.ID + ".zip"}))
 	zw := zip.NewWriter(w)
 	for i := range j.Files {
-		p, ok := a.cv.Path(j, i)
+		p, ok := q.Path(j, i)
 		if !ok {
 			continue
 		}

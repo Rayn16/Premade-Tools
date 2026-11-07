@@ -1,0 +1,41 @@
+/* The PDF tools, PC window and phone (with cv.css and dl.css for boxes, chips and rows). */
+.pt .pdfops{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:14px}
+.pt .pdfop{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--raised);color:var(--fg);text-align:left;cursor:pointer;transition:border-color .15s}
+.pt .pdfop svg.i{font-size:18px;color:var(--gold);margin-bottom:2px}
+.pt .pdfop b{font-size:13.5px;font-weight:600}
+.pt .pdfop span{font-size:11.5px;line-height:1.35;color:var(--muted)}
+.pt .pdfop:hover{border-color:var(--gold-line)}
+.pt .pdfop[aria-pressed="true"]{border-color:var(--gold-line);background:var(--panel);box-shadow:inset 0 0 0 1px var(--gold-line),var(--hi)}
+.pdflist .row{gap:8px}
+.pdfnum{flex:none;width:22px;height:22px;display:grid;place-items:center;border-radius:4px;background:var(--raised);font:600 11px/1 var(--mono,monospace);color:var(--muted)}
+.pdfmore{display:flex;align-items:center;gap:8px;margin-top:8px}
+.pdfmore .btn{cursor:pointer}
+.pdfbar{display:flex;align-items:center;gap:8px;margin-top:14px}
+.pdfpages{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;margin-top:8px;max-height:560px;overflow:auto;padding:2px}
+.pdfpage{position:relative;display:flex;flex-direction:column;gap:4px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--raised)}
+.pdfpage[draggable]{cursor:grab}
+.pdfpage.is-drag{opacity:.35}
+.pdfpage.is-on{border-color:var(--gold-line);box-shadow:inset 0 0 0 1px var(--gold-line)}
+.pdfpage.is-off .pg img{opacity:.4}
+.pdfpage .pg{position:relative;aspect-ratio:1;display:grid;place-items:center;overflow:hidden;border-radius:4px;background:var(--bg)}
+.pdfpage img{max-width:88%;max-height:88%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.45);transform:rotate(var(--r,0deg));transition:transform .15s}
+.pdfpage img.is-side{max-width:88%;max-height:66%}
+.pdfpage img:not([src]){width:62%;aspect-ratio:.72;opacity:.12}
+.pgn{position:absolute;left:5px;top:5px;padding:2px 5px;border-radius:3px;background:rgba(0,0,0,.6);color:#fff;font:600 10.5px/1 var(--mono,monospace)}
+.pgcheck{position:absolute;right:5px;top:5px;width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:var(--gold);color:var(--bg);font-size:12px}
+.pt .pgtap{position:absolute;inset:0;z-index:1;border-radius:6px;cursor:pointer}
+.pgacts{display:flex;justify-content:space-between}
+.pgacts .iconbtn[disabled]{opacity:.3;pointer-events:none}
+.pdfwait{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px;color:var(--muted)}
+.pdfpw{display:flex;gap:8px;margin-top:12px}
+.pdfpw .btn{height:46px}
+.pdfnote{display:flex;gap:6px;align-items:flex-start;margin:8px 0 0}
+.pdfnote svg.i{flex:none;margin-top:2px;color:var(--gold)}
+.m .pdfops{grid-template-columns:1fr 1fr;gap:6px}
+.pt.m .pdfop{flex-direction:row;align-items:center;gap:8px;padding:11px 10px}
+.pt.m .pdfop svg.i{margin:0}
+.pt.m .pdfop span{display:none}
+.pdfopnote{margin:-6px 0 12px}
+.m .pdfpages{grid-template-columns:repeat(auto-fill,minmax(98px,1fr));gap:8px;max-height:none;overflow:visible}
+.m .pgacts .iconbtn{width:24px;height:30px}
+.m .cvopts .btn.primary{flex:1 1 auto}

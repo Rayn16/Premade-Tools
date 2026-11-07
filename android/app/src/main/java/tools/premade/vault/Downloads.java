@@ -91,14 +91,16 @@ final class Downloads {
         } finally { h.disconnect(); }
     }
 
-    /** Videos to Movies/Premade, photos to Pictures/Premade, audio to Music/Premade. A file already there is kept. */
+    /** Videos to Movies/Premade, photos to Pictures/Premade, audio to Music/Premade, PDF tools' results to
+     *  Documents/Premade. A file already there is kept. */
     private static void save(Context c, JSONObject j, String base) throws Exception {
         String id = j.getString("id");
         JSONArray files = j.optJSONArray("files");
         for (int n = 0; files != null && n < files.length(); n++) {
             JSONObject f = files.getJSONObject(n);
             String dir;
-            switch (f.optString("kind")) {
+            switch (base.equals("/api/phone/pdf") ? "pdf" : f.optString("kind")) {
+                case "pdf": dir = Environment.DIRECTORY_DOCUMENTS; break;
                 case "video": dir = Environment.DIRECTORY_MOVIES; break;
                 case "photo": dir = Environment.DIRECTORY_PICTURES; break;
                 case "audio": dir = Environment.DIRECTORY_MUSIC; break;

@@ -183,6 +183,12 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null));
             }).start();
         }
+        @JavascriptInterface public void savePdf(String id) {
+            new Thread(() -> {
+                Downloads.saveOne(MainActivity.this, id, "/api/phone/pdf");
+                runOnUiThread(() -> web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null));
+            }).start();
+        }
         @JavascriptInterface public void watchDownloads() { WatchJob.downloads(MainActivity.this, null); }
         @JavascriptInterface public String clipboard() {
             android.content.ClipData c = getSystemService(android.content.ClipboardManager.class).getPrimaryClip();
