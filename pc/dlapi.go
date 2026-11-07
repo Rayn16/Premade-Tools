@@ -58,7 +58,11 @@ func (a *App) dlRoutes(m *http.ServeMux) {
 	})
 	ui("POST /api/ui/dl/forget-logins", func(w http.ResponseWriter, r *http.Request) { a.dl.ForgetLogins(); writeJ(w, "ok") })
 
-	ph("GET /api/phone/dl", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.dlState()) })
+	ph("GET /api/phone/dl", func(w http.ResponseWriter, r *http.Request, p *Phone) {
+		st := a.dlState()
+		st["me"] = p.ID // the Android app saves the downloads it asked for
+		writeJ(w, st)
+	})
 	ph("GET /api/phone/dl/probe", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.dlProbe(w, r) })
 	ph("POST /api/phone/dl/start", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.dlStart(w, r, p.ID) })
 	ph("POST /api/phone/dl/cancel/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {

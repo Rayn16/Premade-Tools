@@ -144,5 +144,16 @@ public class MainActivity extends Activity {
             runOnUiThread(MainActivity.this::show);
         }
         @JavascriptInterface public void reload() { runOnUiThread(MainActivity.this::show); }
+        @JavascriptInterface public void saveDownload(String id) {
+            new Thread(() -> {
+                Downloads.saveOne(MainActivity.this, id);
+                runOnUiThread(() -> web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null));
+            }).start();
+        }
+        @JavascriptInterface public void watchDownloads() { WatchJob.downloads(MainActivity.this, null); }
+        @JavascriptInterface public String clipboard() {
+            android.content.ClipData c = getSystemService(android.content.ClipboardManager.class).getPrimaryClip();
+            return c == null || c.getItemCount() == 0 ? "" : String.valueOf(c.getItemAt(0).coerceToText(MainActivity.this));
+        }
     }
 }

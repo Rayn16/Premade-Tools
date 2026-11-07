@@ -26,6 +26,15 @@
                 <data android:scheme="premadetools" android:host="pair" />
             </intent-filter>
         </activity>
+        <!-- "Premade Tools" in every app's Share menu: sends the link to the PC's Downloader without opening the app. -->
+        <activity android:name=".ShareActivity" android:exported="true" android:label="Download with Premade"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true" android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <service android:name=".WatchJob" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <receiver android:name=".Updater$Result" android:exported="false" />
         <receiver android:name=".BootReceiver" android:exported="true">
