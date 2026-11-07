@@ -168,6 +168,8 @@ public class MainActivity extends Activity {
             Vault.prefs(MainActivity.this).edit().putBoolean("setupDone", true).apply();
             runOnUiThread(MainActivity.this::show);
         }
+        /** The PC just updated: fetch the new app from it now (Android asks for the OK). */
+        @JavascriptInterface public void update() { new Thread(() -> Updater.check(MainActivity.this, MainActivity.this)).start(); }
         @JavascriptInterface public void reload() { runOnUiThread(MainActivity.this::show); }
         @JavascriptInterface public void saveDownload(String id) {
             new Thread(() -> {

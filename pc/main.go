@@ -111,7 +111,7 @@ func (a *App) loop() {
 			}
 		}
 		if tick%6 == 0 {
-			a.checkUpdate(true)
+			a.findUpdate()
 		}
 		a.eng.Update(false) // installs missing engines, refreshes the ones that are due
 		tick++

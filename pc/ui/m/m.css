@@ -63,6 +63,10 @@
 .m .tab[aria-current="page"]::before{content:"";position:absolute;top:0;left:50%;translate:-50% 0;width:28px;height:2px;border-radius:0 0 999px 999px;background:var(--grad)}
 .m .msheet{position:fixed;inset:0;z-index:25;display:flex;align-items:flex-end;background:rgba(5,3,4,.66)}
 .m .msheet-card{width:100%;max-height:88dvh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;box-shadow:0 -18px 44px rgba(0,0,0,.6),var(--hi)}
+.m .mpop{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px 16px;background:rgba(5,3,4,.7)}
+.m .mpop-card{width:100%;max-width:340px;display:grid;justify-items:center;gap:2px;padding:24px 18px 18px;text-align:center;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.6),var(--hi)}
+.m .mpop-crest{width:56px;height:56px;margin-bottom:10px}
+.m .mpop-card .actions-stack{width:100%;margin-top:16px}
 .m .grab{padding:9px 0 3px;display:grid;justify-items:center}
 .m .grab span{width:36px;height:4px;border-radius:999px;background:var(--line-hi)}
 .m .msheet-body{padding:8px 16px 14px}

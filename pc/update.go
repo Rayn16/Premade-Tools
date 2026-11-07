@@ -10,18 +10,21 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const releasesAPI = "https://api.github.com/repos/Rayn16/Premade-Tools/releases/latest"
 
-// checkUpdate looks for a newer release, like Premade does, and swaps the program in place.
-// It needs the repo's releases to be public; until then it just says there's nothing new.
-func (a *App) checkUpdate(quiet bool) string {
-	cl := &http.Client{Timeout: 30 * time.Second}
+type release struct {
+	ver, url string // url is "" when there's nothing newer
+}
+
+// latest asks GitHub for the newest release. It needs the repo's releases to be public.
+func latest(cl *http.Client) (release, error) {
 	resp, err := cl.Get(releasesAPI)
 	if err != nil {
-		return "Couldn't reach GitHub to check."
+		return release{}, err
 	}
 	defer resp.Body.Close()
 	var rel struct {
@@ -32,21 +35,53 @@ func (a *App) checkUpdate(quiet bool) string {
 		} `json:"assets"`
 	}
 	if resp.StatusCode != 200 || json.NewDecoder(resp.Body).Decode(&rel) != nil || !newer(rel.Tag, version) {
-		return "You have the newest version."
+		return release{}, nil
 	}
 	for _, as := range rel.Assets {
-		if as.Name != "PremadeTools.exe" {
-			continue
+		if as.Name == "PremadeTools.exe" {
+			return release{strings.TrimPrefix(rel.Tag, "v"), as.URL}, nil
 		}
-		if err := swapExe(cl, as.URL); err != nil {
+	}
+	return release{}, nil
+}
+
+// findUpdate notes a newer release so the window and the phones can offer it. It doesn't install anything.
+func (a *App) findUpdate() {
+	r, err := latest(&http.Client{Timeout: 30 * time.Second})
+	if err != nil || r.url == "" {
+		return
+	}
+	a.mu.Lock()
+	fresh := a.upd != r.ver
+	a.upd = r.ver
+	a.mu.Unlock()
+	if fresh {
+		notify("Premade Tools", "Version "+r.ver+" is ready. Open Premade Tools to update.")
+	}
+}
+
+var updating sync.Mutex
+
+// checkUpdate is the Update button: it installs the newest release and restarts.
+func (a *App) checkUpdate() string {
+	if !updating.TryLock() { // held until the restart
+		return "Updating. The window reopens in a moment."
+	}
+	cl := &http.Client{Timeout: 5 * time.Minute}
+	r, err := latest(cl)
+	if err == nil && r.url != "" {
+		err = swapExe(cl, r.url)
+	}
+	if err != nil || r.url == "" {
+		updating.Unlock()
+		if err != nil {
 			log.Printf("update: %v", err)
 			return "Update failed: " + err.Error()
 		}
-		a.upd = strings.TrimPrefix(rel.Tag, "v")
-		go func() { time.Sleep(2 * time.Second); restart() }()
-		return "Updating to " + a.upd + ". The window reopens in a moment."
+		return "You have the newest version."
 	}
-	return "You have the newest version."
+	go func() { time.Sleep(2 * time.Second); restart() }()
+	return "Updating to " + r.ver + ". The window reopens in a moment."
 }
 
 func swapExe(cl *http.Client, url string) error {

@@ -1,10 +1,11 @@
 // Vault's PC window. Plain JS: the server sends state, this draws it in Premade's look.
 'use strict';
 
-const S = { page: 'download', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null };
+const S = { page: 'download', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null, updLater: '', updBusy: '' };
 const FLOW = {};    // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null;      // /api/ui/state
 let ITEMS = [];     // /api/ui/deleted
+let VER = '';       // the version this page was loaded with
 let LAST = '';      // the last data drawn, so an unchanged poll doesn't redraw (and stop a playing video)
 const $app = document.getElementById('app');
 const $ = (id) => document.getElementById(id);
@@ -22,6 +23,8 @@ async function refresh() {
     [ST, ITEMS] = await Promise.all([api('/api/ui/state'), api('/api/ui/deleted'), dlRefresh(), cvRefresh()]);
     if (!S.drives || S.page === 'settings') S.drives = await api('/api/ui/drives');
   } catch (e) { return; }
+  if (VER && VER !== ST.version) { location.reload(); return; } // the PC just updated itself
+  VER = ST.version;
   if (!ST.config.setupDone && S.page !== 'setup') S.page = 'setup';
   const now = JSON.stringify([ST, ITEMS, S.drives, DL, CV]);
   if (now !== LAST || (S.page !== 'deleted' && S.page !== 'download' && S.page !== 'convert')) render();
@@ -81,7 +84,7 @@ function render() {
     </nav>
     ${S.page === 'phones' ? phonesView() : S.page === 'settings' ? settingsView() : S.page === 'download' ? downloadView() : S.page === 'convert' ? convertView() : deletedView()}
   </div>
-  ${statusBar()}${S.pair && S.page === 'phones' ? pairSheet() : ''}`;
+  ${statusBar()}${S.pair && S.page === 'phones' ? pairSheet() : ''}${updSheet()}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
   const f = focusId && document.getElementById(focusId);
   if (f && f !== document.activeElement) { f.focus(); try { f.setSelectionRange(caret[0], caret[1]); } catch (e) {} }
@@ -263,6 +266,17 @@ function pairSheet() {
     <div class="sheet-foot">${esc(S.pair.url)}</div></section></div>`;
 }
 
+// The pop-up that offers a new version. "Later" hides it until the window opens again.
+function updSheet() {
+  if (!ST.update || (S.updLater === ST.update && !S.updBusy)) return '';
+  const busy = S.updBusy;
+  return `<div class="backdrop"><section class="sheet upd" role="dialog" aria-modal="true" aria-label="Update ready">
+    <div class="upd-body"><img class="upd-crest" src="/icon.svg" alt=""><h2 class="sheet-title">Update ready</h2>
+      <p class="upd-text">Premade Tools <b class="mono">${esc(ST.update)}</b> is out. You have <span class="mono">${esc(ST.version)}</span>.</p>
+      ${busy ? `<p class="upd-text" role="status">${esc(busy)}</p>` : ''}</div>
+    <div class="upd-foot"><button type="button" class="btn" data-updlater ${busy ? 'disabled' : ''}>Later</button><button type="button" class="btn primary" data-updnow ${busy ? 'disabled' : ''}>Update now</button></div></section></div>`;
+}
+
 // ---------- Settings ----------
 function settingsView() {
   const c = ST.config, d = vaultDrive();
@@ -436,6 +450,14 @@ $app.addEventListener('click', async (e) => {
       const r = await api('/api/ui/pickfolder', {});
       if (r.dir && confirm(`Move the vault to ${r.dir}? It copies in the background, then removes the old copy.`)) { await api('/api/ui/vault', { dir: r.dir }); refresh(); }
     }
+    else if (d.updlater !== undefined) { S.updLater = ST.update; render(); }
+    else if (d.updnow !== undefined) {
+      S.updBusy = 'Downloading the update…'; render();
+      const m = (await api('/api/ui/update', {})).msg;
+      S.updBusy = /^Updating/.test(m) ? m : ''; S.updMsg = m;
+      if (!S.updBusy) S.updLater = ST.update; // failed or already new: close it, Settings shows why
+      render();
+    }
     else if (d.update !== undefined) { S.updMsg = 'Checking…'; render(); S.updMsg = (await api('/api/ui/update', {})).msg; render(); }
     else if (d.rerun !== undefined) { S.page = 'setup'; enterStep(1); }
     else if (d.drive) { S.drive = d.drive; S.folder = d.drive + 'Premade Vault'; render(); }
@@ -450,7 +472,7 @@ $app.addEventListener('click', async (e) => {
       } else if (S.step < 4) enterStep(S.step + 1);
       else { await api('/api/ui/settings', { setupDone: true }); S.page = 'deleted'; S.pair = null; refresh(); }
     }
-  } catch (err) { S.msg = err.message; S.updMsg = S.page === 'settings' ? err.message : S.updMsg; render(); }
+  } catch (err) { S.updBusy = ''; S.msg = err.message; S.updMsg = S.page === 'settings' ? err.message : S.updMsg; render(); }
 });
 
 // Shows "Restored" once the phone has put the file back (it leaves that phone's waiting list).

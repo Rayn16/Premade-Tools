@@ -101,7 +101,7 @@ func (a *App) routes() http.Handler {
 		writeJ(w, "ok")
 	})
 	ui2("POST /api/ui/update", func(w http.ResponseWriter, r *http.Request) {
-		writeJ(w, map[string]string{"msg": a.checkUpdate(false)})
+		writeJ(w, map[string]string{"msg": a.checkUpdate()})
 	})
 
 	// Paired phones.
@@ -219,8 +219,11 @@ func (a *App) routes() http.Handler {
 	ph("GET /api/phone/state", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		c := a.set.Get()
 		free, _ := diskSpace(c.VaultDir)
-		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "free": human(int64(free)),
+		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "update": a.newVer(), "free": human(int64(free)),
 			"config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
+	})
+	ph("POST /api/phone/update", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		writeJ(w, map[string]string{"msg": a.checkUpdate()})
 	})
 	ph("GET /api/phone/app", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		v, _ := apkFile.ReadFile("apk/version.txt")
@@ -350,11 +353,17 @@ func (a *App) phoneViews() []phoneView {
 	return phones
 }
 
+func (a *App) newVer() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.upd
+}
+
 func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	c := a.set.Get()
 	phones := a.phoneViews()
 	c.Phones = nil
-	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.upd, "moving": a.moving}
+	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "moving": a.moving}
 	if st := a.getStore(); st != nil {
 		n, b := st.Stats()
 		free, _ := diskSpace(c.VaultDir)

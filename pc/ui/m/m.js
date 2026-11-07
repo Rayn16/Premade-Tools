@@ -27,10 +27,16 @@ async function api(path, body) {
   return r.json();
 }
 
+let VER = ''; // the PC version these pages came from
 async function refresh() {
   try {
     [ST, ITEMS, DL] = await Promise.all([api('/api/phone/state'), api('/api/phone/deleted'), api('/api/phone/dl').catch(() => DL), typeof cvRefresh === 'function' && cvRefresh()]); // mcv.js loads after this file
     OFFLINE = false;
+    if (VER && VER !== ST.version) { // the PC just updated itself: get the new pages, and the new Android app
+      try { localStorage.setItem('ptUpdated', '1'); } catch (e) {}
+      location.reload(); return;
+    }
+    VER = ST.version;
     dlAfterRefresh();
     try { localStorage.setItem('vaultCache', JSON.stringify([ST, ITEMS])); } catch (e) {}
   } catch (e) {
@@ -67,7 +73,7 @@ function render() {
   const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
   const views = { phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView };
   const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : (views[S.tab] || deletedView)(off);
-  $app.innerHTML = `${head}${body}<nav class="tabbar" aria-label="Sections">${tabs}</nav>${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}`;
+  $app.innerHTML = `${head}${body}<nav class="tabbar" aria-label="Sections">${tabs}</nav>${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}${updView()}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
   if (keepFocus && document.getElementById(keepFocus)) document.getElementById(keepFocus).focus();
   lazyMedia($app);
@@ -144,6 +150,16 @@ function actions(it, p, me) {
     <a class="btn block" href="${view(it.id, true)}" download="${esc(it.name)}">${icon('save')}${NATIVE ? 'Download' : 'Save to Files'}</a></div>
     <div class="msg bad" role="status">${esc(S.msg)}</div>
     <div class="actions-quiet"><button type="button" class="quiet" data-askdismiss="${it.id}">Dismiss</button></div>`;
+}
+
+// The pop-up that offers a new version. Updating puts it on the PC, which hands it to this phone.
+function updView() {
+  if (!ST?.update || OFFLINE || (S.updLater === ST.update && !S.updBusy)) return '';
+  return `<div class="mpop"><div class="mpop-card" role="dialog" aria-modal="true" aria-label="Update ready">
+    <img class="mpop-crest" src="/icon.svg" alt=""><h2 class="sheet-title">Update ready</h2>
+    <p class="sheet-text">Premade Tools <b class="mono">${esc(ST.update)}</b> is out. You have <span class="mono">${esc(ST.version)}</span>.</p>
+    <p class="sheet-note" role="status">${esc(S.updBusy || (NATIVE ? 'It updates your PC, then this app.' : 'It updates your PC, and this app with it.'))}</p>
+    <div class="actions-stack"><button type="button" class="btn primary block" data-updnow ${S.updBusy ? 'disabled' : ''}>Update now</button><button type="button" class="btn block" data-updlater ${S.updBusy ? 'disabled' : ''}>Later</button></div></div></div>`;
 }
 
 function askView() {
@@ -294,8 +310,16 @@ $app.addEventListener('click', async (e) => {
     }
     else if (d.keepyes) { await api('/api/phone/settings', { keep: d.keepyes }); S.ask = null; refresh(); }
     else if (d.askclear !== undefined) { S.ask = null; render(); }
+    else if (d.updlater !== undefined) { S.updLater = ST.update; render(); }
+    else if (d.updnow !== undefined) {
+      S.updBusy = 'Updating your PC…'; render();
+      const m = (await api('/api/phone/update', {})).msg;
+      S.updBusy = /^Updating/.test(m) ? 'Updating your PC. This reloads in a moment.' : '';
+      if (!S.updBusy) { S.updLater = ST.update; S.msg = m; }
+      render();
+    }
     else if (d.themePick) { await api('/api/phone/settings', { theme: d.themePick }); refresh(); }
-  } catch (err) { S.msg = err.message; render(); }
+  } catch (err) { S.updBusy = ''; S.msg = err.message; render(); }
 });
 function closeSheet() {
   if (FLOW[S.sheet] === 'confirm' || FLOW[S.sheet]?.done) delete FLOW[S.sheet];
@@ -318,6 +342,7 @@ $app.addEventListener('input', (e) => { if (e.target.id === 'q') { S.q = e.targe
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 window.vaultRefresh = refresh; // the Android app calls this after it sends something
 refresh();
+try { if (localStorage.getItem('ptUpdated') && NATIVE?.update) NATIVE.update(); localStorage.removeItem('ptUpdated'); } catch (e) {}
 let slow = 0;
 setInterval(() => { // every 2 s while a download runs, else every 30 s
   if (document.hidden || S.sheet || S.ask || S.drawer || ['q', 'dlurl'].includes(document.activeElement?.id)) return;
