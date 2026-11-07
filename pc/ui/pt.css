@@ -264,6 +264,11 @@ body{background:#0b0809}
 .waitrow span span{color:var(--muted)}
 .pulse{flex:none;width:8px;height:8px;border-radius:50%;background:var(--gold);animation:pt-pulse 1.8s ease-in-out infinite}
 @keyframes pt-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+.sheet.upd{width:380px;text-align:center}
+.upd-body{padding:26px 24px 18px;display:grid;justify-items:center;gap:8px}
+.upd-crest{width:52px;height:52px;margin-bottom:4px}
+.upd-text{margin:0!important;font-size:13px;line-height:1.5;color:var(--muted)}.upd-text b{color:var(--fg)}
+.upd-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
 .sheet-foot{padding:10px 18px 12px;border-top:1px solid var(--line);font:500 11.5px var(--mono);color:var(--muted);overflow-wrap:anywhere}
 
 /* Settings */
