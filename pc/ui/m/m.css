@@ -162,3 +162,14 @@
 .m .mswatch[aria-pressed="true"] .mswatch-name{color:var(--fg);font-weight:500}
 .m .appfoot{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:center;gap:7px;font:500 11px var(--mono);color:var(--muted)}
 .m .appfoot .crest img{width:13px;height:13px}
+
+/* iPhone: Shortcut setup guide */
+.m .iosguide{margin:14px 0 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.m .iosguide summary{padding:13px 14px;font-weight:600;font-size:14px;cursor:pointer}
+.m .iosguide ol{margin:0;padding:0 14px 14px 32px;display:grid;gap:10px;font-size:13px;line-height:1.5;color:var(--muted)}
+.m .iosguide b{color:var(--fg);font-weight:500}
+.m .copyfield{margin-top:6px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px;align-items:center}
+.m .copyfield span{font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.m .copyfield input{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:12px var(--mono,monospace)}
+.m .copyfield .btn{min-height:34px;padding:0 10px}
+.m .ios-nudge{margin:0 0 12px!important;border-top:0;padding-top:0}

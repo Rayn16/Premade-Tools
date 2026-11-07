@@ -1,7 +1,7 @@
 // Vault on the phone: the same screens for the Android app (inside its WebView) and the iPhone home-screen app.
 'use strict';
 
-const qs = new URLSearchParams(location.hash.slice(1));
+const qs = new URLSearchParams(location.hash.slice(1) || location.search); // Android: #t=…; iPhone Home Screen app: ?t=…
 if (qs.get('t')) { try { localStorage.setItem('vaultToken', qs.get('t')); } catch (e) {} }
 const TOKEN = qs.get('t') || (() => { try { return localStorage.getItem('vaultToken'); } catch (e) { return null; } })();
 const NATIVE = window.Vault || null; // Android bridge, absent on iPhone
@@ -78,7 +78,7 @@ function deletedView(off) {
     <div class="rails"><div class="rail" role="group" aria-label="Type">${pills(typeOpts, 'type')}</div>
     ${phoneOpts.length > 2 ? `<div class="rail rail-sm" role="group" aria-label="Phone">${pills(phoneOpts, 'phone')}</div>` : ''}</div>
     <div class="headrule"></div>
-    <div class="feed scroller" id="dl">${off}${listView()}</div>`;
+    <div class="feed scroller" id="dl">${off}${iosNudge()}${listView()}</div>`;
 }
 
 function listView() {
@@ -147,7 +147,7 @@ function phonesView(off) {
   const me = ST.phones.find((p) => p.ID === ST.me);
   const others = ST.phones.filter((p) => p !== me);
   return `${titleRow('Phones')}<div class="headrule"></div>
-    <div class="feed scroller">${off}${me ? (me.Kind === 'iphone' ? heroIphone(me, saved(me)) : heroAndroid(me, local || me.Status || {}, saved(me), local)) : ''}
+    <div class="feed scroller">${off}${me ? (me.Kind === 'iphone' ? heroIphone(me, saved(me)) + iosGuide(me) : heroAndroid(me, local || me.Status || {}, saved(me), local)) : ''}
     ${others.length ? `<div class="sectionhead"><b>Other phones</b><i></i></div><div class="phonelist">${others.map((p) => otherPhone(p, saved(p).length)).join('')}</div>` : ''}
     <div class="pcrow"><i class="dotlight ${OFFLINE ? 'off' : ''}"></i><span>${OFFLINE ? "Can't reach your PC" : 'Connected to your PC'}</span></div>
     <p class="mhint">${icon('info')}<span>To add another phone, open Vault on your PC and choose <b>Phones</b>, then <b>Add a phone</b>.</span></p></div>`;
@@ -170,8 +170,45 @@ function heroAndroid(p, st, saved, local) {
 
 function heroIphone(p, saved) {
   return `<section class="mhero">${heroTop('This iPhone', p.Name)}
-    <div class="hero-state">${ring}<h2 class="hero-headline">Backs up at home</h2><p class="hero-check">Last backup ${whenShort(new Date(p.LastSeen))}</p><p class="hero-saved"><b>${saved.length}</b> ${saved.length === 1 ? 'item' : 'items'} saved</p></div>
+    <div class="hero-state">${ring}<h2 class="hero-headline">${neverBackedUp(p) ? 'Not backed up yet' : 'Backs up at home'}</h2><p class="hero-check">${neverBackedUp(p) ? 'Add the Shortcut below, then tap Back up now' : 'Last backup ' + whenShort(new Date(p.LastSeen))}</p><p class="hero-saved"><b>${saved.length}</b> ${saved.length === 1 ? 'item' : 'items'} saved</p></div>
     <dl class="kv pad"><div><dt>Runs when</dt><dd>It joins your home Wi-Fi, and when it starts charging</dd></div><div><dt>Covers</dt><dd>Photos and videos, screenshots, screen recordings, WhatsApp and Telegram media</dd></div></dl></section>`;
+}
+
+// iPhone: apps can't see Recently Deleted, so a Shortcut the user builds once sends the PC a copy of
+// each photo and video, and the PC shows a file only after it's gone from the phone.
+const SHORTCUT = 'Vault backup';
+const neverBackedUp = (p) => new Date(p.LastSeen) - new Date(p.Paired) < 5000;
+const runShortcut = 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTCUT);
+
+function iosNudge() {
+  const me = phoneById(ST.me);
+  if (!me || me.Kind !== 'iphone') return '';
+  if (!navigator.standalone) return `<p class="mhint ios-nudge">${icon('info')}<span>Tap <b>Share</b>, then <b>Add to Home Screen</b>, then open Vault from there.</span></p>`;
+  if (neverBackedUp(me)) return `<p class="mhint ios-nudge">${icon('info')}<span>One more step: add the backup Shortcut. Open <b>Phones</b> and follow the steps.</span></p>`;
+  return '';
+}
+
+function iosGuide(p) {
+  const base = location.origin, t = encodeURIComponent(TOKEN);
+  const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
+  const steps = [
+    `Open <b>Shortcuts</b>, tap <b>+</b> and name it <b>${SHORTCUT}</b>.`,
+    `Add <b>Find Photos</b> (leave it on All Photos).`,
+    `Add <b>Get Details of Images</b> and pick <b>Name</b>.`,
+    `Add <b>Combine Text</b> and set it to <b>New Lines</b>.`,
+    `Add <b>Get Contents of URL</b> with the address below. Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Combined Text</b>.${field('Backup', `${base}/api/phone/ios/backup?t=${t}`)}`,
+    `Add <b>Set Variable</b>, name it <b>Need</b>, set to <b>Contents of URL</b>.`,
+    `Add <b>Repeat with Each</b> and pick <b>Photos</b> from step 2. Inside it:`,
+    `<b>Text</b>: type <b>|</b>, insert <b>Repeat Item</b> and tap it to choose <b>Name</b>, then type <b>|</b>.`,
+    `<b>If</b> <b>Need</b> <b>contains</b> <b>Text</b>. Inside it, <b>Get Contents of URL</b> with the address below, Method <b>PUT</b>, Request Body <b>File</b> set to <b>Repeat Item</b>, and two headers: <b>X-Key</b> and <b>X-Name</b>, both <b>Repeat Item</b> › <b>Name</b>.${field('Upload', `${base}/api/phone/upload?t=${t}`)}`,
+    `After <b>End Repeat</b>, for files you restore from the PC: <b>Get Contents of URL</b> with this address.${field('Restores', `${base}/api/phone/ios/restores?t=${t}`)}`,
+    `Add <b>Split Text</b> by <b>New Lines</b>, then <b>Repeat with Each</b>. Inside it: <b>If Repeat Item is not none</b>, then a <b>Text</b> with the first address below with <b>Repeat Item</b> put where it says ID, <b>Get Contents of URL</b> of that Text, and <b>Save to Photo Album</b>. Then another <b>Text</b> with the second address, again with <b>Repeat Item</b> for ID, and <b>Get Contents of URL</b> of it with Method <b>POST</b>.${field('Restore file', `${base}/api/phone/file/ID?t=${t}`)}${field('Restored', `${base}/api/phone/restored/ID?t=${t}`)}`,
+    `Tap <b>Back up now</b> below to run it once. Allow access to Photos and to devices on your network when asked. The first run sends every photo, so keep the screen on and the iPhone on Wi-Fi.`,
+    `Make it run by itself: <b>Automation</b> tab › <b>+</b> › <b>Wi-Fi</b>, pick your home Wi-Fi, choose <b>Run Immediately</b> and pick <b>${SHORTCUT}</b>. Add a second one with <b>Charger</b> › <b>Is Connected</b>.`,
+  ];
+  return `<details class="iosguide" ${neverBackedUp(p) ? 'open' : ''}><summary>Set up the backup Shortcut</summary>
+    <ol>${steps.map((x) => `<li>${x}</li>`).join('')}</ol></details>
+    <a class="btn primary block" href="${runShortcut}">Back up now</a>`;
 }
 
 function otherPhone(p, n) {
@@ -198,6 +235,11 @@ $app.addEventListener('click', async (e) => {
   if (e.target.dataset?.closeask !== undefined) { S.ask = null; render(); return; }
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.copy !== undefined) { // clipboard API needs https; a selected field + execCommand works over plain http
+    const inp = b.previousElementSibling; inp.select(); inp.setSelectionRange(0, 9999);
+    try { document.execCommand('copy'); b.textContent = 'Copied'; } catch (e2) { b.textContent = 'Select and copy'; }
+    return;
+  }
   const d = b.dataset;
   try {
     if (d.tab) { S.tab = d.tab; render(); }

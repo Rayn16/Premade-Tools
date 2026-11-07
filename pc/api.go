@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"embed"
@@ -148,6 +149,44 @@ func (a *App) routes() http.Handler {
 			return
 		}
 		writeJ(w, map[string]any{"need": need})
+	})
+	// The iPhone's Shortcut speaks plain text: it sends the names of every photo and video on the phone,
+	// one per line, and gets back the ones the PC still needs as "|name|name|" so an If "contains" can test each.
+	ph("POST /api/phone/ios/backup", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 16<<20))
+		var keys []string
+		for _, l := range strings.Split(string(b), "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				keys = append(keys, l)
+			}
+		}
+		if len(keys) == 0 { // Photos access off or the list didn't arrive: never read that as "everything was deleted"
+			http.Error(w, "The Shortcut sent no photo names. Check it can see your photos.", 400)
+			return
+		}
+		a.touch(p.ID)
+		need, err := st.SyncPhoneList(p.ID, keys, time.Now())
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprint(w, "|"+strings.Join(need, "|")+"|")
+	})
+	// Files the PC wants back in the iPhone's Photos, one id per line ("none" when there are none).
+	ph("GET /api/phone/ios/restores", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		var ids []string
+		for _, id := range p.Restores {
+			if st.Get(id) != nil {
+				ids = append(ids, id)
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if len(ids) == 0 {
+			fmt.Fprint(w, "none")
+			return
+		}
+		fmt.Fprint(w, strings.Join(ids, "\n"))
 	})
 	ph("GET /api/phone/restores", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		out := []Item{}
@@ -490,6 +529,18 @@ func (a *App) pair(w http.ResponseWriter, r *http.Request) {
 	writeJ(w, map[string]string{"token": p.Token, "id": p.ID})
 }
 
+// touch marks a phone as just seen.
+func (a *App) touch(id string) {
+	a.set.With(func(c *Config) bool {
+		for _, q := range c.Phones {
+			if q.ID == id {
+				q.LastSeen = time.Now()
+			}
+		}
+		return true
+	})
+}
+
 func (a *App) checkin(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
 	if !json.Valid(b) {
@@ -519,16 +570,45 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request, p *Phone, st *Store
 		return
 	}
 	at, _ := strconv.ParseInt(h.Get("X-Deleted-At"), 10, 64)
-	it := Item{Key: key, Name: unq(name), Folder: unq(h.Get("X-Folder")), Phone: p.ID, DeletedAt: msTime(at)}
+	body := bufio.NewReader(r.Body)
+	name = unq(name)
+	if filepath.Ext(name) == "" { // Shortcuts gives photo names without the extension
+		head, _ := body.Peek(16)
+		name += sniffExt(head)
+	}
+	it := Item{Key: key, Name: name, Folder: unq(h.Get("X-Folder")), Phone: p.ID, DeletedAt: msTime(at)}
 	if p.Kind == "iphone" && at == 0 {
 		it.Hidden = true
 	}
-	saved, err := st.Add(it, r.Body, h.Get("X-Sha256"))
+	saved, err := st.Add(it, body, h.Get("X-Sha256"))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	writeJ(w, map[string]string{"id": saved.ID})
+}
+
+// sniffExt names a file type from its first bytes (the kinds an iPhone's Photos holds).
+func sniffExt(b []byte) string {
+	if len(b) >= 12 && string(b[4:8]) == "ftyp" {
+		switch t := string(b[8:12]); {
+		case t == "heic" || t == "heix" || t == "mif1" || t == "msf1" || t == "hevc":
+			return ".heic"
+		case t == "qt  ":
+			return ".mov"
+		default:
+			return ".mp4"
+		}
+	}
+	switch {
+	case len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8:
+		return ".jpg"
+	case len(b) >= 4 && string(b[1:4]) == "PNG":
+		return ".png"
+	case len(b) >= 4 && string(b[:4]) == "GIF8":
+		return ".gif"
+	}
+	return ""
 }
 
 // unq undoes the percent-encoding phones use to send non-ASCII names in headers.

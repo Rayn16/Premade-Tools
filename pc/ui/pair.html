@@ -22,7 +22,13 @@
       </div>
     </div>
     <div id="iphone" hidden>
-      <p class="muted">The iPhone part of Vault is coming in the next update. Keep this page: you'll pair from here once it's ready.</p>
+      <ol>
+        <li>Tap Pair this iPhone. Vault opens.</li>
+        <li>Tap Share, then Add to Home Screen, so Vault gets its own icon.</li>
+        <li>Open Vault from the Home Screen and follow its steps to add the backup Shortcut.</li>
+      </ol>
+      <button type="button" class="btn primary" id="pairios">Pair this iPhone</button>
+      <p id="err" role="alert"></p>
     </div>
     <p>This code works once and expires after 15 minutes. If it fails, show a new code on the PC.</p>
   </div>
@@ -31,6 +37,13 @@
   const code = location.pathname.split('/').pop();
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
   document.getElementById(ios ? 'iphone' : 'android').hidden = false;
+  document.getElementById('pairios').onclick = async () => {
+    const r = await fetch('/api/pair', { method: 'POST', body: JSON.stringify({ code, kind: 'iphone', name: 'iPhone' }) });
+    if (!r.ok) { document.getElementById('err').textContent = (await r.text()).trim(); return; }
+    const j = await r.json();
+    // The key rides in the address, because a Home Screen app doesn't share Safari's storage.
+    location.replace('/m/?t=' + encodeURIComponent(j.token));
+  };
   // Hands the PC's address and the one-time code to the Android app.
   document.getElementById('open').href = 'intent://pair?host=' + encodeURIComponent(location.host) + '&code=' + encodeURIComponent(code) +
     '#Intent;scheme=premadetools;package=tools.premade.vault;end';

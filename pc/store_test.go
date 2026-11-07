@@ -67,3 +67,23 @@ func TestNewer(t *testing.T) {
 		t.Fatal("version compare")
 	}
 }
+
+func TestIphone(t *testing.T) {
+	st, _ := OpenStore(t.TempDir())
+	st.Add(Item{Key: "IMG_1", Name: "IMG_1.heic", Phone: "ip", Hidden: true}, strings.NewReader("a"), "")
+	st.Add(Item{Key: "IMG_2", Name: "IMG_2.heic", Phone: "ip", Hidden: true}, strings.NewReader("b"), "")
+	// A list that comes up short marks IMG_2 deleted; when it shows up again it goes back to hidden.
+	st.SyncPhoneList("ip", []string{"IMG_1"}, time.Now())
+	if len(st.Deleted()) != 1 {
+		t.Fatal("IMG_2 should show as deleted")
+	}
+	need, _ := st.SyncPhoneList("ip", []string{"IMG_1", "IMG_2", "IMG_3"}, time.Now())
+	if len(st.Deleted()) != 0 || len(need) != 1 || need[0] != "IMG_3" {
+		t.Fatalf("back on the phone: deleted=%d need=%v", len(st.Deleted()), need)
+	}
+	for in, want := range map[string]string{"\x00\x00\x00\x18ftypheic": ".heic", "\x00\x00\x00\x14ftypqt  ": ".mov", "\xff\xd8\xff\xe0": ".jpg", "\x89PNG": ".png", "hello": ""} {
+		if got := sniffExt([]byte(in)); got != want {
+			t.Errorf("sniffExt(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -164,6 +164,8 @@ func (s *Store) SyncPhoneList(phone string, keys []string, now time.Time) (need 
 		have[it.Key] = true
 		if it.Hidden && !on[it.Key] {
 			it.Hidden, it.ByTime, it.DeletedAt, changed = false, true, now, true
+		} else if !it.Hidden && it.ByTime && !it.Dismissed && on[it.Key] {
+			it.Hidden, it.ByTime, it.DeletedAt, changed = true, false, time.Time{}, true // back on the phone (a list that came up short)
 		}
 	}
 	for _, k := range keys {
