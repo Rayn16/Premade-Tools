@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version-file: pc/go.mod }
       - run: gradle -p android assembleRelease
-      - run: cd pc && go vet ./... && go test ./... && GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o PremadeTools.exe .
+      - run: cp android/app/build/outputs/apk/release/app-release.apk pc/apk/PremadeTools.apk && cd pc && go vet ./... && go test ./... && GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w" -o PremadeTools.exe .
       # The builds go on the "builds" branch so a chat session can fetch them with git and hand them over.
       - run: |
           mkdir /tmp/out && cp android/app/build/outputs/apk/release/app-release.apk /tmp/out/PremadeTools.apk && cp pc/PremadeTools.exe /tmp/out/

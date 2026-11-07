@@ -78,17 +78,11 @@ func installSelf(args []string, release func()) bool {
 	if err := copyExe(exe, dst); err != nil {
 		return false // run from where it is
 	}
-	// The APK sits next to the exe in a release download; keep it for phones to install.
-	if apk := filepath.Join(filepath.Dir(exe), "PremadeTools.apk"); fileExists(apk) {
-		copyExe(apk, filepath.Join(dir, "PremadeTools.apk"))
-	}
 	lnk := filepath.Join(os.Getenv("AppData"), `Microsoft\Windows\Start Menu\Programs\Premade Tools.lnk`)
 	ps(`$s=(New-Object -ComObject WScript.Shell).CreateShortcut(` + psQuote(lnk) + `);$s.TargetPath=` + psQuote(dst) + `;$s.Save()`)
 	release() // free the port so the installed copy can take it
 	return exec.Command(dst, args...).Start() == nil
 }
-
-func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func copyExe(src, dst string) error {
 	in, err := os.Open(src)

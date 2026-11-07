@@ -26,6 +26,11 @@ import (
 //go:embed ui
 var uiFiles embed.FS
 
+// The Android app ships inside the PC program, so the pairing page can hand it straight to the phone.
+//
+//go:embed apk
+var apkFile embed.FS
+
 func (a *App) routes() http.Handler {
 	m := http.NewServeMux()
 	ui, _ := fs.Sub(uiFiles, "ui")
@@ -39,9 +44,14 @@ func (a *App) routes() http.Handler {
 	})
 	m.Handle("GET /pt.css", static)
 	m.HandleFunc("GET /download/PremadeTools.apk", func(w http.ResponseWriter, r *http.Request) {
-		exe, _ := os.Executable()
+		b, err := apkFile.ReadFile("apk/PremadeTools.apk")
+		if err != nil {
+			http.Error(w, "This build of the PC program has no Android app inside.", 404)
+			return
+		}
 		w.Header().Set("Content-Type", "application/vnd.android.package-archive")
-		http.ServeFile(w, r, filepath.Join(filepath.Dir(exe), "PremadeTools.apk"))
+		w.Header().Set("Content-Disposition", `attachment; filename="PremadeTools.apk"`)
+		w.Write(b)
 	})
 	m.HandleFunc("POST /api/pair", a.pair)
 
