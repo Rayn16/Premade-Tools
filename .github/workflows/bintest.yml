@@ -3,6 +3,8 @@ on:
   push:
     paths: ['bintest/**', '.github/workflows/bintest.yml']
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,7 +15,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.14.3' }
       - run: gradle -p bintest assembleDebug
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vault-bin-test
-          path: bintest/app/build/outputs/apk/debug/app-debug.apk
+      # The APK goes on the "builds" branch so it can be fetched with git and handed over in chat.
+      - run: |
+          cp bintest/app/build/outputs/apk/debug/app-debug.apk /tmp/Vault-bin-test.apk
+          git config user.name "github-actions" && git config user.email "actions@github.com"
+          git checkout --orphan builds && git rm -rqf . && cp /tmp/Vault-bin-test.apk .
+          git add Vault-bin-test.apk && git commit -qm "Bin test APK from ${GITHUB_SHA::7}" && git push -f origin builds
