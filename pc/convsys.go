@@ -93,36 +93,42 @@ func (a *App) cvBin(name string) string {
 	return p
 }
 
-var office struct {
+// A free program installed with Windows' own winget the first time it's needed. Windows asks once to allow it.
+type installer struct {
 	sync.Mutex
-	busy bool
-	err  string
+	busy           bool
+	err            string
+	id, name, site string // winget id, what to call it, where to get it by hand
+	bin            func() string
+	tool, doneNote string // the Windows notification when it's in
 }
 
-// officeState is "ok", "installing", "missing" or "error: why".
-func (a *App) officeState() string {
-	office.Lock()
-	defer office.Unlock()
+var office = &installer{id: "TheDocumentFoundation.LibreOffice", name: "LibreOffice", site: "libreoffice.org", bin: officeBin,
+	tool: "Converter", doneNote: "LibreOffice is installed. Office files can be converted now."}
+
+// State is "ok", "installing", "missing" or "error: why".
+func (s *installer) State() string {
+	s.Lock()
+	defer s.Unlock()
 	switch {
-	case officeBin() != "":
+	case s.bin() != "":
 		return "ok"
-	case office.busy:
+	case s.busy:
 		return "installing"
-	case office.err != "":
-		return "error: " + office.err
+	case s.err != "":
+		return "error: " + s.err
 	}
 	return "missing"
 }
 
-// installOffice installs LibreOffice (free, about 350 MB) with Windows' own winget. Windows asks once to allow it.
-func (a *App) installOffice() {
-	office.Lock()
-	if office.busy || officeBin() != "" {
-		office.Unlock()
+func (s *installer) Install() {
+	s.Lock()
+	if s.busy || s.bin() != "" {
+		s.Unlock()
 		return
 	}
-	office.busy, office.err = true, ""
-	office.Unlock()
+	s.busy, s.err = true, ""
+	s.Unlock()
 	err := func() error {
 		if runtime.GOOS != "windows" {
 			return fmt.Errorf("installing needs Windows")
@@ -131,24 +137,29 @@ func (a *App) installOffice() {
 		if err != nil {
 			wg = filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "WindowsApps", "winget.exe")
 		}
-		out, err := hidden(exec.Command(wg, "install", "--id", "TheDocumentFoundation.LibreOffice", "-e", "--silent",
+		out, err := hidden(exec.Command(wg, "install", "--id", s.id, "-e", "--silent",
 			"--accept-package-agreements", "--accept-source-agreements")).CombinedOutput()
-		if officeBin() != "" {
+		if s.bin() != "" {
 			return nil
 		}
-		log.Printf("winget: %v %s", err, out)
+		log.Printf("winget %s: %v %s", s.id, err, out)
 		if err != nil && strings.Contains(err.Error(), "file") {
-			return fmt.Errorf("this PC has no winget. Install LibreOffice from libreoffice.org, then come back")
+			return fmt.Errorf("this PC has no winget. Install %s from %s, then come back", s.name, s.site)
 		}
-		return fmt.Errorf("it didn't finish. Try again, or install it from libreoffice.org")
+		return fmt.Errorf("it didn't finish. Try again, or install it from %s", s.site)
 	}()
-	office.Lock()
-	office.busy = false
+	s.Lock()
+	s.busy = false
 	if err != nil {
-		office.err = err.Error()
+		s.err = err.Error()
 	}
-	office.Unlock()
+	s.Unlock()
 	if err == nil {
-		notify("Converter", "LibreOffice is installed. Office files can be converted now.")
+		notify(s.tool, s.doneNote)
 	}
 }
+
+func (a *App) officeState() string { return office.State() }
+
+// installOffice installs LibreOffice (free, about 350 MB).
+func (a *App) installOffice() { office.Install() }

@@ -75,7 +75,7 @@ function cvPicked() {
   const kinds = CS.files.map((f) => cvKind(f.name));
   if (kinds.some((k) => !k)) {
     const bad = CS.files[kinds.indexOf(undefined)].name;
-    return { why: cvExt(bad) === 'pdf' ? "PDFs can't be turned into other files yet." : `${bad} isn't a kind of file the Converter knows.` };
+    return { why: cvExt(bad) === 'pdf' ? "For PDFs, use the PDF tools (☰ › PDF)." : `${bad} isn't a kind of file the Converter knows.` };
   }
   if (kinds.some((k) => k !== kinds[0])) return { why: 'Pick files of one kind at a time (only photos, or only videos).' };
   const k = kinds[0];

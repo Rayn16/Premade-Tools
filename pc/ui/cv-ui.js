@@ -19,7 +19,7 @@ function picked() {
   const kinds = C.files.map((f) => kindOf(f.name));
   if (kinds.some((k) => !k)) {
     const bad = C.files[kinds.indexOf(undefined)].name;
-    return { kind: null, why: extOf(bad) === 'pdf' ? "PDFs can't be turned into other files yet. Pictures, videos, sound and office files can." : `${bad} isn't a kind of file the Converter knows.` };
+    return { kind: null, why: extOf(bad) === 'pdf' ? "For PDFs, use the PDF tools. The Converter takes pictures, videos, sound and office files." : `${bad} isn't a kind of file the Converter knows.` };
   }
   if (kinds.some((k) => k !== kinds[0])) return { kind: null, why: 'Pick files of one kind at a time (only pictures, or only videos, …).' };
   const k = kinds[0];
@@ -182,11 +182,13 @@ $app.addEventListener('change', (e) => {
   else if (e.target.id === 'cvcombine') C.combine = e.target.checked;
 });
 // Dropping files anywhere in the window opens them in the Converter.
-document.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); document.getElementById('cvdrop')?.classList.add('is-over'); } });
-document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.getElementById('cvdrop')?.classList.remove('is-over'); });
+document.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); document.querySelector('#cvdrop,#pdfdrop')?.classList.add('is-over'); } });
+document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.querySelector('#cvdrop,#pdfdrop')?.classList.remove('is-over'); });
 document.addEventListener('drop', (e) => {
   if (!e.dataTransfer?.files?.length) return;
   e.preventDefault();
   if (S.page === 'setup') return;
-  S.page = 'convert'; cvAdd(e.dataTransfer.files);
+  const files = [...e.dataTransfer.files];
+  if (files.every(pdfIsPdf)) { S.page = 'pdf'; pdfAdd(files, P.op !== 'merge'); return; } // PDFs go to the PDF tools
+  S.page = 'convert'; cvAdd(files);
 });

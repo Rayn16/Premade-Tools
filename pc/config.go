@@ -34,6 +34,7 @@ type Config struct {
 	DlDir      string   `json:"dlDir"`     // where downloads go; empty = Downloads\Premade
 	DlNightly  bool     `json:"dlNightly"` // yt-dlp nightly builds (site fixes first)
 	CvDir      string   `json:"cvDir"`     // where converted files go; empty = Downloads\Premade\Converted
+	PdfDir     string   `json:"pdfDir"`    // where PDF tools save; empty = Downloads\Premade\PDF
 	Phones     []*Phone `json:"phones"`
 }
 
@@ -103,4 +104,12 @@ func (c Config) ConvertDir() string {
 		return c.CvDir
 	}
 	return filepath.Join(c.DownloadDir(), "Converted")
+}
+
+// PdfOutDir is where the PDF tools save files.
+func (c Config) PdfOutDir() string {
+	if c.PdfDir != "" {
+		return c.PdfDir
+	}
+	return filepath.Join(c.DownloadDir(), "PDF")
 }

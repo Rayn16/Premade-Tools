@@ -93,6 +93,8 @@ type CvJob struct {
 	InSize  int64     `json:"inSize"`          // of what was sent
 	At      time.Time `json:"at"`
 	Fetched bool      `json:"fetched,omitempty"`
+	Pages   string    `json:"pages,omitempty"` // PDF tools: which pages, in what order, turned how
+	pw      string    // PDF tools: the password, kept in memory only
 }
 
 type Converter struct {
@@ -104,11 +106,25 @@ type Converter struct {
 	bin    func(engine string) string // path to run an engine by, "" when it isn't there
 	dir    func() string
 	in     string // uploads wait here until their job has run
+	// work does one job: it turns the uploads in dir in into files in out, and says what failed.
+	work   func(ctx context.Context, j *CvJob, in, out string, prog func(float64)) (made, fails []string)
+	notify func(j *CvJob) // a PC job is done
 }
 
 func NewConverter(bin func(string) string, dir func() string) *Converter {
-	c := &Converter{path: filepath.Join(appDir(), "conversions.json"), cancel: map[string]context.CancelFunc{},
-		wake: make(chan struct{}, 1), bin: bin, dir: dir, in: filepath.Join(appDir(), "cv-in")}
+	c := newQueue("conversions.json", "cv-in", bin, dir)
+	c.work = c.convertAll
+	c.notify = func(j *CvJob) {
+		notify("Converter", fmt.Sprintf("Converted %d %s to %s.", len(j.Inputs), plural(len(j.Inputs), "file", "files"), strings.ToUpper(j.Target)))
+	}
+	go c.worker()
+	return c
+}
+
+// newQueue loads a job list kept in appDir()/file, with uploads waiting in appDir()/in. The caller sets work and starts worker.
+func newQueue(file, in string, bin func(string) string, dir func() string) *Converter {
+	c := &Converter{path: filepath.Join(appDir(), file), cancel: map[string]context.CancelFunc{},
+		wake: make(chan struct{}, 1), bin: bin, dir: dir, in: filepath.Join(appDir(), in)}
 	if b, err := os.ReadFile(c.path); err == nil {
 		json.Unmarshal(b, &c.jobs)
 	}
@@ -117,7 +133,6 @@ func NewConverter(bin func(string) string, dir func() string) *Converter {
 			j.State, j.Pct = "queued", 0
 		}
 	}
-	go c.worker()
 	return c
 }
 
@@ -180,7 +195,7 @@ func (c *Converter) Check(names []string, target string, combine bool) (*Kind, s
 		kn := KindOf(n)
 		if kn == nil {
 			if strings.EqualFold(filepath.Ext(n), ".pdf") {
-				return nil, "PDFs can't be turned into other files yet. Pictures, videos, sound and office files can be."
+				return nil, "For PDFs, use the PDF tool. The Converter takes pictures, videos, sound and office files."
 			}
 			return nil, fmt.Sprintf("%s isn't a kind of file the Converter knows.", filepath.Base(n))
 		}
@@ -217,14 +232,17 @@ func (c *Converter) Start(id string, names []string, target string, small, combi
 		os.RemoveAll(c.InputDir(id))
 		return nil, why
 	}
-	var size int64
-	for _, n := range names {
-		if fi, err := os.Stat(filepath.Join(c.InputDir(id), n)); err == nil {
-			size += fi.Size()
+	return c.add(&CvJob{ID: id, Kind: k.ID, Inputs: names, Target: target, Small: small, Combine: combine && len(names) > 1, From: from}), ""
+}
+
+// add queues a job whose files are in InputDir(j.ID).
+func (c *Converter) add(j *CvJob) *CvJob {
+	for _, n := range j.Inputs {
+		if fi, err := os.Stat(filepath.Join(c.InputDir(j.ID), n)); err == nil {
+			j.InSize += fi.Size()
 		}
 	}
-	j := &CvJob{ID: id, Kind: k.ID, Inputs: names, Target: target, Small: small, Combine: combine && len(names) > 1,
-		From: from, State: "queued", InSize: size, At: time.Now()}
+	j.State, j.At = "queued", time.Now()
 	c.mu.Lock()
 	c.jobs = append([]*CvJob{j}, c.jobs...)
 	c.saveLocked()
@@ -234,7 +252,7 @@ func (c *Converter) Start(id string, names []string, target string, small, combi
 	default:
 	}
 	cp := *j
-	return &cp, ""
+	return &cp
 }
 
 func (c *Converter) Cancel(id string) {
@@ -316,35 +334,9 @@ func (c *Converter) run(id string) {
 		return
 	}
 	in := c.InputDir(id)
-	var made []string
-	var fails []string
-	steps := len(j.Inputs)
-	if j.Combine {
-		steps = 1
-	}
-	for i := 0; i < steps; i++ {
-		prog := func(p float64) {
-			c.update(id, func(j *CvJob) { j.Pct = (float64(i) + p) * 100 / float64(steps) })
-		}
-		var files []string
-		var err error
-		if j.Combine {
-			files, err = c.convert(ctx, j, in, j.Inputs, out, prog)
-		} else {
-			files, err = c.convert(ctx, j, in, j.Inputs[i:i+1], out, prog)
-		}
-		if ctx.Err() != nil {
-			return // cancelled; Cancel already marked it
-		}
-		made = append(made, files...)
-		if err != nil {
-			name := j.Inputs[i]
-			if j.Combine {
-				name = "the pictures"
-			}
-			log.Printf("convert %s: %v", name, err)
-			fails = append(fails, fmt.Sprintf("%s: %v", name, err))
-		}
+	made, fails := c.work(ctx, j, in, out, func(p float64) { c.update(id, func(j *CvJob) { j.Pct = p }) })
+	if ctx.Err() != nil {
+		return // cancelled; Cancel already marked it
 	}
 	var res []DLFile
 	var size int64
@@ -371,11 +363,40 @@ func (c *Converter) run(id string) {
 			j.State, j.Note = "failed", "Nothing came out."
 		}
 	})
-	if j.From == "" {
-		if jj := c.Get(id); jj != nil && jj.State == "done" {
-			notify("Converter", fmt.Sprintf("Converted %d %s to %s.", len(jj.Inputs), plural(len(jj.Inputs), "file", "files"), strings.ToUpper(jj.Target)))
+	if jj := c.Get(id); jj != nil && jj.From == "" && jj.State == "done" && c.notify != nil {
+		c.notify(jj)
+	}
+}
+
+// convertAll is the Converter's work: each file on its own, or all pictures into one PDF.
+func (c *Converter) convertAll(ctx context.Context, j *CvJob, in, out string, prog0 func(float64)) (made, fails []string) {
+	steps := len(j.Inputs)
+	if j.Combine {
+		steps = 1
+	}
+	for i := 0; i < steps; i++ {
+		prog := func(p float64) { prog0((float64(i) + p) * 100 / float64(steps)) }
+		var files []string
+		var err error
+		if j.Combine {
+			files, err = c.convert(ctx, j, in, j.Inputs, out, prog)
+		} else {
+			files, err = c.convert(ctx, j, in, j.Inputs[i:i+1], out, prog)
+		}
+		if ctx.Err() != nil {
+			return nil, nil
+		}
+		made = append(made, files...)
+		if err != nil {
+			name := j.Inputs[i]
+			if j.Combine {
+				name = "the pictures"
+			}
+			log.Printf("convert %s: %v", name, err)
+			fails = append(fails, fmt.Sprintf("%s: %v", name, err))
 		}
 	}
+	return made, fails
 }
 
 func labels(ts []Target) string {

@@ -46,6 +46,7 @@ func (a *App) routes() http.Handler {
 	m.Handle("GET /pt.css", static)
 	m.Handle("GET /dl.css", static)
 	m.Handle("GET /cv.css", static)
+	m.Handle("GET /pdf.css", static)
 	m.HandleFunc("GET /download/PremadeTools.apk", func(w http.ResponseWriter, r *http.Request) {
 		b, err := apkFile.ReadFile("apk/PremadeTools.apk")
 		if err != nil {
@@ -261,6 +262,7 @@ func (a *App) routes() http.Handler {
 	})
 	a.dlRoutes(m)
 	a.cvRoutes(m)
+	a.pdfRoutes(m)
 	return m
 }
 
