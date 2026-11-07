@@ -1,0 +1,5 @@
+-d
+/tmp/x
+-cp
+/dev/null
+bintest/app/src/main/java/tools/premade/bintest/MainActivity.java
