@@ -256,6 +256,7 @@ func (a *App) routes() http.Handler {
 		a.saveSettings(w, r)
 	})
 	a.dlRoutes(m)
+	a.cvRoutes(m)
 	return m
 }
 

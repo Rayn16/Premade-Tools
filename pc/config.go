@@ -33,6 +33,7 @@ type Config struct {
 	SetupDone  bool     `json:"setupDone"`
 	DlDir      string   `json:"dlDir"`     // where downloads go; empty = Downloads\Premade
 	DlNightly  bool     `json:"dlNightly"` // yt-dlp nightly builds (site fixes first)
+	CvDir      string   `json:"cvDir"`     // where converted files go; empty = Downloads\Premade\Converted
 	Phones     []*Phone `json:"phones"`
 }
 
@@ -94,4 +95,12 @@ func (c Config) DownloadDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "Downloads", "Premade")
+}
+
+// ConvertDir is where the Converter saves files.
+func (c Config) ConvertDir() string {
+	if c.CvDir != "" {
+		return c.CvDir
+	}
+	return filepath.Join(c.DownloadDir(), "Converted")
 }
