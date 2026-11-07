@@ -39,7 +39,7 @@ h2{margin:0;font:700 15px/1.2 var(--display);letter-spacing:.04em;color:var(--go
 .search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--fg);font:14px/1.2 var(--body)}
 .search svg{width:16px;height:16px;flex:none}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.btn{display:inline-flex;align-items:center;gap:8px;font:600 13.5px/1 var(--body)!important;padding:10px 14px!important;border-radius:6px;border:1px solid var(--line)!important;background:var(--panel)!important;color:var(--fg)!important;cursor:pointer}
+.btn{text-decoration:none;display:inline-flex;align-items:center;gap:8px;font:600 13.5px/1 var(--body)!important;padding:10px 14px!important;border-radius:6px;border:1px solid var(--line)!important;background:var(--panel)!important;color:var(--fg)!important;cursor:pointer}
 .btn.primary{border-color:var(--accent)!important;background:var(--accent)!important;color:var(--accent-fg)!important}
 .btn:disabled{opacity:.5;cursor:default}
 .btn svg{width:16px;height:16px}
