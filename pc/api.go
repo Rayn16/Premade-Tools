@@ -45,6 +45,7 @@ func (a *App) routes() http.Handler {
 	})
 	m.Handle("GET /pt.css", static)
 	m.Handle("GET /dl.css", static)
+	m.Handle("GET /cv.css", static)
 	m.HandleFunc("GET /download/PremadeTools.apk", func(w http.ResponseWriter, r *http.Request) {
 		b, err := apkFile.ReadFile("apk/PremadeTools.apk")
 		if err != nil {

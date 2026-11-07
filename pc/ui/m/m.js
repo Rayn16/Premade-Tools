@@ -10,6 +10,7 @@ const S = { tool: 'download', tab: 'dl', drawer: false, phone: 'all', type: 'all
 try { S.view = localStorage.getItem('vaultView') || 'grid'; S.tool = localStorage.getItem('ptTool') || 'download'; } catch (e) {}
 // Each tool has its own bottom tabs; the ☰ sidebar switches tools.
 const TOOLS = { download: { name: 'Downloader', icon: 'dl', tabs: [['dl', 'Download', 'dl'], ['history', 'History', 'clock'], ['dlsettings', 'Settings', 'settings']] },
+  convert: { name: 'Converter', icon: 'convert', tabs: [['convert', 'Convert', 'convert'], ['cvhistory', 'History', 'clock'], ['cvsettings', 'Settings', 'settings']] },
   vault: { name: 'Vault', icon: 'shield', tabs: [['deleted', 'Deleted', 'deleted'], ['phones', 'Phones', 'phones'], ['settings', 'Settings', 'settings']] } };
 if (!TOOLS[S.tool]) S.tool = 'download';
 S.tab = TOOLS[S.tool].tabs[0][0];
@@ -28,7 +29,7 @@ async function api(path, body) {
 
 async function refresh() {
   try {
-    [ST, ITEMS, DL] = await Promise.all([api('/api/phone/state'), api('/api/phone/deleted'), api('/api/phone/dl').catch(() => DL)]);
+    [ST, ITEMS, DL] = await Promise.all([api('/api/phone/state'), api('/api/phone/deleted'), api('/api/phone/dl').catch(() => DL), typeof cvRefresh === 'function' && cvRefresh()]); // mcv.js loads after this file
     OFFLINE = false;
     dlAfterRefresh();
     try { localStorage.setItem('vaultCache', JSON.stringify([ST, ITEMS])); } catch (e) {}
@@ -36,8 +37,8 @@ async function refresh() {
     OFFLINE = true;
     if (!ST) { try { [ST, ITEMS] = JSON.parse(localStorage.getItem('vaultCache')) || []; } catch (e2) {} }
   }
-  const now = JSON.stringify([ST, ITEMS, OFFLINE, DL]);
-  if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl')) render();
+  const now = JSON.stringify([ST, ITEMS, OFFLINE, DL, CVS]);
+  if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl' && S.tab !== 'convert')) render();
   LAST = now;
 }
 
@@ -64,7 +65,7 @@ function render() {
     `<button type="button" class="tab" data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></button>`).join('');
   const off = OFFLINE ? `<div class="offline">Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : 'This shows what was there last time.'}</div>` : '';
   const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
-  const views = { phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView };
+  const views = { phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView };
   const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : (views[S.tab] || deletedView)(off);
   $app.innerHTML = `${head}${body}<nav class="tabbar" aria-label="Sections">${tabs}</nav>${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
@@ -320,5 +321,5 @@ refresh();
 let slow = 0;
 setInterval(() => { // every 2 s while a download runs, else every 30 s
   if (document.hidden || S.sheet || S.ask || S.drawer || ['q', 'dlurl'].includes(document.activeElement?.id)) return;
-  if (dlBusy() || ++slow >= 15) { slow = 0; refresh(); }
+  if (dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || ++slow >= 15) { slow = 0; refresh(); }
 }, 2000);

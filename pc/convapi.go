@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"fmt"
 	"io"
 	"mime"
@@ -66,7 +67,11 @@ func (a *App) cvRoutes(m *http.ServeMux) {
 	// The Shortcut, step 1: what can this file become? One choice per line, or "ERR: why".
 	ph("GET /api/phone/cv/ios/targets", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		k := KindOf(r.URL.Query().Get("name"))
+		name := r.URL.Query().Get("name")
+		k := KindOf(name)
+		if k == nil && filepath.Ext(name) == "" {
+			k = &Kinds[0] // ponytail: no extension came through; the Share sheet's usual case is a photo, start checks the real type
+		}
 		if k == nil {
 			_, why := a.cv.Check([]string{r.URL.Query().Get("name")}, "", false)
 			fmt.Fprint(w, "ERR: "+why)
@@ -83,6 +88,11 @@ func (a *App) cvRoutes(m *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		q := r.URL.Query()
 		name := cleanName(q.Get("name"), 0)
+		body := bufio.NewReader(r.Body)
+		if KindOf(name) == nil { // a photo shared without its extension: tell from the first bytes
+			head, _ := body.Peek(12)
+			name += sniffExt(head)
+		}
 		k := KindOf(name)
 		if k == nil {
 			_, why := a.cv.Check([]string{name}, "", false)
@@ -91,7 +101,7 @@ func (a *App) cvRoutes(m *http.ServeMux) {
 		}
 		id := newID()
 		dir := a.cv.InputDir(id)
-		if err := saveBody(r.Body, dir, name); err != nil {
+		if err := saveBody(body, dir, name); err != nil {
 			os.RemoveAll(dir)
 			fmt.Fprint(w, "ERR: The file didn't arrive whole. Try again.")
 			return

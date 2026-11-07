@@ -24,6 +24,8 @@ import org.json.JSONObject;
 public class MainActivity extends Activity {
     static volatile boolean visible;
     private WebView web;
+    private android.webkit.ValueCallback<Uri[]> picked; // the page's file picker (Converter), waiting for a choice
+    private static final int PICK = 7;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -37,6 +39,15 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new android.webkit.WebChromeClient() {
             @Override public android.graphics.Bitmap getDefaultVideoPoster() {
                 return android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888); // no grey play-button poster
+            }
+            @Override public boolean onShowFileChooser(WebView v, android.webkit.ValueCallback<Uri[]> cb, FileChooserParams p) {
+                if (picked != null) picked.onReceiveValue(null);
+                picked = cb;
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                        .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, p.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
+                try { startActivityForResult(Intent.createChooser(i, "Pick files"), PICK); }
+                catch (Exception e) { picked = null; return false; }
+                return true;
             }
         });
         web.setWebViewClient(new WebViewClient() {
@@ -75,6 +86,20 @@ public class MainActivity extends Activity {
     @Override protected void onPause() {
         super.onPause();
         visible = false;
+    }
+
+    @Override protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != PICK || picked == null) return;
+        Uri[] out = null;
+        if (res == RESULT_OK && data != null) {
+            if (data.getClipData() != null) {
+                out = new Uri[data.getClipData().getItemCount()];
+                for (int k = 0; k < out.length; k++) out[k] = data.getClipData().getItemAt(k).getUri();
+            } else if (data.getData() != null) out = new Uri[]{data.getData()};
+        }
+        picked.onReceiveValue(out);
+        picked = null;
     }
 
     @Override public void onBackPressed() {
@@ -147,6 +172,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void saveDownload(String id) {
             new Thread(() -> {
                 Downloads.saveOne(MainActivity.this, id);
+                runOnUiThread(() -> web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null));
+            }).start();
+        }
+        @JavascriptInterface public void saveConverted(String id) {
+            new Thread(() -> {
+                Downloads.saveOne(MainActivity.this, id, "/api/phone/cv");
                 runOnUiThread(() -> web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null));
             }).start();
         }

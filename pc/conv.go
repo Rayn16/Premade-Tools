@@ -189,7 +189,7 @@ func (c *Converter) Check(names []string, target string, combine bool) (*Kind, s
 		}
 	}
 	if !k.has(target) {
-		return nil, fmt.Sprintf("A %s can't become %s.", strings.ToLower(k.Label), strings.ToUpper(target))
+		return nil, fmt.Sprintf("A %s can't become %s. It can become %s.", strings.ToLower(k.Label), strings.ToUpper(target), labels(k.Targets))
 	}
 	if combine && (k.ID != "image" || target != "pdf") {
 		return nil, "Only pictures can be put together into one PDF."
@@ -376,6 +376,14 @@ func (c *Converter) run(id string) {
 			notify("Converter", fmt.Sprintf("Converted %d %s to %s.", len(jj.Inputs), plural(len(jj.Inputs), "file", "files"), strings.ToUpper(jj.Target)))
 		}
 	}
+}
+
+func labels(ts []Target) string {
+	var l []string
+	for _, t := range ts {
+		l = append(l, t.Label)
+	}
+	return strings.Join(l, ", ")
 }
 
 func plural(n int, one, many string) string {

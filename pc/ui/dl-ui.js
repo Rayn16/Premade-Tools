@@ -122,7 +122,7 @@ function askView() {
 function dlSettings() {
   if (!DL) return '';
   const logged = new Set(DL.logins || []);
-  const eng = DL.engines.map((e) => `<span>${esc(e.name)}</span><b>${esc(e.version || '—')}</b><span class="${e.state === 'ok' ? 'ok' : e.state === 'error' ? 'bad' : ''}">${e.state === 'ok' ? 'ready' : e.state === 'installing' ? 'installing…' : e.state === 'missing' ? 'not yet' : 'failed'}</span>`).join('');
+  const eng = DL.engines.filter((e) => e.name !== 'magick').map((e) => `<span>${esc(e.name)}</span><b>${esc(e.version || '—')}</b><span class="${e.state === 'ok' ? 'ok' : e.state === 'error' ? 'bad' : ''}">${e.state === 'ok' ? 'ready' : e.state === 'installing' ? 'installing…' : e.state === 'missing' ? 'not yet' : 'failed'}</span>`).join('');
   const checked = DL.engines.map((e) => e.checked).filter((t) => t && !t.startsWith('0001')).sort()[0];
   return `<div class="cols" style="margin-top:0">
     <div class="col">

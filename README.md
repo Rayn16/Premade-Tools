@@ -1,6 +1,6 @@
 # Premade Tools
 
-Rayan's own tools, in Premade's look. First tool: **Vault**, which saves every file deleted from your phones to your PC.
+Rayan's own tools, in Premade's look. Tools: **Vault** saves every file deleted from your phones to your PC, the **Downloader** saves videos and posts from any link, and the **Converter** turns pictures (iPhone HEIC too), videos, sound and office files into other formats on the PC, sending results back to the phone that asked.
 
 - `android/`: the Android app (Java). Watches Samsung's Recycle bin and Android's trash, sends new deletes to the PC, restores files, updates itself from the PC.
 - `bintest/`: one-screen Android test that checks a normal app can read Samsung's Recycle bin (`Android/.Trash`) and Android's trash. Built by the "Bin test APK" workflow.

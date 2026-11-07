@@ -1,0 +1,20 @@
+/* The Converter, PC window and phone (with dl.css / mdl styles for rows and boxes). */
+.cvdrop{display:flex;flex-direction:column;align-items:center;gap:8px;padding:28px 16px;border:1.5px dashed var(--line);border-radius:7px;color:var(--muted);cursor:pointer;text-align:center}
+.cvdrop svg.i{font-size:26px;color:var(--gold)}
+.cvdrop b{color:var(--fg);font-size:15px}
+.cvdrop small{font-size:12px;color:var(--muted2)}
+.cvdrop:hover,.cvdrop.is-over{border-color:var(--gold-line);background:var(--raised)}
+.cvpicked{display:flex;gap:10px;align-items:flex-start}
+.cvchips{flex:1 1 0;min-width:0;display:flex;flex-wrap:wrap;gap:6px}
+.cvchip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 4px 4px 9px;border:1px solid var(--line);border-radius:5px;background:var(--raised);font-size:12.5px;color:var(--fg)}
+.cvchip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cvchip.more{padding-right:9px;color:var(--muted)}
+.cvchip .iconbtn{width:22px;height:22px;display:grid;place-items:center;border-radius:3px;color:var(--muted)}
+.cvchip .iconbtn:hover{background:var(--panel);color:var(--fg)}
+.cvto{margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cvto .group-label{margin:0}
+.cvto .seg{flex-wrap:wrap}
+.cvhint{margin:6px 0 0;min-height:16px}
+.cvopts{margin-top:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.cvopts .btn.primary{min-width:130px;height:42px}
+.cvopts .btn.primary[disabled]{opacity:.45;cursor:default;filter:none}

@@ -58,7 +58,7 @@ final class Downloads {
                     if (!me.equals(j.optString("from"))) continue;
                     String st = j.optString("state");
                     if (st.equals("queued") || st.equals("running")) busy = true;
-                    else if (st.equals("done") && !j.optBoolean("fetched")) { save(c, j); toast(c, "Saved: " + j.optString("title")); }
+                    else if (st.equals("done") && !j.optBoolean("fetched")) { save(c, j, "/api/phone/dl"); toast(c, "Saved: " + j.optString("title")); }
                 }
                 return busy;
             } catch (Exception e) { Log.w(Watcher.TAG, "downloads", e); return false; }
@@ -66,12 +66,15 @@ final class Downloads {
     }
 
     /** The Save button: any finished download, including ones started on the PC. */
-    static boolean saveOne(Context c, String id) {
+    static boolean saveOne(Context c, String id) { return saveOne(c, id, "/api/phone/dl"); }
+
+    /** Same for a tool's job list at base: "/api/phone/dl" (Downloader) or "/api/phone/cv" (Converter). */
+    static boolean saveOne(Context c, String id, String base) {
         synchronized (LOCK) {
             try {
-                JSONArray jobs = new JSONObject(Vault.call(c, "GET", "/api/phone/dl", null)).getJSONArray("jobs");
+                JSONArray jobs = new JSONObject(Vault.call(c, "GET", base, null)).getJSONArray("jobs");
                 for (int i = 0; i < jobs.length(); i++)
-                    if (jobs.getJSONObject(i).optString("id").equals(id)) { save(c, jobs.getJSONObject(i)); return true; }
+                    if (jobs.getJSONObject(i).optString("id").equals(id)) { save(c, jobs.getJSONObject(i), base); return true; }
             } catch (Exception e) { Log.w(Watcher.TAG, "save", e); toast(c, "Couldn't save it: " + e.getMessage()); }
             return false;
         }
@@ -89,7 +92,7 @@ final class Downloads {
     }
 
     /** Videos to Movies/Premade, photos to Pictures/Premade, audio to Music/Premade. A file already there is kept. */
-    private static void save(Context c, JSONObject j) throws Exception {
+    private static void save(Context c, JSONObject j, String base) throws Exception {
         String id = j.getString("id");
         JSONArray files = j.optJSONArray("files");
         for (int n = 0; files != null && n < files.length(); n++) {
@@ -109,7 +112,7 @@ final class Downloads {
             int dot = name.lastIndexOf('.');
             for (int k = 2; out.exists(); k++) out = new File(d, dot > 0 ? name.substring(0, dot) + " (" + k + ")" + name.substring(dot) : name + " (" + k + ")");
             File tmp = new File(d, "." + out.getName() + ".part");
-            HttpURLConnection h = Vault.open(c, "GET", "/api/phone/dl/file/" + id + "/" + n);
+            HttpURLConnection h = Vault.open(c, "GET", base + "/file/" + id + "/" + n);
             try (InputStream in = h.getInputStream(); OutputStream o = new FileOutputStream(tmp)) {
                 if (h.getResponseCode() != 200) throw new Exception("HTTP " + h.getResponseCode());
                 byte[] buf = new byte[65536];
@@ -118,7 +121,7 @@ final class Downloads {
             if (!tmp.renameTo(out)) throw new Exception("couldn't write " + out);
             MediaScannerConnection.scanFile(c, new String[]{out.getPath()}, null, null);
         }
-        try { Vault.call(c, "POST", "/api/phone/dl/fetched/" + id, null); } catch (Exception ignored) {} // someone else's: nothing to mark
+        try { Vault.call(c, "POST", base + "/fetched/" + id, null); } catch (Exception ignored) {} // someone else's: nothing to mark
     }
 
     static void toast(Context c, String msg) {
