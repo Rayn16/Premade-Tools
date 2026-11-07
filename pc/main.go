@@ -33,6 +33,7 @@ type App struct {
 	dl     *Downloader
 	cv     *Converter
 	pdf    *Converter // the PDF tools, on the Converter's queue
+	tr     *Converter // Transcribe, on the Converter's queue
 }
 
 func main() {
@@ -63,6 +64,7 @@ func main() {
 	a.dl = NewDownloader(a.eng, func() string { return a.set.Get().DownloadDir() })
 	a.cv = NewConverter(a.cvBin, func() string { return a.set.Get().ConvertDir() })
 	a.pdf = NewPdfTools(func() string { return a.set.Get().PdfOutDir() })
+	a.tr = NewTranscriber(func() string { return a.cvBin("ffmpeg") }, func() string { return a.set.Get().TrOutDir() })
 	if c := a.set.Get(); c.VaultDir != "" {
 		if a.store, err = OpenStore(c.VaultDir); err != nil {
 			log.Printf("vault at %s: %v", c.VaultDir, err)

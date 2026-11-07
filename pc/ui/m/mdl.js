@@ -48,7 +48,7 @@ function dlRow(j, full) {
     ${state ? `<span class="jobstate">${state}</span>` : ''}${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
     ${j.state === 'running' || j.state === 'queued' ? `<div class="prog"><i style="width:${Math.max(2, j.pct)}%"></i></div>` : ''}
     ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${dlSaveButton(j)}${j.state === 'running' || j.state === 'queued' ? `<button type="button" class="btn small" data-dlcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
+    <div class="hacts">${dlSaveButton(j)}${full && j.state === 'done' && (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') ? `<button type="button" class="btn small" data-trdl="${j.id}">${icon('transcribe')}Text</button>` : ''}${j.state === 'running' || j.state === 'queued' ? `<button type="button" class="btn small" data-dlcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
 }
 
 function dlLine() {
