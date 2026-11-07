@@ -1,0 +1,13 @@
+/* Transcribe, PC window and phone (with cv.css, dl.css and pdf.css for boxes, chips and rows). */
+.hrows .row.trrow,.m .hrows .row.trrow{flex-direction:column;align-items:stretch;gap:0}
+.trtop{display:flex;align-items:center;gap:13px;min-width:0}
+.m .trtop{gap:10px}
+.trtext{margin-top:10px;max-height:320px;overflow:auto;padding:12px 14px;border:1px solid var(--line);border-radius:6px;background:var(--bg);
+  font-size:14px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;unicode-bidi:plaintext}
+.trtext i{color:var(--muted)}
+.trbar{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.trbar .btn{text-decoration:none}
+.m .trtext{max-height:50vh;font-size:15px}
+.trrec{display:flex;align-items:center;gap:10px;margin-top:10px}
+.trrec.is-on{padding:14px 16px;border:1px solid var(--gold-line);border-radius:6px;background:var(--panel)}
+.trrec .mono{font-variant-numeric:tabular-nums}

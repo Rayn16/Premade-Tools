@@ -13,6 +13,7 @@ const TOOLS = { home: { name: 'Home', icon: 'home', tabs: [['home', 'Home', 'hom
   download: { name: 'Downloader', icon: 'dl', tabs: [['dl', 'Download', 'dl'], ['history', 'History', 'clock'], ['dlsettings', 'Settings', 'settings']] },
   convert: { name: 'Converter', icon: 'convert', tabs: [['convert', 'Convert', 'convert'], ['cvhistory', 'History', 'clock'], ['cvsettings', 'Settings', 'settings']] },
   pdf: { name: 'PDF', icon: 'pdf', tabs: [['pdf', 'Tools', 'pdf'], ['pdfhistory', 'History', 'clock'], ['pdfsettings', 'Settings', 'settings']] },
+  transcribe: { name: 'Transcribe', icon: 'transcribe', tabs: [['transcribe', 'Transcribe', 'transcribe'], ['trhistory', 'History', 'clock'], ['trsettings', 'Settings', 'settings']] },
   vault: { name: 'Vault', icon: 'shield', tabs: [['deleted', 'Deleted', 'deleted'], ['phones', 'Phones', 'phones'], ['settings', 'Settings', 'settings']] } };
 const FLOW = {}; // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null, ITEMS = [], OFFLINE = false, LAST = '';
@@ -30,7 +31,7 @@ async function api(path, body) {
 let VER = ''; // the PC version these pages came from
 async function refresh() {
   try {
-    [ST, ITEMS, DL] = await Promise.all([api('/api/phone/state'), api('/api/phone/deleted'), api('/api/phone/dl').catch(() => DL), typeof cvRefresh === 'function' && cvRefresh(), typeof pdfPhoneRefresh === 'function' && pdfPhoneRefresh()]); // mcv.js and mpdf.js load after this file
+    [ST, ITEMS, DL] = await Promise.all([api('/api/phone/state'), api('/api/phone/deleted'), api('/api/phone/dl').catch(() => DL), typeof cvRefresh === 'function' && cvRefresh(), typeof pdfPhoneRefresh === 'function' && pdfPhoneRefresh(), typeof trToolsView === 'function' && trRefresh()]); // mcv.js and mpdf.js load after this file
     OFFLINE = false;
     if (VER && VER !== ST.version) { // the PC just updated itself: get the new pages, and the new Android app
       try { localStorage.setItem('ptUpdated', '1'); } catch (e) {}
@@ -43,8 +44,8 @@ async function refresh() {
     OFFLINE = true;
     if (!ST) { try { [ST, ITEMS] = JSON.parse(localStorage.getItem('vaultCache')) || []; } catch (e2) {} }
   }
-  const now = JSON.stringify([ST, ITEMS, OFFLINE, DL, CVS, PDFST]);
-  if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl' && S.tab !== 'convert' && S.tab !== 'pdf')) render();
+  const now = JSON.stringify([ST, ITEMS, OFFLINE, DL, CVS, PDFST, TRST]);
+  if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl' && S.tab !== 'convert' && S.tab !== 'pdf' && S.tab !== 'transcribe')) render();
   LAST = now;
 }
 
@@ -72,7 +73,7 @@ function render() {
   const off = OFFLINE ? `<div class="offline">Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : 'This shows what was there last time.'}</div>` : '';
   const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
   const views = { home: homeView, phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView,
-    pdf: pdfToolsView, pdfhistory: pdfHistoryView, pdfsettings: pdfSettingsView };
+    pdf: pdfToolsView, pdfhistory: pdfHistoryView, pdfsettings: pdfSettingsView, transcribe: trToolsView, trhistory: trHistoryView, trsettings: trSettingsView };
   const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : (views[S.tab] || deletedView)(off);
   $app.innerHTML = `${head}${body}${tool.tabs.length > 1 ? `<nav class="tabbar" aria-label="Sections">${tabs}</nav>` : ''}${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}${updView()}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
@@ -87,6 +88,7 @@ function homeView(off) {
       ['download', 'dl', 'Downloader', 'Save videos and photos from any link.', tally(done(dlJobs()), 'download saved', 'downloads saved')],
       ['convert', 'convert', 'Converter', 'Turn files into other formats on your PC.', tally(done(typeof cvJobs === 'function' ? cvJobs() : []), 'file converted', 'files converted')],
       ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', tally(done(pdfJobs()), 'PDF done', 'PDFs done')],
+      ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text.', tally(done(trJobs()), 'file transcribed', 'files transcribed')],
       ['vault', 'shield', 'Vault', 'Get back what you deleted on your phones.', tally(live().length, 'deleted item', 'deleted items') + ' kept']])}</div>`;
 }
 
@@ -357,5 +359,5 @@ try { if (localStorage.getItem('ptUpdated') && NATIVE?.update) NATIVE.update(); 
 let slow = 0;
 setInterval(() => { // every 2 s while a download runs, else every 30 s
   if (document.hidden || S.sheet || S.ask || S.drawer || ['q', 'dlurl', 'pdfpw'].includes(document.activeElement?.id)) return;
-  if (dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || ++slow >= 15) { slow = 0; refresh(); }
+  if (dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy() || ++slow >= 15) { slow = 0; refresh(); }
 }, 2000);

@@ -104,6 +104,7 @@ function histRow(j) {
       ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
     <div class="hacts">
       ${j.state === 'done' ? `<button class="btn small" data-dl="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}
+      ${j.state === 'done' && (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') ? `<button class="btn small" data-trdl="${j.id}">${icon('transcribe')}Transcribe</button>` : ''}
       ${j.login ? `<button class="btn small" data-dl="login" data-site="${siteKey(j.login) || ''}">Log in</button>` : ''}
       <button class="btn small" data-dl="again" data-id="${j.id}">${j.state === 'failed' ? 'Try again' : 'Again'}</button>
       <button class="iconbtn" data-dl="remove" data-id="${j.id}" aria-label="Remove from history" title="Remove from history">${icon('x')}</button>

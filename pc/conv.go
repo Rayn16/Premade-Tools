@@ -94,6 +94,7 @@ type CvJob struct {
 	At      time.Time `json:"at"`
 	Fetched bool      `json:"fetched,omitempty"`
 	Pages   string    `json:"pages,omitempty"` // PDF tools: which pages, in what order, turned how
+	Lang    string    `json:"lang,omitempty"`  // Transcribe: the language it heard
 	pw      string    // PDF tools: the password, kept in memory only
 }
 

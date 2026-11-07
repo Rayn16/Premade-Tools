@@ -35,6 +35,7 @@ type Config struct {
 	DlNightly  bool     `json:"dlNightly"` // yt-dlp nightly builds (site fixes first)
 	CvDir      string   `json:"cvDir"`     // where converted files go; empty = Downloads\Premade\Converted
 	PdfDir     string   `json:"pdfDir"`    // where PDF tools save; empty = Downloads\Premade\PDF
+	TrDir      string   `json:"trDir"`     // where transcripts go; empty = Downloads\Premade\Transcripts
 	Phones     []*Phone `json:"phones"`
 }
 
@@ -112,4 +113,12 @@ func (c Config) PdfOutDir() string {
 		return c.PdfDir
 	}
 	return filepath.Join(c.DownloadDir(), "PDF")
+}
+
+// TrOutDir is where Transcribe saves text and subtitles.
+func (c Config) TrOutDir() string {
+	if c.TrDir != "" {
+		return c.TrDir
+	}
+	return filepath.Join(c.DownloadDir(), "Transcripts")
 }
