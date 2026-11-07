@@ -3,10 +3,12 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -170,4 +172,19 @@ func driveHealth(dir string) string {
 
 func notify(title, msg string) {
 	go ps(`Add-Type -AssemblyName System.Windows.Forms;$n=New-Object System.Windows.Forms.NotifyIcon;$n.Icon=[System.Drawing.SystemIcons]::Warning;$n.Visible=$true;$n.ShowBalloonTip(10000,` + psQuote(title) + `,` + psQuote(msg) + `,'Warning');Start-Sleep 12;$n.Dispose()`)
+}
+
+// showInFolder opens Explorer with the file selected.
+func showInFolder(path string) { exec.Command("explorer.exe", "/select,", path).Start() }
+
+// startEdge opens a normal Edge window on its own profile with the debugging port on, for logins.
+func startEdge(profile string, port int, url string) error {
+	for _, base := range []string{os.Getenv("ProgramFiles(x86)"), os.Getenv("ProgramFiles"), os.Getenv("LocalAppData")} {
+		edge := filepath.Join(base, `Microsoft\Edge\Application\msedge.exe`)
+		if _, err := os.Stat(edge); err == nil {
+			return exec.Command(edge, "--user-data-dir="+profile, "--remote-debugging-port="+strconv.Itoa(port),
+				"--remote-allow-origins=http://127.0.0.1", "--no-first-run", "--window-size=1000,800", url).Start()
+		}
+	}
+	return errors.New("Microsoft Edge isn't installed")
 }

@@ -31,6 +31,8 @@ type Config struct {
 	WarnSpace  bool     `json:"warnSpace"`
 	StartWin   bool     `json:"startWin"`
 	SetupDone  bool     `json:"setupDone"`
+	DlDir      string   `json:"dlDir"`     // where downloads go; empty = Downloads\Premade
+	DlNightly  bool     `json:"dlNightly"` // yt-dlp nightly builds (site fixes first)
 	Phones     []*Phone `json:"phones"`
 }
 
@@ -83,4 +85,13 @@ func (s *Settings) Get() Config {
 		c.Phones[i] = &cp
 	}
 	return c
+}
+
+// DownloadDir is where the Downloader saves files.
+func (c Config) DownloadDir() string {
+	if c.DlDir != "" {
+		return c.DlDir
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "Downloads", "Premade")
 }

@@ -44,6 +44,7 @@ func (a *App) routes() http.Handler {
 		http.ServeFileFS(w, r, ui, "pair.html")
 	})
 	m.Handle("GET /pt.css", static)
+	m.Handle("GET /dl.css", static)
 	m.HandleFunc("GET /download/PremadeTools.apk", func(w http.ResponseWriter, r *http.Request) {
 		b, err := apkFile.ReadFile("apk/PremadeTools.apk")
 		if err != nil {
@@ -254,6 +255,7 @@ func (a *App) routes() http.Handler {
 		r.Body = io.NopCloser(bytes.NewReader(b))
 		a.saveSettings(w, r)
 	})
+	a.dlRoutes(m)
 	return m
 }
 

@@ -173,3 +173,37 @@
 .m .copyfield input{min-width:0;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:12px var(--mono,monospace)}
 .m .copyfield .btn{min-height:34px;padding:0 10px}
 .m .ios-nudge{margin:0 0 12px!important;border-top:0;padding-top:0}
+
+/* Tool sidebar (☰) and the Downloader on the phone */
+.m .menubtn{flex:none;width:36px;height:36px;margin-left:-8px;display:grid;place-items:center;border-radius:6px;color:var(--fg);font-size:21px}
+.m .menubtn:active{background:var(--raised)}
+.m .drawer-back{position:fixed;inset:0;z-index:30;background:rgba(5,3,4,.62)}
+.m .drawer{position:absolute;inset:0 auto 0 0;width:min(300px,82vw);display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line);box-shadow:18px 0 44px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top) + 12px) 12px calc(env(safe-area-inset-bottom) + 12px);overflow-y:auto;animation:pt-drawer .18s ease-out}
+@keyframes pt-drawer{from{translate:-100% 0}}
+.m .drawer-head{display:flex;align-items:center;gap:9px;padding:4px 6px 14px;border-bottom:1px solid var(--line)}
+.m .drawer-label{margin:16px 6px 7px!important;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.m .drawer-tool{position:relative;width:100%;min-height:48px;display:flex;align-items:center;gap:12px;padding:0 12px!important;border-radius:8px;color:var(--muted)!important;font-size:15px;font-weight:500;text-align:left}
+.m .drawer-tool svg.i{font-size:20px}
+.m .drawer-tool[aria-current="page"]{background:var(--raised)!important;color:var(--fg)!important;box-shadow:var(--hi)}
+.m .drawer-tool[aria-current="page"] svg.i{color:var(--gold)}
+.m .drawer-tool[aria-current="page"]::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:2px;border-radius:999px;background:var(--grad)}
+.m .drawer-foot{margin-top:auto;padding-top:8px}
+.m .drawer .themes{grid-template-columns:repeat(3,minmax(0,1fr))}
+.m .dlbox{margin-top:12px;padding:12px}
+.m .dlinput input{height:48px;font-size:16px}
+.m .detected{margin-top:9px;font-size:12.5px;line-height:1.4}
+.m .bigbtns{margin-top:10px;display:flex;gap:8px}
+.m .bigbtns .btn{flex:1 1 0;min-height:48px;font-size:15px!important}
+.m .dlswitch{margin-top:12px;display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--muted)}
+.m .route{margin-top:10px;display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.4;color:var(--muted)}
+.m .route .dotlight{margin-top:6px}.m .route b{color:var(--fg);font-weight:500}
+.m .sec{margin-top:16px}
+.m .hrows .row{padding:9px 10px;gap:10px;align-items:center}
+.m .hmeta{font-size:10.5px;gap:6px}
+.m .row-title.clip{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}
+.m .hacts{flex-direction:column}
+.m .hacts .btn{min-height:34px;font-size:12.5px!important;white-space:nowrap;text-decoration:none}
+.m .thumb{width:48px;height:40px}
+.m .ask-title{margin:4px 0 8px;font:700 19px var(--display);color:var(--gold-hi)}
+.m .ask-text{margin:0;color:var(--muted);font-size:13.5px}.m .ask-text b{color:var(--fg)}
+.m .dlask{display:grid;gap:8px}

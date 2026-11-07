@@ -13,7 +13,7 @@ import android.provider.MediaStore;
  * bin changes them), every 15 minutes as a safety net, and at once when the app asks.
  */
 public class WatchJob extends JobService {
-    private static final int PERIODIC = 1, ON_CHANGE = 2, NOW = 3;
+    private static final int PERIODIC = 1, ON_CHANGE = 2, NOW = 3, DOWNLOADS = 4;
 
     static void schedule(Context c) {
         if (!Vault.paired(c)) return;
@@ -34,9 +34,31 @@ public class WatchJob extends JobService {
         c.getSystemService(JobScheduler.class).schedule(b.build());
     }
 
+    /** Sends a shared link (if any), then saves this phone's downloads into Gallery as they finish. */
+    static void downloads(Context c, String link) {
+        android.os.PersistableBundle x = new android.os.PersistableBundle();
+        if (link != null) x.putString("link", link);
+        // A new share replaces a watch that's already going; the new one picks up everything.
+        c.getSystemService(JobScheduler.class).schedule(new JobInfo.Builder(DOWNLOADS, new ComponentName(c, WatchJob.class))
+                .setExtras(x).setOverrideDeadline(0).build());
+    }
+
     @Override public boolean onStartJob(JobParameters p) {
+        if (p.getJobId() == DOWNLOADS) {
+            new Thread(() -> {
+                String link = p.getExtras().getString("link");
+                if (link == null || Downloads.share(this, link)) {
+                    long end = System.currentTimeMillis() + 9 * 60_000; // jobs get 10 minutes
+                    while (Downloads.saveAll(this) && System.currentTimeMillis() < end)
+                        try { Thread.sleep(3000); } catch (InterruptedException e) { break; }
+                }
+                jobFinished(p, false);
+            }).start();
+            return true;
+        }
         new Thread(() -> {
             Watcher.runOnce(this);
+            Downloads.saveAll(this); // anything that finished while the phone was away
             if (p.getJobId() == ON_CHANGE) schedule(this);
             jobFinished(p, false);
         }).start();

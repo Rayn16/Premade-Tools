@@ -29,6 +29,8 @@ type App struct {
 	upd    string               // newer version waiting, if any
 	moving bool
 	health string // vault drive health, "" when unknown
+	eng    *Engines
+	dl     *Downloader
 }
 
 func main() {
@@ -55,6 +57,8 @@ func main() {
 	cleanOldExe()
 
 	a := &App{set: LoadSettings(), pairs: map[string]time.Time{}, warn: map[string]time.Time{}}
+	a.eng = NewEngines(func() bool { return a.set.Get().DlNightly })
+	a.dl = NewDownloader(a.eng, func() string { return a.set.Get().DownloadDir() })
 	if c := a.set.Get(); c.VaultDir != "" {
 		if a.store, err = OpenStore(c.VaultDir); err != nil {
 			log.Printf("vault at %s: %v", c.VaultDir, err)
@@ -107,6 +111,7 @@ func (a *App) loop() {
 		if tick%6 == 0 {
 			a.checkUpdate(true)
 		}
+		a.eng.Update(false) // installs missing engines, refreshes the ones that are due
 		tick++
 		time.Sleep(time.Hour)
 	}

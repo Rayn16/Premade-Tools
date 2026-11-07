@@ -5,7 +5,9 @@ package main
 // Stand-ins so the program builds and tests on Linux; Vault itself is for Windows.
 
 import (
+	"errors"
 	"log"
+	"os/exec"
 	"syscall"
 )
 
@@ -34,3 +36,6 @@ func diskSpace(dir string) (free, total uint64) {
 	}
 	return
 }
+func hidden(c *exec.Cmd) *exec.Cmd                         { return c }
+func showInFolder(path string)                             { log.Println("show:", path) }
+func startEdge(profile string, port int, url string) error { return errors.New("logins need Windows") }
