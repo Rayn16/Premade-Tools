@@ -1,20 +1,10 @@
 package tools.premade.vault;
 
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.app.Service;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.ServiceInfo;
 import android.database.Cursor;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.IBinder;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Log;
@@ -42,82 +32,63 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Always-on service. Every 30 s it looks for new files in Samsung's Recycle bin (Android/.Trash) and Android's
+ * The watcher. Each run (on every change in the phone's media, and every 15 min) it looks for new files in Samsung's Recycle bin (Android/.Trash) and Android's
  * own trash, copies each new one into the app's storage at once (so emptying the bin later can't lose it), and
  * sends what it holds to the PC whenever the PC is reachable. Every 5 min it compares the phone's file list with
  * the last one to spot files that vanished without passing the bin, and reports those as "couldn't be saved".
  */
-public class WatchService extends Service {
+final class Watcher {
     static final String TAG = "Vault";
-    static final String ACTION_SYNC = "sync";
     private static final Pattern MS = Pattern.compile("\\d{13}");
     private static final String MARK = ".!%#@$"; // Samsung's folder between the original path and the file name
     private static final String[] WATCHED = {"DCIM/", "Pictures/", "Movies/", "Download/", "Documents/", "Music/", "Recordings/", "Android/media/"};
+    private static final Object LOCK = new Object();
 
-    private Handler h;
+    private final Context c;
     private final Set<String> done = new HashSet<>();
     private Set<String> binNames = new HashSet<>(); // "folder/name" of everything in the bins right now
-    private File pending, doneFile, listFile;
-    private long lastList, lastCheckin;
-    private String status = "";
+    private final File pending, doneFile, listFile;
 
-    static void start(Context c) {
-        if (Vault.paired(c)) c.startForegroundService(new Intent(c, WatchService.class));
-    }
-
-    @Override public void onCreate() {
-        super.onCreate();
-        pending = new File(getFilesDir(), "pending");
+    private Watcher(Context c) {
+        this.c = c;
+        pending = new File(c.getFilesDir(), "pending");
         pending.mkdirs();
-        doneFile = new File(getFilesDir(), "done.txt");
-        listFile = new File(getFilesDir(), "list.tsv");
+        doneFile = new File(c.getFilesDir(), "done.txt");
+        listFile = new File(c.getFilesDir(), "list.tsv");
         try (BufferedReader r = new BufferedReader(new FileReader(doneFile))) {
             for (String l; (l = r.readLine()) != null; ) done.add(l);
         } catch (Exception ignored) {}
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel("watch", "Watching the bin", NotificationManager.IMPORTANCE_MIN));
-        startForeground(1, note("Watching the Recycle bin"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
-        HandlerThread t = new HandlerThread("vault");
-        t.start();
-        h = new Handler(t.getLooper());
-        h.post(this::tick);
     }
 
-    @Override public int onStartCommand(Intent i, int flags, int id) {
-        if (i != null && ACTION_SYNC.equals(i.getAction())) h.post(this::sync);
-        return START_STICKY;
+    /** One round: look in the bins, now and then compare the file list, then talk to the PC. Runs from WatchJob. */
+    static void runOnce(Context c) {
+        synchronized (LOCK) {
+            try {
+                if (!Vault.paired(c)) return;
+                Watcher w = new Watcher(c);
+                if (Vault.allFiles()) {
+                    w.scanBin();
+                    long last = Vault.prefs(c).getLong("lastList", 0);
+                    if (System.currentTimeMillis() - last > 5 * 60_000) {
+                        w.checkList();
+                        Vault.prefs(c).edit().putLong("lastList", System.currentTimeMillis()).apply();
+                    }
+                }
+                w.sync();
+                Updater.check(c, null);
+            } catch (Throwable e) { Log.w(TAG, "run", e); }
+        }
     }
 
-    @Override public IBinder onBind(Intent i) { return null; }
-
-    private Notification note(String text) {
-        PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, "watch").setSmallIcon(R.drawable.ic_note).setContentTitle("Vault")
-                .setContentText(text).setOngoing(true).setContentIntent(open).build();
-    }
-
-    private void setStatus(String s) {
-        if (s.equals(status)) return;
-        status = s;
-        getSystemService(NotificationManager.class).notify(1, note(s));
-    }
-
-    private void tick() {
-        try {
-            if (!Vault.paired(this)) { stopSelf(); return; }
-            if (Vault.allFiles()) {
-                scanBin();
-                if (System.currentTimeMillis() - lastList > 5 * 60_000) { checkList(); lastList = System.currentTimeMillis(); }
-            }
-            sync();
-        } catch (Throwable e) { Log.w(TAG, "tick", e); }
-        h.postDelayed(this::tick, 30_000); // ponytail: polling; a 2k-file walk takes milliseconds. FileObserver per folder if battery shows it.
+    static int pendingCount(Context c) {
+        String[] m = new File(c.getFilesDir(), "pending").list((d, n) -> n.endsWith(".json"));
+        return m == null ? 0 : m.length;
     }
 
     // ---------- the bins ----------
 
     private void scanBin() {
-        long base = Vault.prefs(this).getLong("baseline", 0);
+        long base = Vault.prefs(c).getLong("baseline", 0);
         Set<String> names = new HashSet<>();
         walk(Vault.TRASH, names, base);
         mediaStoreTrash(names, base);
@@ -158,7 +129,7 @@ public class WatchService extends Service {
         Bundle q = new Bundle();
         q.putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY);
         String[] cols = {MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.DATE_EXPIRES, MediaStore.MediaColumns.DISPLAY_NAME};
-        try (Cursor c = getContentResolver().query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), cols, q, null)) {
+        try (Cursor c = c.getContentResolver().query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), cols, q, null)) {
             while (c != null && c.moveToNext()) {
                 String path = c.getString(0);
                 if (path == null || !path.startsWith(Vault.ROOT.getPath())) continue;
@@ -203,7 +174,7 @@ public class WatchService extends Service {
     private void checkList() {
         Map<String, String[]> now = new HashMap<>(); // path → {size, owner package, date added}
         String[] cols = {MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.OWNER_PACKAGE_NAME, MediaStore.MediaColumns.DATE_ADDED};
-        try (Cursor c = getContentResolver().query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), cols, null, null)) {
+        try (Cursor c = c.getContentResolver().query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), cols, null, null)) {
             String root = Vault.ROOT.getPath() + "/";
             while (c != null && c.moveToNext()) {
                 String path = c.getString(0);
@@ -251,7 +222,7 @@ public class WatchService extends Service {
 
     private void reportMissed(String name, String folder, String owner) {
         String from = owner == null ? null : label(owner);
-        String phone = deviceName(this);
+        String phone = deviceName(c);
         String note = "It left the " + phone + " without going through the Recycle bin" + (from != null ? " (it came from " + from + ")." : ".");
         try {
             JSONObject m = new JSONObject().put("missed", true).put("name", name).put("folder", folder == null ? "" : folder)
@@ -261,7 +232,7 @@ public class WatchService extends Service {
     }
 
     private String label(String pkg) {
-        try { return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString(); }
+        try { return c.getPackageManager().getApplicationLabel(c.getPackageManager().getApplicationInfo(pkg, 0)).toString(); }
         catch (Exception e) { return null; }
     }
 
@@ -273,49 +244,33 @@ public class WatchService extends Service {
     // ---------- talking to the PC ----------
 
     private void sync() {
-        int waiting = countPending();
-        if (!Vault.paired(this) || !Vault.canReachHome(this)) {
-            setStatus(waiting > 0 ? waiting + " files waiting for your PC" : "Watching the Recycle bin");
-            return;
-        }
+        if (!Vault.canReachHome(c)) return;
         try {
             File[] metas = pending.listFiles((d, n) -> n.endsWith(".json"));
             if (metas != null) {
                 Arrays.sort(metas);
                 for (File meta : metas) send(meta);
             }
-            if (System.currentTimeMillis() - lastCheckin > 10 * 60_000 || (metas != null && metas.length > 0)) {
-                JSONObject s = new JSONObject().put("allFiles", Vault.allFiles()).put("battery", Vault.battery(this))
-                        .put("binOn", Vault.binOn()).put("watching", Vault.allFiles()).put("pending", countPending());
-                Vault.call(this, "POST", "/api/phone/checkin", s);
-                lastCheckin = System.currentTimeMillis();
-            }
+            JSONObject s = new JSONObject().put("allFiles", Vault.allFiles()).put("battery", Vault.battery(c))
+                    .put("binOn", Vault.binOn()).put("watching", Vault.allFiles()).put("pending", pendingCount(c))
+                    .put("app", Updater.myVersion(c));
+            Vault.call(c, "POST", "/api/phone/checkin", s);
             restores();
-            setStatus("Watching the Recycle bin");
         } catch (Exception e) {
             Log.w(TAG, "sync", e);
-            if (e.getMessage() != null && e.getMessage().startsWith("401")) {
-                Vault.prefs(this).edit().remove("token").apply(); // the PC forgot this phone
-                return;
-            }
-            waiting = countPending();
-            setStatus(waiting > 0 ? waiting + " files waiting for your PC" : "Watching the Recycle bin");
+            if (e.getMessage() != null && e.getMessage().startsWith("401"))
+                Vault.prefs(c).edit().remove("token").apply(); // the PC forgot this phone
         }
-    }
-
-    private int countPending() {
-        String[] m = pending.list((d, n) -> n.endsWith(".json"));
-        return m == null ? 0 : m.length;
     }
 
     private void send(File meta) throws Exception {
         JSONObject m = new JSONObject(new String(Files.readAllBytes(meta.toPath()), StandardCharsets.UTF_8));
         File bin = new File(meta.getPath().replace(".json", ".bin"));
         if (m.optBoolean("missed")) {
-            Vault.call(this, "POST", "/api/phone/missed", new JSONObject().put("Name", m.getString("name"))
+            Vault.call(c, "POST", "/api/phone/missed", new JSONObject().put("Name", m.getString("name"))
                     .put("Folder", m.getString("folder")).put("Note", m.getString("note")).put("At", m.getLong("at")));
         } else {
-            HttpURLConnection c = Vault.open(this, "PUT", "/api/phone/upload");
+            HttpURLConnection c = Vault.open(c, "PUT", "/api/phone/upload");
             c.setRequestProperty("X-Key", Vault.enc(m.getString("key")));
             c.setRequestProperty("X-Name", Vault.enc(m.getString("name")));
             c.setRequestProperty("X-Folder", Vault.enc(m.getString("folder")));
@@ -338,7 +293,7 @@ public class WatchService extends Service {
 
     /** Files someone chose to restore to this phone, from the PC or the app: put back where they were. */
     private void restores() throws Exception {
-        JSONArray list = new JSONArray(Vault.call(this, "GET", "/api/phone/restores", null));
+        JSONArray list = new JSONArray(Vault.call(c, "GET", "/api/phone/restores", null));
         for (int i = 0; i < list.length(); i++) {
             JSONObject it = list.getJSONObject(i);
             String id = it.getString("id"), name = it.getString("name"), folder = it.optString("folder");
@@ -350,14 +305,14 @@ public class WatchService extends Service {
                 dst = new File(dir, dot > 0 ? name.substring(0, dot) + " (" + n + ")" + name.substring(dot) : name + " (" + n + ")");
             }
             File tmp = new File(dir, ".vault-" + id);
-            HttpURLConnection c = Vault.open(this, "GET", "/api/phone/file/" + id);
+            HttpURLConnection c = Vault.open(c, "GET", "/api/phone/file/" + id);
             try (InputStream in = c.getInputStream(); OutputStream o = new FileOutputStream(tmp)) {
                 byte[] buf = new byte[1 << 16];
                 for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
             } finally { c.disconnect(); }
             if (!tmp.renameTo(dst)) { tmp.delete(); throw new Exception("couldn't write " + dst); }
-            MediaScannerConnection.scanFile(this, new String[]{dst.getPath()}, null, null);
-            Vault.call(this, "POST", "/api/phone/restored/" + id, new JSONObject());
+            MediaScannerConnection.scanFile(c, new String[]{dst.getPath()}, null, null);
+            Vault.call(c, "POST", "/api/phone/restored/" + id, new JSONObject());
             Log.i(TAG, "restored " + dst);
         }
     }

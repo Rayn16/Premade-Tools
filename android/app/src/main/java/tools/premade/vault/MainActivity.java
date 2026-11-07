@@ -1,6 +1,5 @@
 package tools.premade.vault;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.Intent;
@@ -23,6 +22,7 @@ import org.json.JSONObject;
  * setup page. Otherwise the Vault screens served by the PC, with a local page when the PC can't be reached.
  */
 public class MainActivity extends Activity {
+    static volatile boolean visible;
     private WebView web;
 
     @Override protected void onCreate(Bundle b) {
@@ -34,6 +34,11 @@ public class MainActivity extends Activity {
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
         web.addJavascriptInterface(new Bridge(), "Vault");
+        web.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override public android.graphics.Bitmap getDefaultVideoPoster() {
+                return android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888); // no grey play-button poster
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
@@ -52,8 +57,6 @@ public class MainActivity extends Activity {
             getSystemService(DownloadManager.class).enqueue(req);
         });
         setContentView(web);
-        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != 0)
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
         if (!handlePair(getIntent())) show();
     }
 
@@ -64,7 +67,14 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        visible = true;
         web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null);
+        if (Vault.paired(this)) new Thread(() -> Updater.check(this, this)).start();
+    }
+
+    @Override protected void onPause() {
+        super.onPause();
+        visible = false;
     }
 
     @Override public void onBackPressed() {
@@ -75,7 +85,8 @@ public class MainActivity extends Activity {
         if (!Vault.paired(this)) web.loadUrl("file:///android_asset/setup.html#pair");
         else if (!Vault.allFiles() || !Vault.prefs(this).getBoolean("setupDone", false)) web.loadUrl("file:///android_asset/setup.html");
         else {
-            WatchService.start(this);
+            WatchJob.schedule(this);
+            WatchJob.now(this);
             web.loadUrl("http://" + Vault.host(this) + "/m/#t=" + Vault.token(this));
         }
     }
@@ -92,7 +103,7 @@ public class MainActivity extends Activity {
             try {
                 Vault.prefs(this).edit().putString("host", host).remove("token").apply();
                 JSONObject r = new JSONObject(Vault.call(this, "POST", "/api/pair", new JSONObject()
-                        .put("code", code).put("name", WatchService.deviceName(this)).put("kind", "android")));
+                        .put("code", code).put("name", Watcher.deviceName(this)).put("kind", "android")));
                 // Files deleted before pairing aren't saved: Vault protects from today on.
                 Vault.prefs(this).edit().putString("token", r.getString("token"))
                         .putLong("baseline", System.currentTimeMillis()).putBoolean("setupDone", false).apply();
@@ -110,10 +121,9 @@ public class MainActivity extends Activity {
     class Bridge {
         @JavascriptInterface public String status() {
             try {
-                String[] p = new java.io.File(getFilesDir(), "pending").list((d, n) -> n.endsWith(".json"));
                 return new JSONObject().put("paired", Vault.paired(MainActivity.this)).put("allFiles", Vault.allFiles())
                         .put("battery", Vault.battery(MainActivity.this)).put("binOn", Vault.binOn())
-                        .put("pending", p == null ? 0 : p.length).put("phone", WatchService.deviceName(MainActivity.this)).toString();
+                        .put("pending", Watcher.pendingCount(MainActivity.this)).put("phone", Watcher.deviceName(MainActivity.this)).toString();
             } catch (Exception e) { return "{}"; }
         }
         @JavascriptInterface public void fix(String what) {
@@ -127,7 +137,7 @@ public class MainActivity extends Activity {
             if (i != null) runOnUiThread(() -> startActivity(i));
         }
         @JavascriptInterface public void syncNow() {
-            startService(new Intent(MainActivity.this, WatchService.class).setAction(WatchService.ACTION_SYNC));
+            WatchJob.now(MainActivity.this);
         }
         @JavascriptInterface public void done() {
             Vault.prefs(MainActivity.this).edit().putBoolean("setupDone", true).apply();

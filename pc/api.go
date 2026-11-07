@@ -181,6 +181,11 @@ func (a *App) routes() http.Handler {
 		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "free": human(int64(free)),
 			"config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
 	})
+	ph("GET /api/phone/app", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		v, _ := apkFile.ReadFile("apk/version.txt")
+		n, _ := strconv.Atoi(strings.TrimSpace(string(v)))
+		writeJ(w, map[string]int{"version": n})
+	})
 	ph("GET /api/phone/deleted", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) { writeJ(w, st.Deleted()) })
 	ph("GET /api/phone/view/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		serveItem(w, r, st, r.PathValue("id"), r.URL.Query().Has("dl"))
@@ -287,6 +292,7 @@ func without(list []string, s string) []string {
 }
 
 type phoneView struct {
+	Pending          []string // restores still on their way to the phone
 	ID, Name, Kind   string
 	Paired, LastSeen time.Time
 	Status           json.RawMessage
@@ -296,7 +302,7 @@ type phoneView struct {
 func (a *App) phoneViews() []phoneView {
 	phones := []phoneView{}
 	for _, p := range a.set.Get().Phones {
-		phones = append(phones, phoneView{p.ID, p.Name, p.Kind, p.Paired, p.LastSeen, p.Status, len(p.Restores)})
+		phones = append(phones, phoneView{append([]string{}, p.Restores...), p.ID, p.Name, p.Kind, p.Paired, p.LastSeen, p.Status, len(p.Restores)})
 	}
 	return phones
 }

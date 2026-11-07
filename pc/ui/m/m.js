@@ -133,7 +133,7 @@ function sheetView() {
   if (!it) return '';
   const src = view(it.id);
   const pv = it.kind === 'photo' ? `<img src="${src}" alt="Preview of ${esc(it.name)}" onerror="this.replaceWith(document.createTextNode('No preview for this photo type'))">`
-    : it.kind === 'video' ? `<video src="${src}" controls playsinline preload="metadata"></video>`
+    : it.kind === 'video' ? `<video src="${src}#t=0.1" controls playsinline preload="metadata"></video>`
     : it.kind === 'voice' ? `<audio src="${src}" controls preload="none"></audio>` : icon('file');
   const p = phoneById(it.phone);
   const keep = ST.config.keep === 'forever' ? 'Forever' : 'Until ' + new Date(new Date(it.deletedAt).getTime() + KEEPDAYS[ST.config.keep] * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -190,9 +190,10 @@ $app.addEventListener('click', async (e) => {
     else if (d.restore) {
       await api('/api/phone/restore/' + d.restore, {});
       const it = ITEMS.find((i) => i.id === d.restore), p = phoneById(it.phone);
-      S.msg = p.Kind === 'iphone' ? 'Queued. It goes back into Photos the next time the iPhone backs up.' : it.phone === ST.me ? `Coming back into ${it.folder} in a moment.` : `On its way back to the ${p.Name}, into ${it.folder}.`;
+      S.msg = p.Kind === 'iphone' ? 'Queued. It goes back into Photos the next time the iPhone backs up.' : it.phone === ST.me ? `Restoring into ${it.folder}…` : `Waiting for the ${p.Name} to pick it up. It goes back into ${it.folder}.`;
       if (it.phone === ST.me && NATIVE) NATIVE.syncNow();
       render();
+      watchRestore(it);
     }
     else if (d.fix) { NATIVE.fix(d.fix); }
     else if (d.keep) {
@@ -205,6 +206,17 @@ $app.addEventListener('click', async (e) => {
     else if (d.themePick) { await api('/api/phone/settings', { theme: d.themePick }); refresh(); }
   } catch (err) { S.msg = err.message; render(); }
 });
+// Shows "Restored" once the phone has put the file back (the PC drops it from that phone's list).
+function watchRestore(it) {
+  const t0 = Date.now();
+  const t = setInterval(async () => {
+    await refresh();
+    const p = phoneById(it.phone);
+    if (p && (p.Pending || []).includes(it.id) && Date.now() - t0 < 20 * 60e3) return;
+    clearInterval(t);
+    if (S.sheet === it.id && p && !(p.Pending || []).includes(it.id)) { S.msg = `Restored. It's back in ${it.folder}.`; render(); }
+  }, 3000);
+}
 $app.addEventListener('input', (e) => { if (e.target.id === 'q') { S.q = e.target.value; document.getElementById('dl').innerHTML = listView(); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 window.vaultRefresh = refresh; // the Android app calls this after it sends something

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+var version = "0.1.0" // CI sets the build number: -X main.version=0.1.N
 const port = 47110
 
 var listener net.Listener

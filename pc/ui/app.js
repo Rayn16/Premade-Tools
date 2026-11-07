@@ -170,7 +170,7 @@ function detailView(it) {
   if (!it) return '<div></div>';
   const src = `/api/ui/file/${it.id}`;
   const pv = it.kind === 'photo' ? `<img src="${src}" alt="Preview of ${esc(it.name)}" onerror="this.replaceWith(document.createTextNode('No preview for this photo type'))">`
-    : it.kind === 'video' ? `<video src="${src}" controls preload="metadata"></video>`
+    : it.kind === 'video' ? `<video src="${src}#t=0.1" controls preload="metadata"></video>`
     : it.kind === 'voice' ? `<audio src="${src}" controls preload="none"></audio>` : icon('file');
   const p = phoneById(it.phone);
   const keep = ST.config.keep === 'forever' ? 'Forever' : 'Until ' + new Date(new Date(it.deletedAt).getTime() + KEEPDAYS[ST.config.keep] * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -329,8 +329,9 @@ $app.addEventListener('click', async (e) => {
     else if (d.restore) {
       await api('/api/ui/restore/' + d.restore, {});
       const it = ITEMS.find((i) => i.id === d.restore), p = phoneById(it.phone);
-      S.msg = p.Kind === 'iphone' ? 'Queued. It goes back into Photos the next time the iPhone backs up.' : `On its way back to the ${p.Name}, into ${it.folder}. It arrives the next time the phone checks in.`;
+      S.msg = p.Kind === 'iphone' ? 'Queued. It goes back into Photos the next time the iPhone backs up.' : `Waiting for the ${p.Name} to pick it up (within 15 minutes, sooner when the phone is in use). It goes back into ${it.folder}.`;
       refresh();
+      if (p.Kind !== 'iphone') watchRestore(it);
     }
     else if (d.pair !== undefined) { S.pair = await api('/api/ui/pair'); render(); }
     else if (d.forget) { if (confirm('Forget this phone? It stops sending deleted files. Files already saved stay in the vault.')) { await api('/api/ui/forget/' + d.forget, {}); refresh(); } }
@@ -364,6 +365,17 @@ $app.addEventListener('click', async (e) => {
   } catch (err) { S.msg = err.message; render(); }
 });
 
+// Shows "Restored" once the phone has put the file back (it leaves that phone's waiting list).
+function watchRestore(it) {
+  const t0 = Date.now();
+  const t = setInterval(async () => {
+    await refresh();
+    const p = phoneById(it.phone);
+    if (p && (p.Pending || []).includes(it.id) && Date.now() - t0 < 60 * 60e3) return;
+    clearInterval(t);
+    if (S.sel === it.id && p && !(p.Pending || []).includes(it.id)) { S.msg = `Restored. It's back on the ${p.Name}, in ${it.folder}.`; render(); }
+  }, 5000);
+}
 $app.addEventListener('input', async (e) => {
   const t = e.target;
   if (t.id === 'q') { S.q = t.value; document.getElementById('dl').innerHTML = deletedBody(); }

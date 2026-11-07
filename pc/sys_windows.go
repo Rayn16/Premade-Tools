@@ -72,16 +72,28 @@ func installSelf(args []string, release func()) bool {
 	dir := filepath.Join(os.Getenv("LocalAppData"), "Premade Tools")
 	dst := filepath.Join(dir, "PremadeTools.exe")
 	if strings.EqualFold(filepath.Clean(exe), dst) {
+		if _, err := os.Stat(filepath.Join(dir, "icon.ico")); err != nil {
+			startMenu(dir, dst) // installs from before the icon existed
+		}
 		return false
 	}
 	os.MkdirAll(dir, 0o755)
 	if err := copyExe(exe, dst); err != nil {
 		return false // run from where it is
 	}
-	lnk := filepath.Join(os.Getenv("AppData"), `Microsoft\Windows\Start Menu\Programs\Premade Tools.lnk`)
-	ps(`$s=(New-Object -ComObject WScript.Shell).CreateShortcut(` + psQuote(lnk) + `);$s.TargetPath=` + psQuote(dst) + `;$s.Save()`)
+	startMenu(dir, dst)
 	release() // free the port so the installed copy can take it
 	return exec.Command(dst, args...).Start() == nil
+}
+
+// startMenu adds the Start menu entry with Premade's mark.
+func startMenu(dir, exe string) {
+	ico := filepath.Join(dir, "icon.ico")
+	if b, err := uiFiles.ReadFile("ui/icon.ico"); err == nil {
+		os.WriteFile(ico, b, 0o644)
+	}
+	lnk := filepath.Join(os.Getenv("AppData"), `Microsoft\Windows\Start Menu\Programs\Premade Tools.lnk`)
+	ps(`$s=(New-Object -ComObject WScript.Shell).CreateShortcut(` + psQuote(lnk) + `);$s.TargetPath=` + psQuote(exe) + `;$s.IconLocation=` + psQuote(ico) + `;$s.Save()`)
 }
 
 func copyExe(src, dst string) error {

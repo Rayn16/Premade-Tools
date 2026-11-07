@@ -6,13 +6,14 @@ android {
         applicationId 'tools.premade.vault'
         minSdk 30
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0'
+        // CI numbers each build, so every new build installs over the last one.
+        versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger())
+        versionName "0.1.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
     }
-    // ponytail: the signing key lives in this private repo so every build installs over the last one.
-    // Move it to a GitHub secret before the repo goes public.
+    // The signing key comes from the ANDROID_KEYSTORE repo secret (CI writes it here); it never goes in the repo.
+    // The same key signs every build, so each one installs over the last.
     signingConfigs {
-        vault { storeFile file('../vault.keystore'); storePassword 'premadevault'; keyAlias 'vault'; keyPassword 'premadevault' }
+        vault { storeFile file('../vault.keystore'); storeType 'pkcs12'; storePassword 'premadevault'; keyAlias 'vault'; keyPassword 'premadevault' }
     }
     buildTypes {
         release { signingConfig signingConfigs.vault; minifyEnabled false }
