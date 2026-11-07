@@ -129,15 +129,15 @@ final class Watcher {
         Bundle q = new Bundle();
         q.putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY);
         String[] cols = {MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.DATE_EXPIRES, MediaStore.MediaColumns.DISPLAY_NAME};
-        try (Cursor c = c.getContentResolver().query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), cols, q, null)) {
-            while (c != null && c.moveToNext()) {
-                String path = c.getString(0);
+        try (Cursor cur = c.getContentResolver().query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), cols, q, null)) {
+            while (cur != null && cur.moveToNext()) {
+                String path = cur.getString(0);
                 if (path == null || !path.startsWith(Vault.ROOT.getPath())) continue;
                 File f = new File(path);
                 String name = f.getName().replaceFirst("^\\.trashed-\\d+-", "");
                 String folder = f.getParent().substring(Math.min(f.getParent().length(), Vault.ROOT.getPath().length() + 1));
                 names.add(folder + "/" + name);
-                long at = c.getLong(1) * 1000 - 30L * 86_400_000; // trashed items expire 30 days after deletion
+                long at = cur.getLong(1) * 1000 - 30L * 86_400_000; // trashed items expire 30 days after deletion
                 if (at >= base) keep("trash/" + path, f, name, folder, at);
             }
         } catch (Exception e) { Log.w(TAG, "trash", e); }
@@ -174,15 +174,15 @@ final class Watcher {
     private void checkList() {
         Map<String, String[]> now = new HashMap<>(); // path → {size, owner package, date added}
         String[] cols = {MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.OWNER_PACKAGE_NAME, MediaStore.MediaColumns.DATE_ADDED};
-        try (Cursor c = c.getContentResolver().query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), cols, null, null)) {
+        try (Cursor cur = c.getContentResolver().query(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), cols, null, null)) {
             String root = Vault.ROOT.getPath() + "/";
-            while (c != null && c.moveToNext()) {
-                String path = c.getString(0);
+            while (cur != null && cur.moveToNext()) {
+                String path = cur.getString(0);
                 if (path == null || !path.startsWith(root) || path.contains("/.")) continue;
                 String rel = path.substring(root.length());
                 boolean watched = false;
                 for (String w : WATCHED) watched |= rel.startsWith(w);
-                if (watched) now.put(rel, new String[]{c.getString(1), c.getString(2), c.getString(3)});
+                if (watched) now.put(rel, new String[]{cur.getString(1), cur.getString(2), cur.getString(3)});
             }
         } catch (Exception e) { Log.w(TAG, "list", e); return; }
 
@@ -270,21 +270,21 @@ final class Watcher {
             Vault.call(c, "POST", "/api/phone/missed", new JSONObject().put("Name", m.getString("name"))
                     .put("Folder", m.getString("folder")).put("Note", m.getString("note")).put("At", m.getLong("at")));
         } else {
-            HttpURLConnection c = Vault.open(c, "PUT", "/api/phone/upload");
-            c.setRequestProperty("X-Key", Vault.enc(m.getString("key")));
-            c.setRequestProperty("X-Name", Vault.enc(m.getString("name")));
-            c.setRequestProperty("X-Folder", Vault.enc(m.getString("folder")));
-            c.setRequestProperty("X-Deleted-At", Long.toString(m.getLong("at")));
-            c.setRequestProperty("X-Sha256", m.getString("sha"));
-            c.setDoOutput(true);
-            c.setFixedLengthStreamingMode(bin.length());
-            try (InputStream in = new FileInputStream(bin); OutputStream o = c.getOutputStream()) {
+            HttpURLConnection h = Vault.open(c, "PUT", "/api/phone/upload");
+            h.setRequestProperty("X-Key", Vault.enc(m.getString("key")));
+            h.setRequestProperty("X-Name", Vault.enc(m.getString("name")));
+            h.setRequestProperty("X-Folder", Vault.enc(m.getString("folder")));
+            h.setRequestProperty("X-Deleted-At", Long.toString(m.getLong("at")));
+            h.setRequestProperty("X-Sha256", m.getString("sha"));
+            h.setDoOutput(true);
+            h.setFixedLengthStreamingMode(bin.length());
+            try (InputStream in = new FileInputStream(bin); OutputStream o = h.getOutputStream()) {
                 byte[] buf = new byte[1 << 16];
                 for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
             }
-            int code = c.getResponseCode();
-            String body = Vault.read(code < 400 ? c.getInputStream() : c.getErrorStream());
-            c.disconnect();
+            int code = h.getResponseCode();
+            String body = Vault.read(code < 400 ? h.getInputStream() : h.getErrorStream());
+            h.disconnect();
             if (code >= 300) throw new Exception(code + " " + body);
         }
         bin.delete();
@@ -305,11 +305,11 @@ final class Watcher {
                 dst = new File(dir, dot > 0 ? name.substring(0, dot) + " (" + n + ")" + name.substring(dot) : name + " (" + n + ")");
             }
             File tmp = new File(dir, ".vault-" + id);
-            HttpURLConnection c = Vault.open(c, "GET", "/api/phone/file/" + id);
-            try (InputStream in = c.getInputStream(); OutputStream o = new FileOutputStream(tmp)) {
+            HttpURLConnection h = Vault.open(c, "GET", "/api/phone/file/" + id);
+            try (InputStream in = h.getInputStream(); OutputStream o = new FileOutputStream(tmp)) {
                 byte[] buf = new byte[1 << 16];
                 for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
-            } finally { c.disconnect(); }
+            } finally { h.disconnect(); }
             if (!tmp.renameTo(dst)) { tmp.delete(); throw new Exception("couldn't write " + dst); }
             MediaScannerConnection.scanFile(c, new String[]{dst.getPath()}, null, null);
             Vault.call(c, "POST", "/api/phone/restored/" + id, new JSONObject());

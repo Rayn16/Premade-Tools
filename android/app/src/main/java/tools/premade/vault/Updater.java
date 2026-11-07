@@ -48,7 +48,7 @@ final class Updater {
         PackageInstaller pi = c.getPackageManager().getPackageInstaller();
         PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         sp.setAppPackageName(c.getPackageName());
-        sp.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+        if (android.os.Build.VERSION.SDK_INT >= 31) sp.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
         int id = pi.createSession(sp);
         try (PackageInstaller.Session s = pi.openSession(id)) {
             HttpURLConnection h = Vault.open(c, "GET", "/download/PremadeTools.apk");
@@ -67,7 +67,7 @@ final class Updater {
         @Override public void onReceive(Context c, Intent i) {
             int st = i.getIntExtra(PackageInstaller.EXTRA_STATUS, -999);
             if (st == PackageInstaller.STATUS_PENDING_USER_ACTION && MainActivity.visible) {
-                Intent ask = i.getParcelableExtra(Intent.EXTRA_INTENT, Intent.class);
+                Intent ask = i.getParcelableExtra(Intent.EXTRA_INTENT);
                 if (ask != null) c.startActivity(ask.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } else if (st != PackageInstaller.STATUS_SUCCESS) {
                 Log.w(Watcher.TAG, "update status " + st + " " + i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE));
