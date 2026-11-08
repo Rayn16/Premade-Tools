@@ -44,7 +44,7 @@ function trSettings() {
   return `<div class="cols" style="margin-top:18px">
     <div class="col">
       <section><h2 class="group-label">Transcribe · where text goes</h2><div class="rows">
-        <div class="row"><div class="row-text"><span class="row-title">PC folder</span><span class="row-hint mono">${esc(TRST.dir)}</span></div><button class="btn small" data-trpc="folder">Change…</button></div>
+        <div class="row"><div class="row-text"><span class="row-title">Save folder, the same for every tool</span><span class="row-hint mono">${esc(TRST.dir)}</span></div><button class="btn small" data-trpc="folder">Change…</button></div>
         <div class="row"><div class="row-text"><span class="row-title">Each file gives</span><span class="row-hint">A .txt with the words and an .srt with subtitles, with the same name as the file.</span></div></div>
       </div></section>
     </div>

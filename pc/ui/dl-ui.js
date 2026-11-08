@@ -128,8 +128,8 @@ function dlSettings() {
   return `<div class="cols" style="margin-top:0">
     <div class="col">
       <section><h2 class="group-label">Downloader · where files go</h2><div class="rows">
-        <div class="row"><div class="row-text"><span class="row-title">PC folder</span><span class="row-hint mono">${esc(DL.dir)}</span></div><button class="btn small" data-dl="folder">Change…</button></div>
-        <div class="row"><div class="row-text"><span class="row-title">Phones</span><span class="row-hint">A link sent from a phone goes back to that phone: videos and pictures into Photos or Gallery, MP3s into Files or Music. A copy stays here.</span></div></div>
+        <div class="row"><div class="row-text"><span class="row-title">Save folder, the same for every tool</span><span class="row-hint mono">${esc(DL.dir)}</span></div><button class="btn small" data-dl="folder">Change…</button></div>
+        <div class="row"><div class="row-text"><span class="row-title">Phones</span><span class="row-hint">A link sent from a phone goes back to that phone: on the iPhone into Photos or Files, on the S23 into Download › Premade. A copy stays here.</span></div></div>
       </div></section>
       <section style="margin-top:16px"><h2 class="group-label">Downloader · logins</h2><div class="rows">
         <div class="row"><div class="row-text"><span class="row-hint">Only needed for posts a site hides from logged-out people, like Instagram stories. You log in once in a small Edge window; the login stays on this PC. A second account is safer, because sites can block accounts that download.</span></div></div>

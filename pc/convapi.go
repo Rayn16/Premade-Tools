@@ -21,7 +21,7 @@ func (a *App) cvRoutes(m *http.ServeMux) {
 
 	ui("GET /api/ui/cv", func(w http.ResponseWriter, r *http.Request) { writeJ(w, a.cvState("")) })
 	ui("POST /api/ui/cv/start", func(w http.ResponseWriter, r *http.Request) { a.cvStart(w, r, "") })
-	a.queueRoutes(m, "cv", a.cv, func(c *Config, dir string) { c.CvDir = dir })
+	a.queueRoutes(m, "cv", a.cv, func(c *Config, dir string) { c.DlDir = dir })
 	ui("POST /api/ui/cv/office", func(w http.ResponseWriter, r *http.Request) { go a.installOffice(); writeJ(w, "ok") })
 
 	ph("GET /api/phone/cv", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.cvState(p.ID)) })
@@ -109,12 +109,12 @@ func targetID(k *Kind, s string) string {
 
 func (a *App) cvState(from string) map[string]any {
 	c := a.set.Get()
-	free, _ := diskSpace(c.ConvertDir())
+	free, _ := diskSpace(c.DownloadDir())
 	ready := map[string]bool{}
 	for _, e := range []string{"magick", "ffmpeg", "soffice"} {
 		ready[e] = a.cvBin(e) != ""
 	}
-	return map[string]any{"jobs": a.cv.Jobs(from), "kinds": Kinds, "ready": ready, "dir": c.ConvertDir(), "free": human(int64(free)),
+	return map[string]any{"jobs": a.cv.Jobs(from), "kinds": Kinds, "ready": ready, "dir": c.DownloadDir(), "free": human(int64(free)),
 		"office": a.officeState()}
 }
 

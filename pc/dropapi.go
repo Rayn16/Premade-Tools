@@ -47,9 +47,9 @@ func (a *App) dropRoutes(m *http.ServeMux) {
 	})
 	ui("POST /api/ui/drop/folder", func(w http.ResponseWriter, r *http.Request) {
 		if dir := pickFolder(); dir != "" {
-			a.set.With(func(c *Config) bool { c.DropDir = dir; return true })
+			a.set.With(func(c *Config) bool { c.DlDir = dir; return true })
 		}
-		writeJ(w, map[string]string{"dir": a.set.Get().DropOutDir()})
+		writeJ(w, map[string]string{"dir": a.set.Get().DownloadDir()})
 	})
 
 	ph("GET /api/phone/drop", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.dropState(p.ID, p.ID)) })
@@ -141,7 +141,7 @@ func (a *App) dropTo(to, from string) string {
 func (a *App) dropState(me, who string) map[string]any {
 	c := a.set.Get()
 	return map[string]any{"me": me, "devices": a.dropDevices(), "jobs": a.drops.List(who), "clip": a.drops.Clip(),
-		"clipSync": c.ClipSync, "dir": c.DropOutDir()}
+		"clipSync": c.ClipSync, "dir": c.DownloadDir()}
 }
 
 func (a *App) dropSend(w http.ResponseWriter, r *http.Request, from string) {

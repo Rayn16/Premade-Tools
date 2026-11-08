@@ -19,14 +19,14 @@ func (a *App) pdfRoutes(m *http.ServeMux) {
 	ui("GET /api/ui/pdf", func(w http.ResponseWriter, r *http.Request) { writeJ(w, a.pdfState("")) })
 	ui("POST /api/ui/pdf/start", func(w http.ResponseWriter, r *http.Request) { a.pdfStart(w, r, "") })
 	ui("POST /api/ui/pdf/gs", func(w http.ResponseWriter, r *http.Request) { go gs.Install(); writeJ(w, "ok") })
-	a.queueRoutes(m, "pdf", a.pdf, func(c *Config, dir string) { c.PdfDir = dir })
+	a.queueRoutes(m, "pdf", a.pdf, func(c *Config, dir string) { c.DlDir = dir })
 
 	ph("GET /api/phone/pdf", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.pdfState(p.ID)) })
 	ph("POST /api/phone/pdf/start", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.pdfStart(w, r, p.ID) })
 }
 
 func (a *App) pdfState(from string) map[string]any {
-	dir := a.set.Get().PdfOutDir()
+	dir := a.set.Get().DownloadDir()
 	free, _ := diskSpace(dir)
 	return map[string]any{"jobs": a.pdf.Jobs(from), "ops": PdfOps, "gs": gs.State(), "dir": dir, "free": human(int64(free))}
 }
