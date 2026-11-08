@@ -37,7 +37,9 @@ function dlSaveButton(j) {
   if (j.state !== 'done') return '';
   if (NATIVE?.saveDownload) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn small" data-dlsave="${j.id}">${icon('save')}Save</button>`;
   if (j.audio || (j.files || []).every((f) => f.kind === 'audio' || f.kind === 'file')) return `<a class="btn small" href="${fileURL(j, 0, true)}">${icon('save')}To Files</a>`;
-  return `<a class="btn small" href="${runDl(j.url)}">${icon('save')}To Photos</a>`;
+  // Opens the video in Safari; its Share button has Save Video / Save Image (to Photos). No Shortcut needed.
+  const fs = j.files || [];
+  return fs.map((f, n) => `<a class="btn small" href="${fileURL(j, n, false)}" target="_blank" data-dlopen>${icon('save')}${fs.length > 1 ? 'Item ' + (n + 1) : 'To Photos'}</a>`).join('');
 }
 
 function dlRow(j, full) {
@@ -67,6 +69,7 @@ function dlView(off) {
       <label class="dlinput">${icon('link')}<span class="sr">Link</span><input id="dlhere" value="${esc(DS.url)}" placeholder="Paste a link" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url"></label>
       <div class="detected">Any link from TikTok, YouTube, Instagram, X, Reddit and about 1,700 other sites.</div>
       <div class="bigbtns">${navigator.clipboard?.readText ? '<button type="button" class="btn" data-dlherepaste>Paste</button>' : ''}<button type="button" class="btn primary" data-dlhere>${icon('dl')}Download</button></div>
+      ${DS.hereWarned ? `<div class="detected is-bad">${icon('alert')}<span>Download opens Apple's <b>Shortcuts</b> app to run <b>${SHORTCUT_DL}</b>. If you haven't made that Shortcut and installed a-Shell yet, it won't work: set them up once in the <b>Settings</b> tab. Or wait until you're home, when your PC does it. Made them already? Tap <b>Download</b> again.</span></div>` : ''}
       <div class="route"><i class="dotlight"></i><span>Your PC is out of reach, so this iPhone downloads it with the free <b>a-Shell</b> app, through the <b>${SHORTCUT_DL}</b> Shortcut, and saves it to Photos.</span></div></div>
     <p class="mhint">${icon('info')}<span>First time? Set up the Shortcut and a-Shell once: <b>Settings</b> tab, then <b>Share button</b> and <b>When your PC is off</b>.</span></p></div>`;
   if (OFFLINE && NATIVE?.phoneDownload) { // the S23 app has yt-dlp built in
@@ -92,7 +95,7 @@ function dlView(off) {
         ${dlLine()}
         <div class="bigbtns">${NATIVE?.clipboard ? `<button type="button" class="btn" data-dlpaste>Paste</button>` : ''}<button type="button" class="btn primary" data-dlgo ${can ? '' : 'disabled'}>${DS.busy ? 'Checking…' : `${icon('dl')}Download`}</button></div>
         <label class="dlswitch"><span>Audio only (MP3)</span><input type="checkbox" class="switch" role="switch" id="dlaudio" ${DS.audio ? 'checked' : ''}></label>
-        <div class="route"><i class="dotlight"></i><span>${IOS ? 'Your PC downloads it. Tap <b>To Photos</b> when it\'s done.' : 'Your PC downloads it, then it goes into Gallery by itself.'}</span></div>
+        <div class="route"><i class="dotlight"></i><span>${IOS ? 'Your PC downloads it. When it\'s done, tap <b>To Photos</b>, then in the video tap <b>Share</b> › <b>Save Video</b>.' : 'Your PC downloads it, then it goes into Gallery by itself.'}</span></div>
         ${!DL?.ready ? `<div class="notebox is-info">${icon('info')}<div>The PC is still setting up its download engines. Try again in a few minutes.</div></div>` : ''}
         ${n?.repeat ? `<div class="notebox is-info">${icon('info')}<div>You already have <b>${esc(n.repeat.title)}</b>, from ${esc(dayOf(new Date(n.repeat.at)).toLowerCase())}.<div class="acts">${dlSaveButton(n.repeat)}<button type="button" class="btn small" data-dlforce>Download again</button></div></div></div>` : ''}
       </div>
@@ -196,7 +199,15 @@ $app.addEventListener('click', async (e) => {
     else if (d.dlcancel) { await api('/api/phone/dl/cancel/' + d.dlcancel, {}); refresh(); }
     else if (d.dlphone !== undefined) { if (DS.url.trim()) { DS.phone = { busy: true, pct: 0 }; render(); NATIVE.phoneDownload(DS.url.trim(), DS.audio); } }
     else if (d.dlpaste2 !== undefined) { DS.url = NATIVE.clipboard() || ''; render(); }
-    else if (d.dlhere !== undefined) { if (DS.url.trim()) location.href = runDl(DS.url.trim()); }
+    else if (d.dlhere !== undefined) {
+      if (!DS.url.trim()) return;
+      // The first time, say what's about to open instead of dropping them into the Shortcuts app unannounced.
+      let ok = false;
+      try { ok = localStorage.getItem('dlShortcutOK') === '1'; } catch {}
+      if (!ok && !DS.hereWarned) { DS.hereWarned = true; render(); return; }
+      try { localStorage.setItem('dlShortcutOK', '1'); } catch {}
+      location.href = runDl(DS.url.trim());
+    }
     else if (d.dlherepaste !== undefined) { DS.url = (await navigator.clipboard.readText()).trim(); render(); }
     else if (d.dlsave) { saving.add(d.dlsave); NATIVE.saveDownload(d.dlsave); b.textContent = 'Saving…'; }
   } catch (err) { DS.err = err.message; render(); }
