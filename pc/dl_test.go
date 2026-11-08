@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -90,5 +91,27 @@ func TestDownloadEndToEnd(t *testing.T) {
 	}
 	if g := d.Get(j2.ID); g.State != "failed" && (len(g.Files) != 1 || g.Files[0].Kind != "audio") {
 		t.Fatalf("audio: %+v", g) // a silent test clip has no sound to keep, so failing is fine too
+	}
+}
+
+// The release file names each engine's pattern must pick (seen on GitHub, 2026-11-08).
+func TestEngineAssets(t *testing.T) {
+	want := map[string][]string{
+		"gallery-dl": {"gallery-dl_windows.exe"},
+		"ffmpeg":     {"ffmpeg-master-latest-win64-gpl.zip", "ffmpeg-n8.0-latest-win64-gpl-8.0.zip"},
+	}
+	not := []string{"gallery-dl_windows_x86.exe", "ffmpeg-master-latest-win64-gpl-shared.zip", "ffmpeg-master-latest-winarm64-gpl.zip"}
+	for _, en := range engineList {
+		re := regexp.MustCompile(en.Asset)
+		for _, n := range want[en.Name] {
+			if !re.MatchString(n) {
+				t.Errorf("%s doesn't match %s", en.Name, n)
+			}
+		}
+		for _, n := range not {
+			if re.MatchString(n) {
+				t.Errorf("%s wrongly matches %s", en.Name, n)
+			}
+		}
 	}
 }
