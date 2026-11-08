@@ -18,6 +18,7 @@ type Phone struct {
 	Status   json.RawMessage `json:"status,omitempty"` // what the phone last reported (bin on, battery, …)
 	Restores []string        `json:"restores,omitempty"`
 	Push     json.RawMessage `json:"push,omitempty"` // the iPhone app's web push subscription, when notifications are on
+	FCM      string          `json:"fcm,omitempty"`  // the Android app's Firebase token, for pop-ups sent through the relay
 }
 
 type Config struct {

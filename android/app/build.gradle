@@ -1,4 +1,7 @@
 plugins { id 'com.android.application' }
+// Firebase (File drop pop-ups) needs google-services.json from the Firebase console. Without it the app still builds,
+// and the S23 falls back to checking every 15 minutes.
+if (file('google-services.json').exists()) apply plugin: 'com.google.gms.google-services'
 android {
     namespace 'tools.premade.vault'
     compileSdk 35
@@ -28,4 +31,6 @@ dependencies {
     // The Downloader on the phone alone (PhoneDL.java): yt-dlp with its Python and FFmpeg.
     implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
     implementation 'io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1'
+    // File drop pop-ups the moment something arrives (PushService.java).
+    implementation 'com.google.firebase:firebase-messaging:24.1.0'
 }

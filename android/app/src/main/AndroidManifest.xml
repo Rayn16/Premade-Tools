@@ -48,6 +48,10 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- Firebase pushes for File drop: something arrived, show it now. -->
+        <service android:name=".PushService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
         <service android:name=".WatchJob" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <receiver android:name=".Updater$Result" android:exported="false" />
         <receiver android:name=".BootReceiver" android:exported="true">

@@ -158,13 +158,33 @@ func sendPush(sub PushSub, title, body string) (gone bool, err error) {
 	return false, nil
 }
 
-// pushTo sends a pop-up to a phone that turned notifications on; a dead subscription is forgotten.
+// pushTo sends a pop-up to a phone: the iPhone app by web push, the Android app through the relay's Firebase. A
+// dead subscription or token is forgotten.
 func (a *App) pushTo(phoneID, title, body string) {
 	var sub PushSub
+	fcm := ""
 	for _, p := range a.set.Get().Phones {
-		if p.ID == phoneID && len(p.Push) > 0 {
+		if p.ID == phoneID {
 			json.Unmarshal(p.Push, &sub)
+			fcm = p.FCM
 		}
+	}
+	if fcm != "" && a.set.Get().FrTok != "" {
+		go func() {
+			err := a.fr.call("POST", "/push", map[string]string{"token": fcm, "title": title, "body": body}, nil)
+			if err != nil && strings.Contains(err.Error(), "no longer registered") {
+				a.set.With(func(c *Config) bool {
+					for _, p := range c.Phones {
+						if p.ID == phoneID {
+							p.FCM = ""
+						}
+					}
+					return true
+				})
+			} else if err != nil {
+				log.Printf("fcm push to %s: %v", phoneID, err)
+			}
+		}()
 	}
 	if sub.Endpoint == "" {
 		return

@@ -102,6 +102,20 @@ func (a *App) dropRoutes(m *http.ServeMux) {
 		}
 		writeJ(w, "ok")
 	})
+	// The Android app's Firebase token (it changes now and then), so the PC can ask the relay for a pop-up.
+	ph("POST /api/phone/drop/fcm", func(w http.ResponseWriter, r *http.Request, p *Phone) {
+		var in struct{ Token string }
+		json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&in)
+		a.set.With(func(c *Config) bool {
+			for _, q := range c.Phones {
+				if q.ID == p.ID {
+					q.FCM = strings.TrimSpace(in.Token)
+				}
+			}
+			return true
+		})
+		writeJ(w, "ok")
+	})
 	ph("POST /api/phone/drop/clip", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		var in struct{ Text string }
 		json.NewDecoder(io.LimitReader(r.Body, 300<<10)).Decode(&in)
