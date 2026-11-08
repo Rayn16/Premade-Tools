@@ -8,9 +8,11 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -114,7 +116,11 @@ func (a *App) linkOnce(h http.Handler) error {
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
 	go func() { // the relay answers "ping" itself, so this keeps the link up without waking it
+		told := ""
 		for t := time.NewTicker(30 * time.Second); ; {
+			if hs := a.phoneHashes(); hs != told && a.tellPhones(ctx, base, c.LinkKey, hs) == nil {
+				told = hs
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -289,4 +295,30 @@ func (w *linkWriter) finish() {
 		return
 	}
 	w.l.send(linkMsg{T: "end", N: w.n})
+}
+
+// phoneHashes are the paired phones' keys, hashed: what the relay keeps so a phone can ask it where its PC is
+// (/find/<hash>) and never needs pairing again when this PC's addresses change.
+func (a *App) phoneHashes() string {
+	var hs []string
+	for _, p := range a.set.Get().Phones {
+		sum := sha256.Sum256([]byte(p.Token))
+		hs = append(hs, hex.EncodeToString(sum[:]))
+	}
+	b, _ := json.Marshal(map[string][]string{"h": hs})
+	return string(b)
+}
+
+func (a *App) tellPhones(ctx context.Context, base, key, body string) error {
+	req, _ := http.NewRequestWithContext(ctx, "PUT", base+"/phones", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+key)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		return fmt.Errorf("relay phones: %s", res.Status)
+	}
+	return nil
 }

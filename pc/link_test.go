@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -51,6 +54,21 @@ func TestRelayLink(t *testing.T) {
 			break
 		} else if i > 50 {
 			t.Fatalf("link never came up: %d", c)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	sum := sha256.Sum256([]byte("tok")) // the phone finds its PC by itself
+	for i := 0; ; i++ {
+		res, err := http.Get(relay + "/find/" + hex.EncodeToString(sum[:]))
+		if err == nil && res.StatusCode == 200 {
+			var f struct{ Link string }
+			json.NewDecoder(res.Body).Decode(&f)
+			if f.Link != base {
+				t.Fatalf("found %q, want %q", f.Link, base)
+			}
+			break
+		} else if i > 50 {
+			t.Fatal("the relay never learned this PC's phones")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

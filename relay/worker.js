@@ -34,8 +34,14 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     const url = new URL(req.url), path = url.pathname, now = Date.now();
     // A PC's link: /pc/<its id>/… goes to that PC's Link, which passes phone calls along to it (see Link below).
-    const pc = path.match(/^\/pc\/([0-9a-f]{32})\/(link|body\/\d+|api\/phone\/.*)$/);
+    const pc = path.match(/^\/pc\/([0-9a-f]{32})\/(link|phones|body\/\d+|api\/phone\/.*)$/);
     if (pc) return env.LINK.get(env.LINK.idFromName(pc[1])).fetch(req);
+    // A phone asks where its PC is, by a hash of its own key, so it never needs pairing again when addresses change.
+    const find = path.match(/^\/find\/([0-9a-f]{64})$/);
+    if (find) {
+      const r = await env.DB.prepare('SELECT pc FROM phones WHERE h = ?').bind(find[1]).first();
+      return r ? json({ link: `${url.origin}/pc/${r.pc}` }) : fail('not found', 404);
+    }
 
     // Anyone with the app can ask to join. The very first person becomes the one who approves everyone else.
     if (req.method === 'POST' && path === '/join') {
@@ -154,15 +160,16 @@ export default {
 // ponytail: an upload through here is one request, so over 100 MB fails (the free plan's limit); Tailscale has none.
 const NOBODY = [101, 204, 205, 304];
 export class Link {
-  constructor(ctx) {
+  constructor(ctx, env) {
     this.ctx = ctx;
+    this.env = env;
     this.calls = new Map(); // call number → { done, body, w }
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
 
   async fetch(req) {
     const path = new URL(req.url).pathname.split('/').slice(3).join('/'), url = new URL(req.url);
-    if (path === 'link' || path.startsWith('body/')) { // the PC, with its key; the first key a PC links with is kept
+    if (path === 'link' || path === 'phones' || path.startsWith('body/')) { // the PC, with its key; the first key a PC links with is kept
       const key = (req.headers.get('Authorization') || '').replace(/^Bearer /, '');
       const want = await this.ctx.storage.get('key'), got = key && await hash(key);
       if (!got || (want && want !== got)) return fail('wrong key', 401);
@@ -173,6 +180,12 @@ export class Link {
         const [client, server] = Object.values(new WebSocketPair());
         this.ctx.acceptWebSocket(server);
         return new Response(null, { status: 101, webSocket: client });
+      }
+      if (path === 'phones') { // the PC's paired phones, as hashes of their keys
+        const id = url.pathname.split('/')[2], hs = ((await req.json().catch(() => ({}))).h || []).filter((h) => /^[0-9a-f]{64}$/.test(h)).slice(0, 50);
+        await this.env.DB.batch([this.env.DB.prepare('DELETE FROM phones WHERE pc = ?').bind(id),
+          ...hs.map((h) => this.env.DB.prepare('INSERT OR REPLACE INTO phones (h, pc, seen) VALUES (?, ?, ?)').bind(h, id, Date.now()))]);
+        return json('ok');
       }
       const c = this.calls.get(Number(path.slice(5)));
       const body = c?.body;

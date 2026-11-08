@@ -48,8 +48,27 @@ async function api(path, body) {
   return r.json();
 }
 
+// The relay knows which PC each paired phone belongs to, so a phone with no address for its PC, or an old one,
+// asks it (by a hash of its own key) instead of being paired again. Once per open, then every 5 minutes while out of reach.
+let FOUND = 0;
+async function findPC() {
+  if (!HOSTED || !TOKEN || (PCS.length && !OFFLINE) || Date.now() - FOUND < 3e5) return;
+  FOUND = Date.now();
+  try {
+    const h = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(TOKEN)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const r = await fetch('/find/' + h);
+    if (!r.ok) return;
+    const { link } = await r.json(), old = kept('link');
+    if (!link || link === old) return;
+    try { localStorage.setItem('ptlink', link); } catch (e) {}
+    PCS.splice(PCS.indexOf(old) >= 0 ? PCS.indexOf(old) : PCS.length, 1, link);
+    if (!PCURL || PCURL === old) PCURL = link;
+  } catch (e) {}
+}
+
 let VER = ''; // the PC version these pages came from
 async function refresh() {
+  await findPC();
   try {
     [ST, ITEMS, DL] = await Promise.all([api('/api/phone/state'), api('/api/phone/deleted'), api('/api/phone/dl').catch(() => DL), typeof cvRefresh === 'function' && cvRefresh(), typeof pdfPhoneRefresh === 'function' && pdfPhoneRefresh(), typeof trToolsView === 'function' && trRefresh()]); // mcv.js and mpdf.js load after this file
     OFFLINE = false;
