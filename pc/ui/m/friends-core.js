@@ -19,6 +19,13 @@ async function frRefresh() {
   try { FRST = await api(FRAPI.base); } catch (e) {}
 }
 
+// Friends sits apart from the tools: one button at the top right of Home. attr is data-go (PC) or data-tool (phone).
+function frHomeBtn(attr) {
+  const waiting = (frMe()?.waiting || []).length, on = frPeople().filter((p) => p.online).length;
+  const sub = !FRST?.joined ? 'Not joined yet' : waiting ? `${waiting} asking to join` : frOn() ? `${on} online` : 'Waiting for approval';
+  return `<button type="button" class="frhome" ${attr}="friends">${icon('friends')}<span class="frhome-text"><b>Friends</b><span>${esc(sub)}</span></span>${waiting ? `<i class="frhome-dot">${waiting}</i>` : ''}</button>`;
+}
+
 // The button on a finished result. Nothing shows until this person is in Friends.
 const frShareBtn = (tool, j) => frOn() && j.state === 'done' && (j.files || []).length
   ? `<button type="button" class="btn small" data-fr="share" data-tool="${tool}" data-id="${j.id}" data-title="${esc((j.files[0] || {}).name || '')}">${icon('send')}Send</button>` : '';
