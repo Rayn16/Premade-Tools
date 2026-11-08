@@ -33,5 +33,6 @@ jobs:
         if: env.SKIP != '1'
         run: |
           sh build.sh
+          set -o pipefail
           npx wrangler deploy | tee deploy.log
           echo "Relay address: $(grep -o 'https://[^ ]*workers.dev' deploy.log | head -1)"
