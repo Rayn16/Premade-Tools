@@ -18,7 +18,7 @@ import (
 
 // Friends: everyone who has the app, through the Cloudflare relay (relay/ in this repo). The PC is home base: it
 // checks in for itself and its phones, sends for them, and hands what friends send into File drop.
-var relayURL = "https://premade-friends.REPLACE.workers.dev" // set once the relay is up
+var relayURL = "https://premade-friends.ral4-xxx.workers.dev"
 
 const relayPart = 50 << 20
 
