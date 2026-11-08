@@ -13,7 +13,7 @@ const FRAPI = {
 
 function frToolsView(off) {
   return `${dlTitle('Friends', 'Everyone who has Premade Tools. Send them anything you make.')}
-    <div class="feed scroller">${off}${OFFLINE ? `<p class="mhint">${icon('info')}<span>Friends goes through your PC, so it needs to be on and reachable${IOS ? ' (at home, or anywhere with Tailscale)' : ''}.</span></p>` : frPage()}</div>`;
+    <div class="feed scroller">${off}${OFFLINE ? `<p class="mhint">${icon('info')}<span>Friends goes through your PC, so it needs to be on and reachable.</span></p>` : frPage()}</div>`;
 }
 
 setInterval(async () => {
