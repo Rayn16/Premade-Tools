@@ -36,3 +36,8 @@ jobs:
           set -o pipefail
           npx wrangler deploy | tee deploy.log
           echo "Relay address: $(grep -o 'https://[^ ]*workers.dev' deploy.log | head -1)"
+          U=$(grep -o 'https://[^ ]*workers.dev' deploy.log | head -1)
+          sleep 5
+          test "$(curl -s -o /dev/null -w '%{http_code}' $U/)" = 200 || { echo "::error::The Friends page didn't load"; exit 1; }
+          test "$(curl -s -o /dev/null -w '%{http_code}' $U/people)" = 401 || { echo "::error::The relay didn't answer as expected"; exit 1; }
+          echo "Relay answers: page 200, people 401 without a key"
