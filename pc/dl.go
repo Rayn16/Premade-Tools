@@ -255,7 +255,9 @@ func (d *Downloader) cookieArgs() []string {
 }
 
 func (d *Downloader) ytArgs() []string {
-	args := []string{"--ignore-config", "--no-colors", "--no-warnings", "--windows-filenames", "--no-mtime"}
+	// UTF-8 out: Windows otherwise prints in the old code page, which turns characters like the ｜ that
+	// --windows-filenames puts in place of | into "?".
+	args := []string{"--ignore-config", "--no-colors", "--no-warnings", "--windows-filenames", "--no-mtime", "--encoding", "utf-8"}
 	if dir := filepath.Dir(d.eng.Bin("ffmpeg")); dir != "." {
 		args = append(args, "--ffmpeg-location", dir, "--js-runtimes", "deno:"+d.eng.Bin("deno"))
 	}
@@ -517,9 +519,15 @@ var progRe = regexp.MustCompile(`^@@(\S+) (\S+) (\S+)`)
 
 func (d *Downloader) runYt(ctx context.Context, j *Job, dir string) ([]string, error) {
 	tmp := filepath.Join(appDir(), "dl-tmp")
+	os.MkdirAll(tmp, 0o755)
+	// The saved files' paths go to a list file, which yt-dlp always writes as UTF-8, so names
+	// with any characters survive (the console's code page doesn't).
+	list := filepath.Join(tmp, j.ID+".files")
+	os.Remove(list)
+	defer os.Remove(list)
 	args := append(d.ytArgs(), "--newline", "--progress", "-P", dir, "-P", "temp:"+tmp,
 		"--progress-template", "download:@@%(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s",
-		"--print", "after_move:@@FILE %(filepath)s")
+		"--print", "after_move:@@FILE", "--print-to-file", "after_move:%(filepath)s", list)
 	if j.Audio {
 		args = append(args, "-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", "0")
 	} else {
@@ -535,18 +543,19 @@ func (d *Downloader) runYt(ctx context.Context, j *Job, dir string) ([]string, e
 		args = append(args, "-o", "%(title).120B [%(id)s].%(ext)s")
 	}
 	cmd := hidden(exec.CommandContext(ctx, d.eng.Bin("yt-dlp"), append(args, "--", j.URL)...))
+	cmd.Env = append(os.Environ(), "PYTHONUTF8=1")
 	var errb strings.Builder
 	cmd.Stderr = &errb
 	stdout, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	var files []string
+	done := 0
 	sc := bufio.NewScanner(stdout)
 	for sc.Scan() {
 		l := sc.Text()
-		if f, ok := strings.CutPrefix(l, "@@FILE "); ok {
-			files = append(files, f)
+		if l == "@@FILE" {
+			done++
 			continue
 		}
 		if m := progRe.FindStringSubmatch(l); m != nil {
@@ -558,7 +567,7 @@ func (d *Downloader) runYt(ctx context.Context, j *Job, dir string) ([]string, e
 			if tot > 0 {
 				pct := got / tot * 100
 				if j.Count > 1 { // a playlist: whole items done plus this one's share
-					pct = (float64(len(files)) + got/tot) / float64(j.Count) * 100
+					pct = (float64(done) + got/tot) / float64(j.Count) * 100
 				}
 				d.update(j.ID, func(j *Job) { j.Pct = min(pct, 99) })
 			}
@@ -571,12 +580,24 @@ func (d *Downloader) runYt(ctx context.Context, j *Job, dir string) ([]string, e
 		}
 		log.Printf("yt-dlp %s: %v", j.URL, err)
 	}
+	var files []string
+	if b, e := os.ReadFile(list); e == nil {
+		for _, f := range strings.Split(strings.ReplaceAll(string(b), "\r", ""), "\n") {
+			if f != "" {
+				files = append(files, f)
+			}
+		}
+	}
+	if len(files) == 0 && err == nil {
+		log.Printf("yt-dlp %s: no files; %s", j.URL, errb.String())
+	}
 	return files, err
 }
 
 func (d *Downloader) runGallery(ctx context.Context, j *Job, dir string) ([]string, error) {
 	args := append([]string{"--config-ignore", "-D", dir}, d.cookieArgs()...)
 	cmd := hidden(exec.CommandContext(ctx, d.eng.Bin("gallery-dl"), append(args, "--", j.URL)...))
+	cmd.Env = append(os.Environ(), "PYTHONUTF8=1") // file paths come back on stdout: keep them UTF-8 on Windows
 	var errb strings.Builder
 	cmd.Stderr = &errb
 	stdout, _ := cmd.StdoutPipe()
