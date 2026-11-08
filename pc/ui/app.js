@@ -563,9 +563,11 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.pair &
 let timer;
 const soon = () => { clearTimeout(timer); timer = setTimeout(tick, 3000); };
 async function tick() {
-  const typing = document.activeElement && ['q', 'folder', 'dlurl', 'pdfpw', 'frname', 'frmyname', 'frpcname'].includes(document.activeElement.id);
+  // Don't redraw under someone mid-typing. The link box redraws anyway (focus and caret are put back), so a
+  // download started from it keeps showing its progress.
+  const typing = document.activeElement && ['q', 'folder', 'pdfpw', 'frname', 'frmyname', 'frpcname'].includes(document.activeElement.id);
   if (!typing) await refresh();
   clearTimeout(timer);
-  timer = setTimeout(tick, dlRunning() || cvRunning() || pdfBusy() || trBusy() || PDFST?.gs === 'installing' || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' || S.page === 'drop' ? 3000 : FRST?.sends?.some((s) => s.state === 'running') ? 1500 : S.page === 'friends' ? 10000 : 30000);
+  timer = setTimeout(tick, dlRunning() ? 1000 : cvRunning() || pdfBusy() || trBusy() || PDFST?.gs === 'installing' || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' || S.page === 'drop' ? 3000 : FRST?.sends?.some((s) => s.state === 'running') ? 1500 : S.page === 'friends' ? 10000 : 30000);
 }
 refresh().then(() => { if (S.page === 'setup') enterStep(1); soon(); });

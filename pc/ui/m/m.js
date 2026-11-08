@@ -382,7 +382,9 @@ if (HOSTED && 'serviceWorker' in navigator) navigator.serviceWorker.register('/m
 document.addEventListener("DOMContentLoaded", () => refresh()); // after every tool's file has loaded: with no PC to wait for, the first draw comes at once
 try { if (localStorage.getItem('ptUpdated') && NATIVE?.update) NATIVE.update(); localStorage.removeItem('ptUpdated'); } catch (e) {}
 let slow = 0;
-setInterval(() => { // every 2 s while a download runs, else every 30 s
-  if (document.hidden || S.sheet || S.ask || S.drawer || ['q', 'dlurl', 'dlhere', 'pdfpw'].includes(document.activeElement?.id)) return;
-  if (dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy() || ++slow >= 15) { slow = 0; refresh(); }
-}, 2000);
+setInterval(() => { // every second while a download runs, else every 30 s
+  // A box being typed in isn't redrawn; an empty one (the link box after a download starts) is.
+  const a = document.activeElement;
+  if (document.hidden || S.sheet || S.ask || S.drawer || (['q', 'dlurl', 'dlhere', 'pdfpw'].includes(a?.id) && a.value)) return;
+  if (dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy() || ++slow >= 30) { slow = 0; refresh(); }
+}, 1000);
