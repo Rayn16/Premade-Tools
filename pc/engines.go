@@ -29,8 +29,9 @@ type engine struct {
 
 var engineList = []engine{
 	{"yt-dlp", "yt-dlp/yt-dlp", `^yt-dlp\.exe$`, nil, 6 * time.Hour},
-	{"gallery-dl", "mikf/gallery-dl", `^gallery-dl\.exe$`, nil, 6 * time.Hour},
-	{"ffmpeg", "yt-dlp/FFmpeg-Builds", `^ffmpeg-n[0-9.]+-latest-win64-gpl-[0-9.]+\.zip$`, []string{"ffmpeg.exe", "ffprobe.exe"}, 30 * 24 * time.Hour},
+	// gallery-dl's own releases moved to Codeberg (late 2026); its official daily Windows builds stay on GitHub.
+	{"gallery-dl", "gdl-org/builds", `^gallery-dl_windows\.exe$`, nil, 6 * time.Hour},
+	{"ffmpeg", "yt-dlp/FFmpeg-Builds", `^ffmpeg-(master|n[0-9.]+)-latest-win64-gpl(-[0-9.]+)?\.zip$`, []string{"ffmpeg.exe", "ffprobe.exe"}, 30 * 24 * time.Hour},
 	{"deno", "denoland/deno", `^deno-x86_64-pc-windows-msvc\.zip$`, []string{"deno.exe"}, 30 * 24 * time.Hour},
 	// The Converter's picture engine (reads iPhone HEIC photos). Its portable build is a .7z, unpacked whole into engines\magick.
 	{"magick", "ImageMagick/ImageMagick", `^ImageMagick-[0-9.]+-[0-9]+-portable-Q16-x64\.7z$`, nil, 30 * 24 * time.Hour},
@@ -175,7 +176,7 @@ func (e *Engines) fetch(en engine, have string, missing bool) error {
 		}
 		ver := rel.Tag
 		if en.Name == "ffmpeg" { // that repo keeps one "latest" release and replaces its files
-			ver = strings.TrimSuffix(strings.TrimPrefix(as.Name, "ffmpeg-"), "-latest-win64-gpl") + " " + as.Updated[:10]
+			ver = strings.SplitN(strings.TrimPrefix(as.Name, "ffmpeg-"), "-", 2)[0] + " " + as.Updated[:10]
 		}
 		if ver == have && !missing {
 			e.set(en.Name, func(s *EngineState) { s.Checked, s.Err = time.Now(), "" })
