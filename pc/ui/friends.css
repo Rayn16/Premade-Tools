@@ -1,0 +1,22 @@
+/* Friends, PC window and phone (with dl.css and cv.css for the box, rows and notes). */
+.field{height:38px;padding:0 12px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--fg);font:inherit;font-size:14px;min-width:0}
+.field:focus{outline:none;border-color:var(--gold-line)}
+.field.small{height:32px;width:160px;font-size:13px}
+.frjoin{display:flex;gap:8px;margin:12px 0}
+.frjoin .field{flex:1 1 0}
+.frface{font:700 15px var(--display);color:var(--gold-hi)}
+.frdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted2);margin-right:2px;flex:none}
+.frdot.is-on{background:var(--good,#3fb27f);box-shadow:0 0 6px var(--good,#3fb27f)}
+.frperson .hmeta{flex-wrap:wrap}
+.notebox.is-good{border-left-color:var(--good,#3fb27f)}
+.notebox.is-good svg.i{color:var(--good,#3fb27f)}
+.frsheet{display:block}
+.frsheet .sheet-text{margin:0 0 10px}
+.frpick{display:grid;gap:6px;margin-bottom:12px}
+.frpickrow{width:100%;text-align:left;cursor:pointer;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:inherit;font:inherit}
+.frpickrow:hover,.frpickrow:focus-visible{border-color:var(--gold-line)}
+.frpickrow .row-hint{display:flex;align-items:center;gap:6px}
+.frchev{transform:rotate(-90deg);color:var(--muted)}
+.m .field{font-size:16px;height:44px} /* 16px stops iPhone Safari zooming in */
+.m .field.small{width:130px;height:38px}
+.m .frjoin .btn{height:44px}

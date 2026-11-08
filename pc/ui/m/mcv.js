@@ -67,7 +67,7 @@ function cvRow(j, full) {
     ${state ? `<span class="jobstate">${state}</span>` : ''}${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
     ${j.state === 'running' || j.state === 'queued' ? `<div class="prog"><i style="width:${Math.max(2, j.pct)}%"></i></div>` : ''}
     ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${cvSaveButton(j)}${j.state === 'running' || j.state === 'queued' ? `<button type="button" class="btn small" data-cvcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
+    <div class="hacts">${cvSaveButton(j)}${frShareBtn('cv', j)}${j.state === 'running' || j.state === 'queued' ? `<button type="button" class="btn small" data-cvcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
 }
 
 function cvPicked() {

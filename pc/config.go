@@ -38,6 +38,10 @@ type Config struct {
 	TrDir      string   `json:"trDir"`     // where transcripts go; empty = Downloads\Premade\Transcripts
 	DropDir    string   `json:"dropDir"`   // where File drop saves; empty = Downloads\Premade\Drop
 	ClipSync   bool     `json:"clipSync"`  // pass copied text between the PC and phones
+	FrTok      string   `json:"frTok"`     // Friends: this person's key on the relay; empty = not joined
+	FrID       string   `json:"frId"`
+	FrName     string   `json:"frName"` // the name friends see
+	FrPC       string   `json:"frPc"`   // this PC's name in Friends; empty = "PC"
 	Phones     []*Phone `json:"phones"`
 }
 

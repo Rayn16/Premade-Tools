@@ -107,7 +107,7 @@ function cvRow(j) {
       ${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
       ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
     <div class="hacts">
-      ${j.state === 'done' ? `<button class="btn small" data-cv="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}
+      ${j.state === 'done' ? `<button class="btn small" data-cv="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}${frShareBtn('cv', j)}
       <button class="iconbtn" data-cv="remove" data-id="${j.id}" aria-label="Remove from history" title="Remove from history">${icon('x')}</button>
     </div></div>`;
 }

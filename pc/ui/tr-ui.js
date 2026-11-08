@@ -10,7 +10,7 @@ const TRAPI = {
   from: (j) => fromName(j),
   url: (j, n, dl) => `/api/ui/tr/file/${j.id}/${n}${dl ? '?dl=1' : ''}`,
   where: (j) => j.state !== 'done' || !j.from ? '' : `On ${esc(fromName(j))} too`,
-  acts: (j) => `${j.state === 'done' ? `<button class="btn small" data-trpc="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}
+  acts: (j) => `${j.state === 'done' ? `<button class="btn small" data-trpc="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}${frShareBtn('tr', j)}
     <button class="iconbtn" data-trpc="remove" data-id="${j.id}" aria-label="Remove from history" title="Remove from history">${icon('x')}</button>`,
 };
 

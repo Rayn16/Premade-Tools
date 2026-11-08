@@ -15,6 +15,7 @@ const TOOLS = { home: { name: 'Home', icon: 'home', tabs: [['home', 'Home', 'hom
   convert: { name: 'Converter', icon: 'convert', tabs: [['convert', 'Convert', 'convert'], ['cvhistory', 'History', 'clock'], ['cvsettings', 'Settings', 'settings']] },
   pdf: { name: 'PDF', icon: 'pdf', tabs: [['pdf', 'Tools', 'pdf'], ['pdfhistory', 'History', 'clock'], ['pdfsettings', 'Settings', 'settings']] },
   transcribe: { name: 'Transcribe', icon: 'transcribe', tabs: [['transcribe', 'Transcribe', 'transcribe'], ['trhistory', 'History', 'clock'], ['trsettings', 'Settings', 'settings']] },
+  friends: { name: 'Friends', icon: 'friends', tabs: [['friends', 'Friends', 'friends']] },
   drop: { name: 'File drop', icon: 'drop', tabs: [['drop', 'Drop', 'drop'], ['drophistory', 'History', 'clock'], ['dropsettings', 'Settings', 'settings']] },
   vault: { name: 'Vault', icon: 'shield', tabs: [['deleted', 'Deleted', 'deleted'], ['phones', 'Phones', 'phones'], ['settings', 'Settings', 'settings']] } };
 const FLOW = {}; // file id → 'confirm', { wait: text } or { done: true, name, folder }
@@ -76,9 +77,9 @@ function render() {
   const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
   const views = { home: homeView, phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView,
     pdf: pdfToolsView, pdfhistory: pdfHistoryView, pdfsettings: pdfSettingsView, transcribe: trToolsView, trhistory: trHistoryView, trsettings: trSettingsView,
-    drop: dropToolsView, drophistory: dropHistoryView, dropsettings: dropSettingsView };
+    drop: dropToolsView, drophistory: dropHistoryView, dropsettings: dropSettingsView, friends: frToolsView };
   const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : (views[S.tab] || deletedView)(off);
-  $app.innerHTML = `${head}${body}${tool.tabs.length > 1 ? `<nav class="tabbar" aria-label="Sections">${tabs}</nav>` : ''}${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}${updView()}`;
+  $app.innerHTML = `${head}${body}${tool.tabs.length > 1 ? `<nav class="tabbar" aria-label="Sections">${tabs}</nav>` : ''}${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${typeof frSheet === 'function' ? frSheet() : ''}${S.drawer ? drawerView() : ''}${updView()}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
   if (keepFocus && document.getElementById(keepFocus)) document.getElementById(keepFocus).focus();
   lazyMedia($app);
@@ -93,6 +94,7 @@ function homeView(off) {
       ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', tally(done(pdfJobs()), 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text.', tally(done(trJobs()), 'file transcribed', 'files transcribed')],
       ['drop', 'drop', 'File drop', 'Send files, links and text to your PC.', dropNew() ? `<b>${dropNew()}</b> new for this phone` : tally(dropJobs().length, 'drop this week', 'drops this week')],
+      ['friends', 'friends', 'Friends', 'Send what you make to anyone who has the app.', typeof FRST === 'undefined' || !FRST?.joined ? 'Not joined yet' : (frMe()?.waiting || []).length ? `<b>${frMe().waiting.length}</b> asking to join` : tally(frPeople().filter((p) => p.online).length, 'friend online', 'friends online')],
       ['vault', 'shield', 'Vault', 'Get back what you deleted on your phones.', tally(live().length, 'deleted item', 'deleted items') + ' kept']])}</div>`;
 }
 
