@@ -8,12 +8,14 @@ const NATIVE = window.Vault || null; // Android bridge, absent on iPhone
 
 const S = { tool: 'home', tab: 'home', drawer: false, phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null, view: 'grid' };
 try { S.view = localStorage.getItem('vaultView') || 'grid'; } catch (e) {}
+if (qs.get('tool') === 'drop') { S.tool = 'drop'; S.tab = 'drop'; } // the Android app's "Sent to this phone" notification
 // Each tool has its own bottom tabs; the ☰ sidebar switches tools.
 const TOOLS = { home: { name: 'Home', icon: 'home', tabs: [['home', 'Home', 'home']] },
   download: { name: 'Downloader', icon: 'dl', tabs: [['dl', 'Download', 'dl'], ['history', 'History', 'clock'], ['dlsettings', 'Settings', 'settings']] },
   convert: { name: 'Converter', icon: 'convert', tabs: [['convert', 'Convert', 'convert'], ['cvhistory', 'History', 'clock'], ['cvsettings', 'Settings', 'settings']] },
   pdf: { name: 'PDF', icon: 'pdf', tabs: [['pdf', 'Tools', 'pdf'], ['pdfhistory', 'History', 'clock'], ['pdfsettings', 'Settings', 'settings']] },
   transcribe: { name: 'Transcribe', icon: 'transcribe', tabs: [['transcribe', 'Transcribe', 'transcribe'], ['trhistory', 'History', 'clock'], ['trsettings', 'Settings', 'settings']] },
+  drop: { name: 'File drop', icon: 'drop', tabs: [['drop', 'Drop', 'drop'], ['drophistory', 'History', 'clock'], ['dropsettings', 'Settings', 'settings']] },
   vault: { name: 'Vault', icon: 'shield', tabs: [['deleted', 'Deleted', 'deleted'], ['phones', 'Phones', 'phones'], ['settings', 'Settings', 'settings']] } };
 const FLOW = {}; // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null, ITEMS = [], OFFLINE = false, LAST = '';
@@ -45,7 +47,7 @@ async function refresh() {
     if (!ST) { try { [ST, ITEMS] = JSON.parse(localStorage.getItem('vaultCache')) || []; } catch (e2) {} }
   }
   const now = JSON.stringify([ST, ITEMS, OFFLINE, DL, CVS, PDFST, TRST]);
-  if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl' && S.tab !== 'convert' && S.tab !== 'pdf' && S.tab !== 'transcribe')) render();
+  if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl' && S.tab !== 'convert' && S.tab !== 'pdf' && S.tab !== 'transcribe' && S.tab !== 'drop')) render();
   LAST = now;
 }
 
@@ -73,7 +75,8 @@ function render() {
   const off = OFFLINE ? `<div class="offline">Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : 'This shows what was there last time.'}</div>` : '';
   const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
   const views = { home: homeView, phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView,
-    pdf: pdfToolsView, pdfhistory: pdfHistoryView, pdfsettings: pdfSettingsView, transcribe: trToolsView, trhistory: trHistoryView, trsettings: trSettingsView };
+    pdf: pdfToolsView, pdfhistory: pdfHistoryView, pdfsettings: pdfSettingsView, transcribe: trToolsView, trhistory: trHistoryView, trsettings: trSettingsView,
+    drop: dropToolsView, drophistory: dropHistoryView, dropsettings: dropSettingsView };
   const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : (views[S.tab] || deletedView)(off);
   $app.innerHTML = `${head}${body}${tool.tabs.length > 1 ? `<nav class="tabbar" aria-label="Sections">${tabs}</nav>` : ''}${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${S.drawer ? drawerView() : ''}${updView()}`;
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
@@ -89,6 +92,7 @@ function homeView(off) {
       ['convert', 'convert', 'Converter', 'Turn files into other formats on your PC.', tally(done(typeof cvJobs === 'function' ? cvJobs() : []), 'file converted', 'files converted')],
       ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', tally(done(pdfJobs()), 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text.', tally(done(trJobs()), 'file transcribed', 'files transcribed')],
+      ['drop', 'drop', 'File drop', 'Send files, links and text to your PC.', dropNew() ? `<b>${dropNew()}</b> new for this phone` : tally(dropJobs().length, 'drop this week', 'drops this week')],
       ['vault', 'shield', 'Vault', 'Get back what you deleted on your phones.', tally(live().length, 'deleted item', 'deleted items') + ' kept']])}</div>`;
 }
 

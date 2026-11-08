@@ -21,19 +21,21 @@ const port = 47110
 var listener net.Listener
 
 type App struct {
-	set    *Settings
-	mu     sync.Mutex
-	store  *Store // nil until setup picks a vault folder
-	pairs  map[string]time.Time
-	warn   map[string]time.Time // last time each warning was shown as a Windows notification
-	upd    string               // newer version waiting, if any
-	moving bool
-	health string // vault drive health, "" when unknown
-	eng    *Engines
-	dl     *Downloader
-	cv     *Converter
-	pdf    *Converter // the PDF tools, on the Converter's queue
-	tr     *Converter // Transcribe, on the Converter's queue
+	set     *Settings
+	mu      sync.Mutex
+	store   *Store // nil until setup picks a vault folder
+	pairs   map[string]time.Time
+	warn    map[string]time.Time // last time each warning was shown as a Windows notification
+	upd     string               // newer version waiting, if any
+	moving  bool
+	health  string // vault drive health, "" when unknown
+	eng     *Engines
+	dl      *Downloader
+	cv      *Converter
+	pdf     *Converter // the PDF tools, on the Converter's queue
+	tr      *Converter // Transcribe, on the Converter's queue
+	drops   *Drops
+	clipSeq uint32 // Windows' clipboard counter when File drop last looked
 }
 
 func main() {
@@ -65,6 +67,8 @@ func main() {
 	a.cv = NewConverter(a.cvBin, func() string { return a.set.Get().ConvertDir() })
 	a.pdf = NewPdfTools(func() string { return a.set.Get().PdfOutDir() })
 	a.tr = NewTranscriber(func() string { return a.cvBin("ffmpeg") }, func() string { return a.set.Get().TrOutDir() })
+	a.drops = NewDrops(func() string { return a.set.Get().DropOutDir() })
+	go a.watchClip()
 	if c := a.set.Get(); c.VaultDir != "" {
 		if a.store, err = OpenStore(c.VaultDir); err != nil {
 			log.Printf("vault at %s: %v", c.VaultDir, err)
@@ -114,6 +118,7 @@ func (a *App) loop() {
 				}
 			}
 		}
+		a.drops.Clear(time.Now())
 		if tick%6 == 0 {
 			a.findUpdate()
 		}
