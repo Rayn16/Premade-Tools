@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -99,7 +100,14 @@ func (f *Friends) call(method, path string, body any, out any) error {
 		b, _ := json.Marshal(body)
 		rd, isJSON = bytes.NewReader(b), true
 	}
-	req, err := http.NewRequest(method, relayURL+path, rd)
+	ctx, cancel := context.Background(), context.CancelFunc(func() {})
+	if _, file := out.(io.Writer); rd == nil || isJSON {
+		if !file { // check-ins and other small calls: never let one stuck call hold up the loop
+			ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		}
+	}
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, method, relayURL+path, rd)
 	if err != nil {
 		return err
 	}
@@ -168,9 +176,16 @@ func (f *Friends) loop() {
 		if f.a.set.Get().FrTok != "" {
 			f.checkIn()
 		}
+		// While waiting to be approved, look every 10 seconds so the approval shows up at once.
+		wait := time.Minute
+		f.mu.Lock()
+		if f.last == nil || !f.last.Approved {
+			wait = 10 * time.Second
+		}
+		f.mu.Unlock()
 		select {
 		case <-f.wake:
-		case <-time.After(time.Minute):
+		case <-time.After(wait):
 		}
 	}
 }
