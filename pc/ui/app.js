@@ -319,6 +319,18 @@ function updSheet() {
 }
 
 // ---------- Settings ----------
+// Away from home: phones do the work themselves, and with Tailscale they still reach this PC for its tools.
+function awaySettings() {
+  const st = ST.tailscale || 'off', ok = st === 'ok';
+  const row = (done, title, hint) => `<div class="row"><span class="thumb">${icon(done ? 'check' : 'x')}</span><div class="row-text"><span class="row-title">${title}</span><span class="row-hint">${hint}</span></div></div>`;
+  return `<section style="margin-top:22px"><h2 class="group-label">Away from home · ${ok ? 'phones reach this PC from anywhere' : 'phones reach this PC on the home Wi-Fi only'}</h2><div class="rows">
+    <div class="row"><div class="row-text"><span class="row-title">${ok ? 'Ready' : 'Without Tailscale'}</span><span class="row-hint">${ok ? `Through Tailscale, at <span class="mono">${esc(ST.remote)}</span>. Away from home, phones use this PC's tools as if they were here.` : 'Away from home, phones convert, edit PDFs and transcribe by themselves. To use this PC from anywhere too, set up Tailscale (free) once. This list ticks each step by itself within two minutes.'}</span></div></div>
+    ${row(st !== 'off', '1. Tailscale on this PC', 'Install <a href="https://tailscale.com/download/windows" target="_blank" rel="noopener">Tailscale</a> and sign in.')}
+    ${row(ok, '2. HTTPS turned on', 'In the <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener">Tailscale admin page</a>, under DNS, turn on <b>MagicDNS</b> and <b>HTTPS Certificates</b>.')}
+    <div class="row"><span class="thumb">${icon('phones')}</span><div class="row-text"><span class="row-title">3. Tailscale on each phone</span><span class="row-hint">Install it from the App Store or Play Store, sign in with the same account, and leave it on.</span></div></div>
+  </div></section>`;
+}
+
 function settingsView() {
   const c = ST.config, d = vaultDrive();
   const sw = (k, label, hint) => `<label class="row"><span class="row-text"><span class="row-title">${label}</span>${hint ? `<span class="row-hint">${hint}</span>` : ''}</span><input type="checkbox" class="switch" role="switch" data-set="${k}" ${c[k] ? 'checked' : ''}></label>`;
@@ -333,6 +345,7 @@ function settingsView() {
     ${pdfSettings()}
     ${trSettings()}
     ${dropSettings()}
+    ${awaySettings()}
     <h2 class="group-label" style="margin-top:22px">Vault</h2>
     <section class="hero">
       <div class="hero-head"><p class="eyebrow">Your vault</p>${c.warnHealth ? `<span class="health ${healthBad ? 'is-warn' : ''}"><i class="dotlight"></i>Drive health <b>${healthBad ? 'Needs a look' : 'No warnings'}</b></span>` : ''}</div>

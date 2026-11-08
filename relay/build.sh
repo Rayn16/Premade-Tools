@@ -1,10 +1,12 @@
 #!/bin/sh
-# Puts the phone-only Friends page together in public/: its own files plus the app's look and Friends code.
+# Puts the relay's pages together in public/: the phone-only Friends page at /, and the whole phone app at /m/
+# (the iPhone's Premade icon), which opens with the PC off. The app's look and code come from the PC's own files.
 set -e
 cd "$(dirname "$0")"
 UI=../pc/ui
-rm -rf public && mkdir -p public/m/fonts
+rm -rf public && mkdir -p public/m
 cp web/* public/
-cp $UI/pt.css $UI/dl.css $UI/cv.css $UI/friends.css $UI/icon.svg public/
-cp $UI/m/m.css $UI/m/common.js $UI/m/pdf-core.js $UI/m/friends-core.js $UI/m/icon-180.png public/m/
-cp $UI/m/fonts/*.woff2 public/m/fonts/
+cp $UI/*.css $UI/icon.svg public/
+cp -r $UI/m/* public/m/
+# The offline copy's name changes with every deploy, so phones pick up new pages.
+sed -i "s/__BUILD__/$(date +%s)/" public/m/sw.js

@@ -22,7 +22,7 @@ const PDF_ONE = ['pages', 'extract', 'split']; // one PDF at a time
 let PDFST = null; // GET PDFAPI.base
 const P = { op: '', files: [], pages: [], thumbs: {}, loading: false, bad: '', pw: '', showPw: false, level: 'smaller', up: -1, err: '', gen: 0, drag: -1 };
 
-const pdfJobs = () => PDFST?.jobs || [];
+const pdfJobs = () => [...(typeof ljOf === 'function' ? ljOf('pdf') : []), ...(PDFST?.jobs || [])]; // ljOf: jobs done on the phone itself (local.js)
 const pdfBusy = () => pdfJobs().some((j) => j.state === 'queued' || j.state === 'running');
 const pdfIsPdf = (f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
 const pdfOp = (id) => (PDFST?.ops || []).find((o) => o.id === id);
@@ -174,14 +174,14 @@ function pdfRow(j, full) {
   const live = j.state === 'queued' || j.state === 'running';
   const n = (j.files || []).length, where = PDFAPI.where(j);
   const sizes = j.size && j.inSize ? `${pdfSize(j.inSize)} → ${pdfSize(j.size)}` : '';
-  return `<div class="row"><span class="thumb" style="--h:${pdfHue(j.id)}">${icon(PDF_ICON[j.target] || 'pdf')}</span>
+  return `<div class="row" data-lj="${j.id}"><span class="thumb" style="--h:${pdfHue(j.id)}">${icon(PDF_ICON[j.target] || 'pdf')}</span>
     <div class="row-text grow"><span class="row-title clip">${esc(pdfTitle(j))}</span>
       <div class="hmeta"><span class="sitetag">${esc(pdfOp(j.target)?.label || j.target)}</span>${live ? `<span class="jobstate">${j.state === 'queued' ? 'Waiting its turn' : 'Working on it…'}</span>` : ''}
         ${full && n > 1 ? `<span>${n} files</span>` : ''}${full && sizes && j.target === 'compress' ? `<span>${sizes}</span>` : ''}<span>${hm(new Date(j.at))}${full ? ' · from ' + esc(PDFAPI.from(j)) : ''}</span>
         ${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
       ${live ? `<div class="prog"><i style="width:${Math.max(4, j.pct)}%"></i></div>` : ''}
       ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${live ? `<button type="button" class="btn small" data-pdf="cancel" data-id="${j.id}">Cancel</button>` : PDFAPI.acts(j)}</div></div>`;
+    <div class="hacts">${live && !j.local ? `<button type="button" class="btn small" data-pdf="cancel" data-id="${j.id}">Cancel</button>` : PDFAPI.acts(j)}</div></div>`;
 }
 
 function pdfAdd(list, replace) {
@@ -202,6 +202,7 @@ function pdfAfterFiles() {
 }
 
 function pdfSend() {
+  if (PDFST?.local) return localPdf(); // the phone does it (local.js)
   const fd = new FormData();
   if (P.op === 'lock' || P.op === 'unlock') fd.append('pw', P.pw);
   for (const f of P.files) fd.append('f', f, f.name);

@@ -5,6 +5,12 @@ const qs = new URLSearchParams(location.hash.slice(1) || location.search); // An
 if (qs.get('t')) { try { localStorage.setItem('vaultToken', qs.get('t')); } catch (e) {} }
 const TOKEN = qs.get('t') || (() => { try { return localStorage.getItem('vaultToken'); } catch (e) { return null; } })();
 const NATIVE = window.Vault || null; // Android bridge, absent on iPhone
+// The pages come from the PC itself (Android app, the old iPhone icon) or from the relay (the iPhone icon now), which
+// keeps working with the PC off. From the relay, the PC is reached at its Tailscale https address, saved at pairing.
+const HOSTED = /\.workers\.dev$/.test(location.hostname);
+const kept = (k) => { try { if (qs.has(k)) localStorage.setItem('pt' + k, qs.get(k)); return localStorage.getItem('pt' + k) || ''; } catch (e) { return qs.get(k) || ''; } };
+let PCURL = HOSTED ? kept('pc') : '';
+const PCLINK = (HOSTED ? PCURL || kept('lan') : '') || location.origin; // the address Shortcuts use
 
 const S = { tool: 'home', tab: 'home', drawer: false, phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null, view: 'grid' };
 try { S.view = localStorage.getItem('vaultView') || 'grid'; } catch (e) {}
@@ -26,7 +32,8 @@ const $app = document.getElementById('app');
 async function api(path, body) {
   const opt = { headers: { Authorization: 'Bearer ' + TOKEN } };
   if (body !== undefined) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
-  const r = await fetch(path, opt);
+  if (path.startsWith('/') && HOSTED && !PCURL) throw new Error("Can't reach your PC.");
+  const r = await fetch(path.startsWith('/') ? PCURL + path : path, opt);
   if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
   return r.json();
 }
@@ -41,11 +48,13 @@ async function refresh() {
       location.reload(); return;
     }
     VER = ST.version;
+    if (HOSTED && ST.remote && ST.remote !== PCURL) { PCURL = ST.remote; try { localStorage.setItem('ptpc', PCURL); } catch (e) {} }
     dlAfterRefresh();
     try { localStorage.setItem('vaultCache', JSON.stringify([ST, ITEMS])); } catch (e) {}
   } catch (e) {
     OFFLINE = true;
     if (!ST) { try { [ST, ITEMS] = JSON.parse(localStorage.getItem('vaultCache')) || []; } catch (e2) {} }
+    if (!ST) { ST = { me: '', phones: [], version: '', config: { theme: 'red' } }; ITEMS = []; } // never reached the PC: the phone's own tools still work
   }
   const now = JSON.stringify([ST, ITEMS, OFFLINE, DL, CVS, PDFST, TRST]);
   if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl' && S.tab !== 'convert' && S.tab !== 'pdf' && S.tab !== 'transcribe' && S.tab !== 'drop')) render();
@@ -54,7 +63,7 @@ async function refresh() {
 
 const phoneById = (id) => (ST?.phones || []).find((p) => p.ID === id);
 const phoneName = (id) => id === ST?.me ? 'This phone' : phoneById(id)?.Name || 'Removed phone';
-const view = (id, dl) => `/api/phone/view/${id}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
+const view = (id, dl) => `${PCURL}/api/phone/view/${id}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
 const fresh = (p) => Date.now() - new Date(p.LastSeen) < 2 * 3600e3;
 const live = () => liveItems(ITEMS || []);
 const crest = '<span class="crest"><img src="/icon.svg" alt=""></span>';
@@ -73,7 +82,7 @@ function render() {
   const tool = TOOLS[S.tool];
   const tabs = tool.tabs.map(([id, l, ic]) =>
     `<button type="button" class="tab" data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></button>`).join('');
-  const off = OFFLINE ? `<div class="offline">Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : 'This shows what was there last time.'}</div>` : '';
+  const off = OFFLINE ? `<div class="offline">Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : HOSTED ? 'This phone does the work itself until it is.' : 'This shows what was there last time.'}</div>` : '';
   const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
   const views = { home: homeView, phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView,
     pdf: pdfToolsView, pdfhistory: pdfHistoryView, pdfsettings: pdfSettingsView, transcribe: trToolsView, trhistory: trHistoryView, trsettings: trSettingsView,
@@ -88,13 +97,21 @@ function render() {
 function homeView(off) {
   const done = (jobs) => jobs.filter((j) => j.state === 'done').length;
   return `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">Your tools</h1><p class="pagelede">Pick a tool to open it.</p></div>${frHomeBtn('data-tool')}</div>
-    <div class="feed scroller">${off}${homeCards('tool', [
+    <div class="feed scroller">${off}${moveNudge()}${homeCards('tool', [
       ['download', 'dl', 'Downloader', 'Save videos and photos from any link.', tally(done(dlJobs()), 'download saved', 'downloads saved')],
       ['convert', 'convert', 'Converter', 'Turn files into other formats on your PC.', tally(done(typeof cvJobs === 'function' ? cvJobs() : []), 'file converted', 'files converted')],
       ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', tally(done(pdfJobs()), 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text.', tally(done(trJobs()), 'file transcribed', 'files transcribed')],
       ['drop', 'drop', 'File drop', 'Send files, links and text to your PC.', dropNew() ? `<b>${dropNew()}</b> new for this phone` : tally(dropJobs().length, 'drop this week', 'drops this week')],
       ['vault', 'shield', 'Vault', 'Get back what you deleted on your phones.', tally(live().length, 'deleted item', 'deleted items') + ' kept']])}</div>`;
+}
+
+// iPhones still on the old icon (pages from the PC over the home Wi-Fi): offer the new one, which opens anywhere.
+function moveNudge() {
+  if (HOSTED && !navigator.standalone && /iP(hone|ad|od)/.test(navigator.userAgent)) return `<div class="notebox is-info">${icon('info')}<div><b>Keep Premade on this iPhone.</b> Tap <b>Share</b> › <b>Add to Home Screen</b>, then open Premade from there. It opens even with your PC off.</div></div>`;
+  if (HOSTED || NATIVE || !ST?.relay || ST.relay.includes('REPLACE') || !/iP(hone|ad|od)/.test(navigator.userAgent)) return '';
+  const to = `${ST.relay}/m/?t=${encodeURIComponent(TOKEN)}&pc=${encodeURIComponent(ST.remote || '')}&lan=${encodeURIComponent(location.origin)}`;
+  return `<div class="notebox is-info">${icon('info')}<div><b>Premade now works away from home.</b> Open the new version, then tap <b>Share</b> › <b>Add to Home Screen</b> and remove this old icon.<div class="acts"><a class="btn small primary" href="${esc(to)}">Open the new version</a></div></div></div>`;
 }
 
 function shown() {
@@ -235,7 +252,7 @@ function iosNudge() {
 }
 
 function iosGuide(p) {
-  const base = location.origin, t = encodeURIComponent(TOKEN);
+  const base = PCLINK, t = encodeURIComponent(TOKEN);
   const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
   const steps = [
     `Open <b>Shortcuts</b>, tap <b>+</b> and name it <b>${SHORTCUT}</b>.`,
@@ -359,10 +376,11 @@ function watchRestore(it) {
 $app.addEventListener('input', (e) => { if (e.target.id === 'q') { S.q = e.target.value; const n = document.getElementById('dl'); n.innerHTML = (OFFLINE ? n.querySelector('.offline')?.outerHTML || '' : '') + listView(); lazyMedia($app); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 window.vaultRefresh = refresh; // the Android app calls this after it sends something
-refresh();
+if (HOSTED && 'serviceWorker' in navigator) navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' }).catch(() => {});
+document.addEventListener("DOMContentLoaded", () => refresh()); // after every tool's file has loaded: with no PC to wait for, the first draw comes at once
 try { if (localStorage.getItem('ptUpdated') && NATIVE?.update) NATIVE.update(); localStorage.removeItem('ptUpdated'); } catch (e) {}
 let slow = 0;
 setInterval(() => { // every 2 s while a download runs, else every 30 s
-  if (document.hidden || S.sheet || S.ask || S.drawer || ['q', 'dlurl', 'pdfpw'].includes(document.activeElement?.id)) return;
+  if (document.hidden || S.sheet || S.ask || S.drawer || ['q', 'dlurl', 'dlhere', 'pdfpw'].includes(document.activeElement?.id)) return;
   if (dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy() || ++slow >= 15) { slow = 0; refresh(); }
 }, 2000);

@@ -1,0 +1,15 @@
+import { run } from '../pc/ui/m/lib/pdf-local.mjs';
+import { PDFDocument } from '../pc/ui/m/lib/pdf-lib.min.mjs';
+import assert from 'node:assert';
+const mk = async (n) => { const d = await PDFDocument.create(); for (let i = 0; i < n; i++) d.addPage([200 + i, 300]); return { name: `f${n}.pdf`, bytes: await d.save() }; };
+const pages = async (b, pw) => (await PDFDocument.load(b, pw ? { password: pw } : {})).getPages();
+const a = await mk(3), b = await mk(2);
+let r = await run('merge', [a, b]); assert.equal((await pages(r[0].bytes)).length, 5);
+r = await run('pages', [a], { pages: '3,1r90' }); let p = await pages(r[0].bytes); assert.equal(p.length, 2); assert.equal(p[0].getWidth(), 202); assert.equal(p[1].getRotation().angle, 90);
+r = await run('extract', [a], { pages: '2' }); assert.equal((await pages(r[0].bytes)).length, 1);
+r = await run('split', [a]); assert.equal(r.length, 3); assert.equal(r[2].name, 'f3 - page 3.pdf');
+r = await run('lock', [a], { pw: 'secret' }); const locked = { name: 'l.pdf', bytes: r[0].bytes };
+await assert.rejects(run('unlock', [locked], { pw: 'wrong' }));
+r = await run("unlock", [locked], { pw: "secret" }); assert.equal((await pages(r[0].bytes)).length, 3);
+await assert.rejects(run('lock', [locked], { pw: 'x' }));
+console.log('pdf-local ok');

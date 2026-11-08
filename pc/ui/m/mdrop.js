@@ -3,11 +3,11 @@
 'use strict';
 
 const DROPAPI = {
-  base: '/api/phone/drop',
+  base: PCURL + '/api/phone/drop',
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => {},
-  url: (it, n, dl) => `/api/phone/drop/file/${it.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`,
+  url: (it, n, dl) => `${PCURL}/api/phone/drop/file/${it.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`,
   acts: (it) => {
     if (it.to !== DROPST?.me) return '';
     const copy = `<button type="button" class="btn small" data-dropm="copy" data-id="${it.id}">${icon(FD.copied === it.id ? 'check' : 'copy')}${FD.copied === it.id ? 'Copied' : 'Copy'}</button>`;
@@ -40,7 +40,7 @@ function dropHistoryView(off) {
 
 // iPhone: Home Screen apps can't be a Share target, so a Shortcut is.
 function dropShortcutGuide() {
-  const base = location.origin, t = encodeURIComponent(TOKEN);
+  const base = PCLINK, t = encodeURIComponent(TOKEN);
   const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
   const others = dropTargets().filter((d) => d.id !== 'pc');
   return `<section class="group"><div class="sectionhead"><b>Share button</b><i></i></div>

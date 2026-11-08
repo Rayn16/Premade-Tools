@@ -5,16 +5,16 @@
 
 const pdfSaving = new Set(); // jobs the Android app was asked to save
 const pdfBlobs = {};         // iPhone: job id → File[] fetched ahead, so Save opens the Share sheet at once
-const pdfURL = (j, n, dl) => `/api/phone/pdf/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
+const pdfURL = (j, n, dl) => `${PCURL}/api/phone/pdf/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
 
 const PDFAPI = {
-  base: '/api/phone/pdf',
+  base: PCURL + '/api/phone/pdf',
   auth: (x) => x.setRequestHeader('Authorization', 'Bearer ' + TOKEN),
   touch: true,
   after: () => pdfPoll(),
   from: (j) => dlFrom(j),
-  where: (j) => j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'Saved' : 'In Documents') : j.from === ST?.me && NATIVE?.savePdf ? 'Saving…' : 'On the PC',
-  acts: (j) => j.state === 'done' ? pdfSaveBtn(j) + frShareBtn('pdf', j) : '',
+  where: (j) => j.local ? ljWhere(j) : j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'Saved' : 'In Documents') : j.from === ST?.me && NATIVE?.savePdf ? 'Saving…' : 'On the PC',
+  acts: (j) => j.local ? ljSaveBtn(j) : j.state === 'done' ? pdfSaveBtn(j) + frShareBtn('pdf', j) : '',
 };
 function pdfSaveBtn(j) {
     if (NATIVE?.savePdf) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn small" data-pdfsave="${j.id}">${icon('save')}Save</button>`;
@@ -28,7 +28,7 @@ function pdfSaveBtn(j) {
 async function pdfPhoneRefresh() {
   await pdfRefresh();
   for (const j of pdfJobs()) {
-    if (j.from !== ST?.me || j.state !== 'done' || j.fetched) continue;
+    if (j.local || j.from !== ST?.me || j.state !== 'done' || j.fetched) continue;
     if (NATIVE?.savePdf && !pdfSaving.has(j.id)) { pdfSaving.add(j.id); NATIVE.savePdf(j.id); }
     else if (!NATIVE && !pdfBlobs[j.id] && j.size < 300 << 20) pdfFetch(j);
   }
@@ -46,13 +46,13 @@ async function pdfFetch(j) {
 }
 
 function pdfToolsView(off) {
-  const title = dlTitle('PDF tools', 'Pick what to do, then the PDFs. Your PC does the work.');
-  if (OFFLINE || !PDFST) return title + `<div class="feed scroller">${off}<p class="mhint">${icon('info')}<span>The PC does the work, so it needs to be on and reachable${IOS ? ' (at home, or anywhere with Tailscale)' : ''}.</span></p></div>`;
+  if (OFFLINE || !PDFST) PDFST = PDF_LOCAL; // the PC is out of reach: this phone does it
+  const title = dlTitle('PDF tools', PDFST.local ? 'Pick what to do, then the PDFs.' : 'Pick what to do, then the PDFs. Your PC does the work.');
   const mine = pdfJobs().filter((j) => j.from === ST?.me).slice(0, 5);
   return `${title}<div class="feed scroller">${off}
     ${P.err ? `<div class="notebox">${icon('alert')}<div>${esc(P.err)}</div></div>` : ''}
     <div class="dlbox cvbox">${pdfBox()}
-      <div class="route"><i class="dotlight"></i><span>${IOS ? "Your PC does it. Tap <b>Save</b> when it's done." : 'Your PC does it, then it goes into Documents › Premade by itself.'}</span></div></div>
+      <div class="route"><i class="dotlight"></i><span>${PDFST.local ? "Your PC is out of reach, so this phone does it. Tap <b>Save</b> when it's done." : IOS ? "Your PC does it. Tap <b>Save</b> when it's done." : 'Your PC does it, then it goes into Documents › Premade by itself.'}</span></div></div>
     ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => pdfRow(j)).join('')}</div></section>` : ''}
   </div>`;
 }

@@ -36,6 +36,7 @@ type App struct {
 	tr      *Converter // Transcribe, on the Converter's queue
 	drops   *Drops
 	fr      *Friends
+	ts      tailscale
 	clipSeq uint32 // Windows' clipboard counter when File drop last looked
 }
 
@@ -71,6 +72,7 @@ func main() {
 	a.drops = NewDrops(func() string { return a.set.Get().DropOutDir() })
 	a.fr = NewFriends(a)
 	go a.watchClip()
+	go a.tsLoop()
 	if c := a.set.Get(); c.VaultDir != "" {
 		if a.store, err = OpenStore(c.VaultDir); err != nil {
 			log.Printf("vault at %s: %v", c.VaultDir, err)
@@ -82,7 +84,7 @@ func main() {
 		go openWindow(fmt.Sprintf("http://127.0.0.1:%d/", port))
 	}
 	log.Printf("Premade Tools %s on :%d", version, port)
-	log.Fatal(http.Serve(ln, a.routes()))
+	log.Fatal(http.Serve(ln, withCORS(a.routes())))
 }
 
 func (a *App) getStore() *Store {
