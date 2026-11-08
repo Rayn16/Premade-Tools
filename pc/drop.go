@@ -277,12 +277,15 @@ func (a *App) devName(id string) string {
 	return strings.TrimPrefix(id, "friend:")
 }
 
-// dropArrived tells the PC about a drop meant for it: text onto the clipboard and a notification.
+// dropArrived tells the device a drop is for: the PC puts text on the clipboard and shows a notification; a phone
+// with notifications on gets a pop-up (the S23 app also checks for itself).
 func (a *App) dropArrived(it *Drop) {
+	from := a.devName(it.From)
 	if it.To != "pc" {
+		what := map[string]string{"text": "text", "link": "a link", "files": "you something"}[it.Kind]
+		a.pushTo(it.To, from+" sent "+what, dropNote(it))
 		return
 	}
-	from := a.devName(it.From)
 	switch it.Kind {
 	case "text":
 		if a.set.Get().ClipSync {
@@ -290,11 +293,11 @@ func (a *App) dropArrived(it *Drop) {
 		} else {
 			clipSet(it.Text)
 		}
-		say("File drop", from+" sent text. It's on the clipboard.")
+		say("File drop", from+" sent text. It's on the clipboard.", "drop")
 	case "link":
-		say("File drop", from+" sent a link: "+it.Text)
+		say("File drop", from+" sent a link: "+it.Text, "drop")
 	default:
-		say("File drop", fmt.Sprintf("%s sent %d %s. It's in %s.", from, len(it.Files), plural(len(it.Files), "file", "files"), it.Dir))
+		say("File drop", fmt.Sprintf("%s sent %d %s. It's in %s.", from, len(it.Files), plural(len(it.Files), "file", "files"), it.Dir), "drop")
 	}
 }
 

@@ -5,6 +5,7 @@ package main
 // The Windows clipboard for File drop, straight through user32 (a PowerShell per check would be far too slow).
 
 import (
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -91,9 +92,13 @@ func clipSet(s string) {
 	}
 }
 
-// say is a plain notification (notify is for warnings).
-func say(title, msg string) {
-	go ps(`Add-Type -AssemblyName System.Windows.Forms;$n=New-Object System.Windows.Forms.NotifyIcon;$n.Icon=[System.Drawing.SystemIcons]::Information;$n.Visible=$true;$n.ShowBalloonTip(8000,` + psQuote(title) + `,` + psQuote(msg) + `,'Info');Start-Sleep 10;$n.Dispose()`)
+// say is a plain notification (notify is for warnings). Clicking it opens the window on page.
+func say(title, msg, page string) {
+	exe, _ := os.Executable()
+	go ps(`Add-Type -AssemblyName System.Windows.Forms;$n=New-Object System.Windows.Forms.NotifyIcon;$n.Icon=[System.Drawing.SystemIcons]::Information;$n.Visible=$true;` +
+		`$n.add_BalloonTipClicked({Start-Process -FilePath ` + psQuote(exe) + ` -ArgumentList '-open',` + psQuote(page) + `});` +
+		`$n.ShowBalloonTip(8000,` + psQuote(title) + `,` + psQuote(msg) + `,'Info');` +
+		`$end=(Get-Date).AddSeconds(12);while((Get-Date) -lt $end){[System.Windows.Forms.Application]::DoEvents();Start-Sleep -Milliseconds 100};$n.Dispose()`)
 }
 
 func openURL(u string) {

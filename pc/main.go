@@ -42,6 +42,7 @@ type App struct {
 
 func main() {
 	background := flag.Bool("background", false, "start without opening the window (used when Windows starts)")
+	page := flag.String("open", "", "open the window on this page (a clicked notification)")
 	flag.Parse()
 	os.MkdirAll(appDir(), 0o755)
 	if lf, err := os.OpenFile(filepath.Join(appDir(), "vault.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
@@ -52,7 +53,7 @@ func main() {
 	if err != nil {
 		// Already running: just show its window.
 		if !*background {
-			openWindow(fmt.Sprintf("http://127.0.0.1:%d/", port))
+			openWindow(fmt.Sprintf("http://127.0.0.1:%d/", port) + map[bool]string{true: "#" + *page}[*page != ""])
 		}
 		return
 	}

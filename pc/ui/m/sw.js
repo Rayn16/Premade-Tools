@@ -30,3 +30,19 @@ self.addEventListener('fetch', (e) => {
     }));
   }
 });
+
+// File drop's pop-ups: the PC sends them through the phone's push service when something is sent to this phone.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data.json(); } catch (err) { d = { title: 'Premade Tools', body: e.data?.text() || '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Premade Tools', { body: d.body || '', icon: '/m/icon-180.png', tag: 'drop', renotify: true, data: { tool: d.tool || 'drop' } }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = '/m/#tool=' + (e.notification.data?.tool || 'drop');
+  e.waitUntil(self.clients.matchAll({ type: 'window' }).then((ws) => {
+    const w = ws.find((c) => new URL(c.url).pathname.startsWith('/m/'));
+    if (w) { w.postMessage({ tool: e.notification.data?.tool || 'drop' }); return w.focus(); }
+    return self.clients.openWindow(url);
+  }));
+});
