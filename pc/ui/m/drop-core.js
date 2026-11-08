@@ -82,6 +82,7 @@ function dropList(items, empty) {
 }
 
 function dropSend() {
+  if (DROPST?.local) return localDrop(); // the PC is off: through the relay (local.js)
   const fd = new FormData();
   for (const f of FD.files) fd.append('f', f, f.name);
   if (FD.text.trim()) fd.append('text', FD.text);

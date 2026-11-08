@@ -18,10 +18,10 @@ const dlJobs = () => DL?.jobs || [];
 const dlBusy = () => dlJobs().some((j) => j.state === 'queued' || j.state === 'running');
 const dlHue = (id) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 const dlSize = (b) => (b >= 1 << 30 ? (b / (1 << 30)).toFixed(1) + ' GB' : b >= 1 << 20 ? (b / (1 << 20)).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
-const dlFrom = (j) => (!j.from ? 'the PC' : j.from === ST?.me ? 'this phone' : phoneById(j.from)?.Name || 'a phone');
+const dlFrom = (j) => (j.local ? 'this phone' : !j.from ? 'the PC' : j.from === ST?.me ? 'this phone' : phoneById(j.from)?.Name || 'a phone');
 const dlThumb = (j) => `<span class="thumb" style="--h:${dlHue(j.id)}">${icon(j.audio ? 'music' : (j.files || []).some((f) => f.kind === 'video') || !j.files?.length ? 'video' : 'photo')}</span>`;
 const dlTag = (s) => `<span class="sitetag">${esc(s || 'Link')}</span>`;
-const fileURL = (j, n, dl) => `/api/phone/dl/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
+const fileURL = (j, n, dl) => `${PCURL}/api/phone/dl/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
 const runDl = (text) => 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTCUT_DL) + '&input=text&text=' + encodeURIComponent(text);
 const dlTitle = (name, lede) => `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">${name}</h1><p class="pagelede">${lede}</p></div></div>`;
 
@@ -62,8 +62,26 @@ function dlLine() {
 }
 
 function dlView(off) {
+  if (OFFLINE && IOS) return dlTitle('Download', 'Paste a link, or share one from any app.') + `<div class="feed scroller">${off}
+    <div class="dlbox">
+      <label class="dlinput">${icon('link')}<span class="sr">Link</span><input id="dlhere" value="${esc(DS.url)}" placeholder="Paste a link" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url"></label>
+      <div class="detected">Any link from TikTok, YouTube, Instagram, X, Reddit and about 1,700 other sites.</div>
+      <div class="bigbtns">${navigator.clipboard?.readText ? '<button type="button" class="btn" data-dlherepaste>Paste</button>' : ''}<button type="button" class="btn primary" data-dlhere>${icon('dl')}Download</button></div>
+      <div class="route"><i class="dotlight"></i><span>Your PC is out of reach, so this iPhone downloads it with the free <b>a-Shell</b> app, through the <b>${SHORTCUT_DL}</b> Shortcut, and saves it to Photos.</span></div></div>
+    <p class="mhint">${icon('info')}<span>First time? Set up the Shortcut and a-Shell once: <b>Settings</b> tab, then <b>Share button</b> and <b>When your PC is off</b>.</span></p></div>`;
+  if (OFFLINE && NATIVE?.phoneDownload) { // the S23 app has yt-dlp built in
+    const ph = DS.phone || {};
+    return dlTitle('Download', 'Paste a link, or share one from any app.') + `<div class="feed scroller">${off}
+    <div class="dlbox">
+      <label class="dlinput">${icon('link')}<span class="sr">Link</span><input id="dlhere" value="${esc(DS.url)}" placeholder="Paste a link" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url"></label>
+      ${ph.err ? `<div class="detected is-bad">${icon('alert')}<span>${esc(ph.err)}</span></div>` : ph.busy ? `<div class="detected"><span class="pulse"></span><span>Downloading on this phone… ${ph.pct || 0}%</span></div><div class="prog"><i style="width:${Math.max(2, ph.pct || 0)}%"></i></div>`
+        : ph.done ? `<div class="detected"><i class="dotlight"></i><span>Saved: <b>${esc(ph.done)}</b>, in Gallery.</span></div>` : '<div class="detected">Any link from TikTok, YouTube, Instagram, X, Reddit and about 1,700 other sites.</div>'}
+      <div class="bigbtns">${NATIVE.clipboard ? '<button type="button" class="btn" data-dlpaste2>Paste</button>' : ''}<button type="button" class="btn primary" data-dlphone ${ph.busy ? 'disabled' : ''}>${icon('dl')}Download</button></div>
+      <label class="dlswitch"><span>Audio only (MP3)</span><input type="checkbox" class="switch" role="switch" id="dlaudio" ${DS.audio ? 'checked' : ''}></label>
+      <div class="route"><i class="dotlight"></i><span>Your PC is out of reach, so this phone downloads it and puts it in Gallery.</span></div></div></div>`;
+  }
   if (OFFLINE) return dlTitle('Download', 'Paste a link, or share one from any app.') + `<div class="feed scroller">${off}
-    <p class="mhint">${icon('info')}<span>${IOS ? `Your PC is off or out of reach. Share the link and pick <b>${SHORTCUT_DL}</b>: away from the PC it downloads on this iPhone with a-Shell.` : 'Your PC is off or out of reach. Links you share wait and go to the PC when it\'s back.'}</span></p></div>`;
+    <p class="mhint">${icon('info')}<span>Your PC is off or out of reach. Links you share wait and go to the PC when it's back.</span></p></div>`;
   const mine = dlJobs().filter((j) => j.from === ST?.me).slice(0, 6);
   const can = DS.url.trim() && !DS.busy && DL?.ready;
   const n = DS.note;
@@ -104,7 +122,7 @@ function dlAskView() {
 }
 
 function dlSettingsView(off) {
-  const base = location.origin, t = encodeURIComponent(TOKEN);
+  const base = PCLINK, t = encodeURIComponent(TOKEN);
   const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
   const eng = DL?.engines || [];
   const ios = IOS ? `
@@ -176,10 +194,15 @@ $app.addEventListener('click', async (e) => {
     else if (d.dlaskno !== undefined) { S.dlAsk = false; render(); }
     else if (d.dlpaste !== undefined) { DS.url = NATIVE.clipboard() || ''; DS.err = ''; dlProbeNow(); }
     else if (d.dlcancel) { await api('/api/phone/dl/cancel/' + d.dlcancel, {}); refresh(); }
+    else if (d.dlphone !== undefined) { if (DS.url.trim()) { DS.phone = { busy: true, pct: 0 }; render(); NATIVE.phoneDownload(DS.url.trim(), DS.audio); } }
+    else if (d.dlpaste2 !== undefined) { DS.url = NATIVE.clipboard() || ''; render(); }
+    else if (d.dlhere !== undefined) { if (DS.url.trim()) location.href = runDl(DS.url.trim()); }
+    else if (d.dlherepaste !== undefined) { DS.url = (await navigator.clipboard.readText()).trim(); render(); }
     else if (d.dlsave) { saving.add(d.dlsave); NATIVE.saveDownload(d.dlsave); b.textContent = 'Saving…'; }
   } catch (err) { DS.err = err.message; render(); }
 });
 $app.addEventListener('input', (e) => {
+  if (e.target.id === 'dlhere') DS.url = e.target.value;
   if (e.target.id !== 'dlurl') return;
   DS.url = e.target.value; DS.err = ''; DS.note = null; DS.probe = null;
   clearTimeout(dlProbeTimer);
@@ -187,3 +210,6 @@ $app.addEventListener('input', (e) => {
 });
 $app.addEventListener('change', (e) => { if (e.target.id === 'dlaudio') { DS.audio = e.target.checked; render(); } });
 $app.addEventListener('keydown', (e) => { if (e.target.id === 'dlurl' && e.key === 'Enter') { clearTimeout(dlProbeTimer); e.target.blur(); dlGo(); } });
+// The S23 app reports a download it does by itself (PhoneDL.java).
+window.phoneDlProgress = (pct) => { DS.phone = { busy: true, pct }; const b = document.querySelector('.dlbox .prog i'); if (b) b.style.width = Math.max(2, pct) + '%'; else render(); };
+window.phoneDlDone = (res) => { DS.phone = res.startsWith('ERR:') ? { err: res.slice(4) } : { done: res.split('\n').join(', ') }; if (!DS.phone.err) DS.url = ''; render(); };

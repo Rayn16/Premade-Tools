@@ -3,7 +3,7 @@
 'use strict';
 
 const FRAPI = {
-  base: '/api/phone/friends',
+  base: PCURL + '/api/phone/friends',
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   sheet: (label, body) => `<div class="msheet" data-frclose><div class="msheet-card" role="dialog" aria-modal="true" aria-label="${label}"><div class="grab"><span></span></div>

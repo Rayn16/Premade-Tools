@@ -55,12 +55,17 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
-                if ("file".equals(u.getScheme()) || (u.getHost() + ":" + u.getPort()).equals(Vault.host(MainActivity.this))) return false;
+                if ("file".equals(u.getScheme()) || (u.getHost() + ":" + u.getPort()).equals(Vault.host(MainActivity.this))
+                        || u.getHost() != null && u.getHost().equals(Uri.parse(Vault.prefs(MainActivity.this).getString("away", "")).getHost())) return false;
                 startActivity(new Intent(Intent.ACTION_VIEW, u)); // anything else opens outside the app
                 return true;
             }
             @Override public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
-                if (r.isForMainFrame()) v.loadUrl("file:///android_asset/offline.html");
+                if (!r.isForMainFrame()) return;
+                String away = Vault.prefs(MainActivity.this).getString("away", null);
+                // The PC is out of reach: the same app from the relay, which works on the phone alone (once it was opened there with a signal, it's kept offline too).
+                if (away != null && !r.getUrl().toString().startsWith(away.substring(0, away.indexOf("/m/")))) v.loadUrl(away);
+                else v.loadUrl("file:///android_asset/offline.html");
             }
         });
         web.setDownloadListener((url, ua, disposition, mime, len) -> {
@@ -117,7 +122,12 @@ public class MainActivity extends Activity {
             WatchJob.now(this);
             String tool = getIntent().getStringExtra("tool"); // a File drop notification was tapped
             setIntent(new Intent());
-            web.loadUrl("http://" + Vault.host(this) + "/m/#t=" + Vault.token(this) + (tool != null ? "&tool=" + Uri.encode(tool) : ""));
+            new Thread(() -> {
+                boolean home = Vault.canReachHome(this); // picks the home or the Tailscale address
+                String away = Vault.prefs(this).getString("away", null);
+                runOnUiThread(() -> web.loadUrl(!home && away != null ? away
+                        : "http://" + Vault.host(this) + "/m/#t=" + Vault.token(this) + (tool != null ? "&tool=" + Uri.encode(tool) : "")));
+            }).start();
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
                     && !Vault.prefs(this).getBoolean("askedNotify", false)) { // once: File drop says when something arrives
                 Vault.prefs(this).edit().putBoolean("askedNotify", true).apply();
@@ -136,7 +146,7 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             String err = null;
             try {
-                Vault.prefs(this).edit().putString("host", host).remove("token").apply();
+                Vault.prefs(this).edit().putString("host", host).putString("lan", host).remove("ts").remove("away").remove("token").apply();
                 JSONObject r = new JSONObject(Vault.call(this, "POST", "/api/pair", new JSONObject()
                         .put("code", code).put("name", Watcher.deviceName(this)).put("kind", "android")));
                 // Files deleted before pairing aren't saved: Vault protects from today on.
@@ -211,6 +221,34 @@ public class MainActivity extends Activity {
                 JSONObject s = new JSONObject(state);
                 new Thread(() -> Drops.syncClip(MainActivity.this, s.optString("me"), s.optJSONObject("clip"), canRead && visible)).start();
             } catch (Exception ignored) {}
+        }
+        /** The page passes on the PC's Tailscale address and the relay's copy of the app, for when home can't be reached. */
+        @JavascriptInterface public void keepAway(String ts, String away) {
+            Vault.prefs(MainActivity.this).edit().putString("ts", ts.isEmpty() ? null : ts).putString("away", away.isEmpty() ? null : away).apply();
+        }
+        /** Saves something the phone made itself (local.js): pictures, videos, sound and PDFs in their usual folders › Premade. */
+        @JavascriptInterface public String saveLocal(String name, String type, String b64) {
+            try {
+                String dir = type.startsWith("image/") ? Environment.DIRECTORY_PICTURES : type.startsWith("video/") ? Environment.DIRECTORY_MOVIES
+                        : type.startsWith("audio/") ? Environment.DIRECTORY_MUSIC : type.equals("application/pdf") ? Environment.DIRECTORY_DOCUMENTS : Environment.DIRECTORY_DOWNLOADS;
+                java.io.File d = new java.io.File(Environment.getExternalStoragePublicDirectory(dir), "Premade");
+                d.mkdirs();
+                name = new java.io.File(name).getName();
+                java.io.File out = new java.io.File(d, name);
+                int dot = name.lastIndexOf('.');
+                for (int k = 2; out.exists(); k++) out = new java.io.File(d, dot > 0 ? name.substring(0, dot) + " (" + k + ")" + name.substring(dot) : name + " (" + k + ")");
+                try (java.io.FileOutputStream o = new java.io.FileOutputStream(out)) { o.write(android.util.Base64.decode(b64, android.util.Base64.DEFAULT)); }
+                android.media.MediaScannerConnection.scanFile(MainActivity.this, new String[]{out.getPath()}, null, null);
+                return "ok";
+            } catch (Exception e) { return e.getMessage(); }
+        }
+        /** Downloads a link on the phone itself (PC out of reach). Tells the page phoneDlProgress(pct), then phoneDlDone(result). */
+        @JavascriptInterface public void phoneDownload(String url, boolean audio) {
+            new Thread(() -> {
+                String res = PhoneDL.run(MainActivity.this, url, audio,
+                        (pct) -> runOnUiThread(() -> web.evaluateJavascript("window.phoneDlProgress && phoneDlProgress(" + pct + ")", null)));
+                runOnUiThread(() -> web.evaluateJavascript("window.phoneDlDone && phoneDlDone(" + JSONObject.quote(res) + ")", null));
+            }).start();
         }
         @JavascriptInterface public void watchDownloads() { WatchJob.downloads(MainActivity.this, null); }
         /** Transcribe's Record button: "ok", "perm" (Android is asking for the mic; tap again) or "error". The

@@ -248,9 +248,12 @@ func (f *Friends) receive(it frItem) error {
 	if err != nil {
 		return err
 	}
+	// A drop one of my own phones sent while this PC was off comes as "device@phone".
+	dev, fromPhone, mine := strings.Cut(it.Dev, "@")
+	mine = mine && it.From == f.a.set.Get().FrID
 	var to []string
 	for _, d := range f.a.dropDevices() {
-		if it.Dev == "all" || it.Dev == d.ID {
+		if dev == "all" || dev == d.ID {
 			to = append(to, d.ID)
 		}
 	}
@@ -258,6 +261,9 @@ func (f *Friends) receive(it frItem) error {
 		to = []string{"pc"}
 	}
 	from := "friend:" + it.FromName
+	if mine {
+		from = fromPhone
+	}
 	for i, dev := range to {
 		dir := tmp
 		if i < len(to)-1 { // Add moves the file, so every device but the last gets its own copy

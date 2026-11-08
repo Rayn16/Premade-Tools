@@ -1,9 +1,11 @@
 name: Friends relay
 # Puts the Friends relay (relay/) up on Cloudflare: the D1 database, the R2 bucket, then the Worker and its page.
 # Needs the CLOUDFLARE_API_TOKEN secret (an "Edit Cloudflare Workers" token from the Friends Cloudflare account).
+# Only the default branch deploys: the relay also hosts the phone app (/m/), so a deploy is a release for iPhones.
 on:
   push:
-    paths: ['relay/**', 'pc/ui/m/friends-core.js', 'pc/ui/friends.css', '.github/workflows/relay.yml']
+    branches: [claude/project-thread-n24ntn]
+    paths: ['relay/**', 'pc/ui/**', '.github/workflows/relay.yml']
   workflow_dispatch:
 jobs:
   deploy:

@@ -12,18 +12,18 @@ ICON.upload = '<path d="M12 16V5M7 9l5-5 5 5M5 20h14"/>';
 ICON.doc = '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>';
 
 let CVS = null; // /api/phone/cv
-const cvJobs = () => CVS?.jobs || [];
+const cvJobs = () => [...ljOf('cv'), ...(CVS?.jobs || [])];
 const cvBusy = () => cvJobs().some((j) => j.state === 'queued' || j.state === 'running');
 const cvExt = (n) => (n.split('.').pop() || '').toLowerCase();
 const cvKind = (n) => (CVS?.kinds || []).find((k) => k.exts.includes(cvExt(n)));
 const cvIcon = { image: 'photo', video: 'video', audio: 'music', doc: 'doc', sheet: 'doc', slides: 'doc' };
 const cvName = (j) => j.inputs.length > 1 ? `${j.inputs[0]} and ${j.inputs.length - 1} more` : j.inputs[0];
-const cvFileURL = (j, n, dl) => `/api/phone/cv/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
+const cvFileURL = (j, n, dl) => `${PCURL}/api/phone/cv/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
 
 async function cvRefresh() {
   try { CVS = await api('/api/phone/cv'); } catch (e) { return; }
   for (const j of cvJobs()) {
-    if (j.from !== ST?.me || j.state !== 'done' || j.fetched) continue;
+    if (j.local || j.from !== ST?.me || j.state !== 'done' || j.fetched) continue;
     if (NATIVE?.saveConverted && !cvSaving.has(j.id)) { cvSaving.add(j.id); NATIVE.saveConverted(j.id); } // straight into Gallery
     else if (!NATIVE && !cvBlobs[j.id] && j.size < 300 << 20) cvFetch(j);
   }
@@ -59,15 +59,15 @@ function cvSaveButton(j) {
 }
 
 function cvRow(j, full) {
-  const state = j.state === 'queued' ? 'Waiting its turn' : j.state === 'running' ? (j.pct < 1 ? 'Starting…' : `On the PC ${Math.floor(j.pct)}%`) : '';
-  const where = j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'Saved' : 'In Gallery') : j.from === ST?.me && NATIVE ? 'Saving…' : 'On the PC';
+  const state = j.state === 'queued' ? 'Waiting its turn' : j.state === 'running' ? (j.local ? j.note || 'On this phone' : j.pct < 1 ? 'Starting…' : `On the PC ${Math.floor(j.pct)}%`) : '';
+  const where = j.local ? ljWhere(j) : j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'Saved' : 'In Gallery') : j.from === ST?.me && NATIVE ? 'Saving…' : 'On the PC';
   const sizes = j.size && j.inSize ? `${dlSize(j.inSize)} → ${dlSize(j.size)}` : '';
-  return `<div class="row"><span class="thumb" style="--h:${dlHue(j.id)}">${icon(cvIcon[j.kind] || 'doc')}</span><div class="row-text grow"><span class="row-title clip">${esc(cvName(j))}</span>
+  return `<div class="row" data-lj="${j.id}"><span class="thumb" style="--h:${dlHue(j.id)}">${icon(cvIcon[j.kind] || 'doc')}</span><div class="row-text grow"><span class="row-title clip">${esc(cvName(j))}</span>
     <div class="hmeta"><span class="sitetag">${esc(j.target)}</span>${full && sizes ? `<span>${sizes}</span>` : ''}<span>${hm(new Date(j.at))}${full ? ' · from ' + esc(dlFrom(j)) : ''}</span>
     ${state ? `<span class="jobstate">${state}</span>` : ''}${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
     ${j.state === 'running' || j.state === 'queued' ? `<div class="prog"><i style="width:${Math.max(2, j.pct)}%"></i></div>` : ''}
     ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${cvSaveButton(j)}${frShareBtn('cv', j)}${j.state === 'running' || j.state === 'queued' ? `<button type="button" class="btn small" data-cvcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
+    <div class="hacts">${j.local ? ljSaveBtn(j) : cvSaveButton(j) + frShareBtn('cv', j)}${!j.local && (j.state === 'running' || j.state === 'queued') ? `<button type="button" class="btn small" data-cvcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
 }
 
 function cvPicked() {
@@ -83,13 +83,14 @@ function cvPicked() {
     const ext = cvExt(CS.files[0].name);
     CS.to = (k.targets.find((t) => t.id !== ext && !(ext === 'jpeg' && t.id === 'jpg')) || k.targets[0]).id;
   }
+  if (CVS.local && k.engine === 'soffice') return { kind: k, why: 'Word, Excel and PowerPoint files need your PC. Convert them when it\'s reachable.' };
   if (!CVS.ready[k.engine]) return { kind: k, why: k.engine === 'soffice' ? 'Office files need LibreOffice on the PC. Install it on the PC: Settings › Converter.' : 'The PC is still setting up this engine. Try again in a few minutes.' };
   return { kind: k };
 }
 
 function cvView(off) {
   const title = dlTitle('Convert', 'Pick photos, videos or documents and choose what they should become.');
-  if (OFFLINE || !CVS) return title + `<div class="feed scroller">${off}<p class="mhint">${icon('info')}<span>The PC does the converting, so it needs to be on and reachable${IOS ? ' (at home, or anywhere with Tailscale)' : ''}.</span></p></div>`;
+  if (OFFLINE || !CVS) CVS = CV_LOCAL; // the PC is out of reach: this phone converts
   const { kind, why } = cvPicked();
   const many = CS.files.length > 1, total = CS.files.reduce((s, f) => s + f.size, 0);
   const mine = cvJobs().filter((j) => j.from === ST?.me).slice(0, 6);
@@ -105,7 +106,7 @@ function cvView(off) {
   return `${title}<div class="feed scroller">${off}
     ${CS.err ? `<div class="notebox">${icon('alert')}<div>${esc(CS.err)}</div></div>` : ''}
     <div class="dlbox cvbox">${box}
-      <div class="route"><i class="dotlight"></i><span>${IOS ? 'Your PC converts it. Tap <b>Save</b> when it\'s done.' : 'Your PC converts it, then it goes into Gallery by itself.'}</span></div></div>
+      <div class="route"><i class="dotlight"></i><span>${CVS.local ? 'Your PC is out of reach, so this phone converts it. Tap <b>Save</b> when it\'s done.' : IOS ? 'Your PC converts it. Tap <b>Save</b> when it\'s done.' : 'Your PC converts it, then it goes into Gallery by itself.'}</span></div></div>
     ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => cvRow(j)).join('')}</div></section>` : ''}
     ${IOS ? `<p class="mhint">${icon('share')}<span>Faster for photos: in Photos tap <b>Share</b> and pick <b>${SHORTCUT_CV}</b>. It keeps the original photo and saves the result back to Photos. Set it up once in <b>Settings</b>.</span></p>
       <p class="mhint">${icon('info')}<span>Picking a photo here, the iPhone may already turn HEIC into JPG. For videos, tap <b>Options</b> › <b>Most Compatible</b> off, or use Files, to send the original.</span></p>` : ''}
@@ -125,7 +126,7 @@ function cvHistoryView(off) {
 }
 
 function cvSettingsView(off) {
-  const base = location.origin, t = encodeURIComponent(TOKEN);
+  const base = PCLINK, t = encodeURIComponent(TOKEN);
   const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
   const ios = IOS ? `
     <section class="group"><div class="sectionhead"><b>Share button</b><i></i></div>
@@ -152,10 +153,11 @@ function cvSettingsView(off) {
 
 function cvSend() {
   const { kind } = cvPicked();
+  if (CVS.local) { localConvert(kind, CS.files, CS.to, CS.small, kind.id === 'image' && CS.to === 'pdf' && CS.combine); CS.files = []; CS.err = ''; render(); return; }
   const fd = new FormData();
   for (const f of CS.files) fd.append('f', f, f.name);
   const x = new XMLHttpRequest();
-  x.open('POST', `/api/phone/cv/start?to=${CS.to}&small=${CS.small ? 1 : 0}&combine=${kind.id === 'image' && CS.to === 'pdf' && CS.combine ? 1 : 0}`);
+  x.open('POST', `${PCURL}/api/phone/cv/start?to=${CS.to}&small=${CS.small ? 1 : 0}&combine=${kind.id === 'image' && CS.to === 'pdf' && CS.combine ? 1 : 0}`);
   x.setRequestHeader('Authorization', 'Bearer ' + TOKEN);
   x.upload.onprogress = (e) => { if (e.lengthComputable) { CS.up = Math.floor(e.loaded / e.total * 100); render(); } };
   x.onload = async () => {

@@ -9,7 +9,7 @@ let TRST = null; // GET TRAPI.base
 const T = { files: [], to: 'text', up: -1, err: '', open: {}, text: {}, copied: '', rec: null, recAt: 0 };
 const trCanRecord = () => !!(window.Vault?.recordStart || (navigator.mediaDevices?.getUserMedia && window.MediaRecorder && window.isSecureContext));
 
-const trJobs = () => TRST?.jobs || [];
+const trJobs = () => [...(typeof ljOf === 'function' ? ljOf('tr') : []), ...(TRST?.jobs || [])]; // ljOf: jobs done on the phone itself (local.js)
 const trBusy = () => trJobs().some((j) => j.state === 'queued' || j.state === 'running') || TRST?.engine?.state === 'installing';
 const trOk = (f) => /^(audio|video)\//.test(f.type) || /\.(mp3|m4a|aac|wav|flac|ogg|opus|wma|aiff?|amr|caf|mov|mp4|m4v|mkv|webm|avi|wmv|flv|3gp|mts|ts)$/i.test(f.name);
 const trTitle = (j) => j.inputs.length > 1 ? `${j.inputs[0]} and ${j.inputs.length - 1} more` : j.inputs[0];
@@ -82,18 +82,19 @@ function trTextView(j) {
 function trRow(j, full) {
   const live = j.state === 'queued' || j.state === 'running';
   const where = TRAPI.where(j), open = T.open[j.id] && j.state === 'done';
-  return `<div class="row trrow"><div class="trtop"><span class="thumb" style="--h:${pdfHue(j.id)}">${icon('transcribe')}</span>
+  return `<div class="row trrow" data-lj="${j.id}"><div class="trtop"><span class="thumb" style="--h:${pdfHue(j.id)}">${icon('transcribe')}</span>
     <div class="row-text grow"><span class="row-title clip">${esc(trTitle(j))}</span>
       <div class="hmeta"><span class="sitetag">${esc(j.lang || (j.target === 'en' ? 'To English' : 'Text'))}</span>${live ? `<span class="jobstate">${j.state === 'queued' ? 'Waiting its turn' : 'Listening…'}</span>` : ''}
         <span>${hm(new Date(j.at))}${full ? ' · from ' + esc(TRAPI.from(j)) : ''}</span>${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
       ${live ? `<div class="prog"><i style="width:${Math.max(4, j.pct)}%"></i></div>` : ''}
       ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${live ? `<button type="button" class="btn small" data-tr="cancel" data-id="${j.id}">Cancel</button>`
+    <div class="hacts">${live && !j.local ? `<button type="button" class="btn small" data-tr="cancel" data-id="${j.id}">Cancel</button>`
       : `${j.state === 'done' ? `<button type="button" class="btn small" data-tr="open" data-id="${j.id}" aria-expanded="${!!open}">${icon(open ? 'up' : 'down')}${open ? 'Hide' : 'Text'}</button>` : ''}${TRAPI.acts(j)}`}</div></div>
     ${open ? trTextView(j) : ''}</div>`;
 }
 
 function trSend() {
+  if (TRST?.local) { localTranscribe(T.files, T.to); T.files = []; T.err = ''; render(); return; } // the phone listens (local.js)
   const fd = new FormData();
   for (const f of T.files) fd.append('f', f, f.name);
   const x = new XMLHttpRequest();
@@ -132,7 +133,7 @@ async function trRecord() {
   if (window.Vault?.recordStart) return trRecordNative();
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) {
-    T.err = 'The microphone is off for Premade Tools. Allow it in the question at the top of the window, or in Windows Settings › Privacy › Microphone.'; render(); return;
+    T.err = TRAPI.touch ? 'The microphone is off for Premade. Allow it when asked, or in Settings › Safari › Microphone.' : 'The microphone is off for Premade Tools. Allow it in the question at the top of the window, or in Windows Settings › Privacy › Microphone.'; render(); return;
   }
   const mr = new MediaRecorder(stream), parts = [];
   mr.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
@@ -142,8 +143,9 @@ async function trRecord() {
     const keep = !mr.cancelled && parts.length, at = new Date(T.recAt);
     T.rec = null; render();
     if (!keep) return;
-    const name = `Recording ${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')} ${hm(at).replace(':', '.')}.webm`;
-    T.files = [new File(parts, name, { type: 'audio/webm' })];
+    const type = mr.mimeType || 'audio/webm', ext = /mp4/.test(type) ? 'm4a' : 'webm'; // iPhones record mp4
+    const name = `Recording ${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')} ${hm(at).replace(':', '.')}.${ext}`;
+    T.files = [new File(parts, name, { type })];
     trSend();
   };
   T.rec = mr; T.recAt = Date.now(); T.err = '';

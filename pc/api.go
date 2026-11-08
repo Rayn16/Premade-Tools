@@ -223,7 +223,8 @@ func (a *App) routes() http.Handler {
 	ph("GET /api/phone/state", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		c := a.set.Get()
 		free, _ := diskSpace(c.VaultDir)
-		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "update": a.newVer(), "free": human(int64(free)),
+		remote, tsState := a.ts.Status()
+		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "remote": remote, "tailscale": tsState, "relay": relayURL, "fr": c.FrTok, "tsHost": a.ts.IP(), "update": a.newVer(), "free": human(int64(free)),
 			"config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
 	})
 	ph("POST /api/phone/update", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
@@ -371,7 +372,8 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	c := a.set.Get()
 	phones := a.phoneViews()
 	c.Phones = nil
-	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "moving": a.moving}
+	remote, tsState := a.ts.Status()
+	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "moving": a.moving, "remote": remote, "tailscale": tsState}
 	if st := a.getStore(); st != nil {
 		n, b := st.Stats()
 		free, _ := diskSpace(c.VaultDir)
@@ -549,7 +551,8 @@ func (a *App) pair(w http.ResponseWriter, r *http.Request) {
 	}
 	p := &Phone{ID: randCode(5), Name: in.Name, Kind: in.Kind, Token: randCode(20), Paired: time.Now(), LastSeen: time.Now()}
 	a.set.With(func(c *Config) bool { c.Phones = append(c.Phones, p); return true })
-	writeJ(w, map[string]string{"token": p.Token, "id": p.ID})
+	remote, _ := a.ts.Status()
+	writeJ(w, map[string]string{"token": p.Token, "id": p.ID, "remote": remote, "relay": relayURL})
 }
 
 // touch marks a phone as just seen.

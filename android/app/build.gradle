@@ -9,7 +9,10 @@ android {
         // CI numbers each build, so every new build installs over the last one.
         versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger())
         versionName "0.1.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+        // yt-dlp and Python come as native libraries; only the 64-bit ARM ones, which every recent phone uses (S23 too).
+        ndk { abiFilters 'arm64-v8a' }
     }
+    packaging { jniLibs { useLegacyPackaging true } } // yt-dlp runs its bundled Python from the unpacked libraries
     // The signing key comes from the ANDROID_KEYSTORE repo secret (CI writes it here); it never goes in the repo.
     // The same key signs every build, so each one installs over the last.
     signingConfigs {
@@ -20,4 +23,9 @@ android {
         debug { signingConfig signingConfigs.vault }
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies {
+    // The Downloader on the phone alone (PhoneDL.java): yt-dlp with its Python and FFmpeg.
+    implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
+    implementation 'io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1'
 }

@@ -3,11 +3,11 @@
 'use strict';
 
 const DROPAPI = {
-  base: '/api/phone/drop',
+  base: PCURL + '/api/phone/drop',
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => {},
-  url: (it, n, dl) => `/api/phone/drop/file/${it.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`,
+  url: (it, n, dl) => `${PCURL}/api/phone/drop/file/${it.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`,
   acts: (it) => {
     if (it.to !== DROPST?.me) return '';
     const copy = `<button type="button" class="btn small" data-dropm="copy" data-id="${it.id}">${icon(FD.copied === it.id ? 'check' : 'copy')}${FD.copied === it.id ? 'Copied' : 'Copy'}</button>`;
@@ -21,15 +21,20 @@ const SHORTCUT_DROP = 'Drop to PC';
 
 function dropToolsView(off) {
   const title = dlTitle('File drop', 'Send photos, files, links and text to your PC or other phone.');
-  if (OFFLINE || !DROPST) return title + `<div class="feed scroller">${off}<p class="mhint">${icon('info')}<span>Drops go through your PC, so it needs to be on and reachable${IOS ? ' (at home, or anywhere with Tailscale)' : ''}.</span></p></div>`;
+  let kept = null;
+  try { kept = JSON.parse(localStorage.getItem('ptdrop')); } catch (e) {}
+  if ((OFFLINE || !DROPST) && kept && frKey()) DROPST = { ...kept, jobs: [], clip: null, clipSync: false, local: true }; // sent through the relay, picked up by the PC later
+  else if (OFFLINE || !DROPST) return title + `<div class="feed scroller">${off}<p class="mhint">${icon('info')}<span>Drops go through your PC, so it needs to be on and reachable${IOS ? ' (at home, or anywhere with Tailscale)' : ''}. To send while it's off, join Friends on the PC once.</span></p></div>`;
+  else { try { localStorage.setItem('ptdrop', JSON.stringify({ me: DROPST.me, devices: DROPST.devices })); } catch (e) {} }
   const fresh = dropJobs().filter((j) => j.to === DROPST.me && !j.fetched);
   const note = IOS ? 'Tap Copy to put it on this iPhone. To send this iPhone\'s clipboard, run the Drop to PC Shortcut.' : NATIVE?.dropClip ? 'It syncs by itself while Premade is open.' : 'Update the app to sync it by itself.';
   return `${title}<div class="feed scroller">${off}
     ${FD.err ? `<div class="notebox">${icon('alert')}<div>${esc(FD.err)}</div></div>` : ''}
+    ${FD.sent ? `<div class="notebox is-info">${icon('check')}<div>${esc(FD.sent)}</div></div>` : ''}
     ${fresh.length ? `<section class="sec"><h2 class="group-label">New for this phone</h2><div class="rows hrows">${fresh.map(dropRow).join('')}</div></section>` : ''}
-    ${dropClipCard(note)}
+    ${DROPST.local ? '' : dropClipCard(note)}
     <div class="dlbox cvbox" style="margin-top:14px">${dropBox()}
-      <div class="route"><i class="dotlight"></i><span>${IOS ? `From any app: <b>Share</b> › <b>${SHORTCUT_DROP}</b> (Settings tab shows how).` : 'From any app: <b>Share</b> › <b>Send with Premade</b>.'}</span></div></div>
+      <div class="route"><i class="dotlight"></i><span>${DROPST.local ? 'Your PC is off, so this goes through the internet and waits there (up to 7 days) until the PC picks it up.' : IOS ? `From any app: <b>Share</b> › <b>${SHORTCUT_DROP}</b> (Settings tab shows how).` : 'From any app: <b>Share</b> › <b>Send with Premade</b>.'}</span></div></div>
   </div>`;
 }
 
@@ -40,7 +45,7 @@ function dropHistoryView(off) {
 
 // iPhone: Home Screen apps can't be a Share target, so a Shortcut is.
 function dropShortcutGuide() {
-  const base = location.origin, t = encodeURIComponent(TOKEN);
+  const base = PCLINK, t = encodeURIComponent(TOKEN);
   const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
   const others = dropTargets().filter((d) => d.id !== 'pc');
   return `<section class="group"><div class="sectionhead"><b>Share button</b><i></i></div>

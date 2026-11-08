@@ -3,24 +3,24 @@
 'use strict';
 
 const TRAPI = {
-  base: '/api/phone/tr',
+  base: PCURL + '/api/phone/tr',
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => trPoll(),
   from: (j) => dlFrom(j),
-  url: (j, n, dl) => `/api/phone/tr/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`,
-  where: () => '',
-  acts: (j) => frShareBtn('tr', j),
+  url: (j, n, dl) => j.local ? ljURL(j, n) : `${PCURL}/api/phone/tr/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`,
+  where: (j) => j.local ? ljWhere(j) : '',
+  acts: (j) => j.local ? ljSaveBtn(j) : frShareBtn('tr', j),
 };
 
 function trToolsView(off) {
-  const title = dlTitle('Transcribe', 'Voice memos and videos become text. Your PC listens; nothing goes online.');
-  if (OFFLINE || !TRST) return title + `<div class="feed scroller">${off}<p class="mhint">${icon('info')}<span>The PC does the listening, so it needs to be on and reachable${IOS ? ' (at home, or anywhere with Tailscale)' : ''}.</span></p></div>`;
+  if (OFFLINE || !TRST) TRST = TR_LOCAL; // the PC is out of reach: this phone listens
+  const title = dlTitle('Transcribe', TRST.local ? 'Voice memos and videos become text, on this phone.' : 'Voice memos and videos become text. Your PC listens; nothing goes online.');
   const mine = trJobs().filter((j) => j.from === ST?.me).slice(0, 5);
   return `${title}<div class="feed scroller">${off}
     ${T.err ? `<div class="notebox">${icon('alert')}<div>${esc(T.err)}</div></div>` : ''}
     <div class="dlbox cvbox">${trBox()}
-      <div class="route"><i class="dotlight"></i><span>${IOS ? `To talk now, run the <b>${SHORTCUT_TR}</b> Shortcut (Settings tab shows how). Voice Memos can share straight to it.` : 'Voice Recorder files are in Recordings, in My Files.'}</span></div></div>
+      <div class="route"><i class="dotlight"></i><span>${TRST.local ? 'Your PC is out of reach, so this phone listens. It\'s slower than the PC, and the first time it gets the speech engine (about 80 MB).' : IOS && !trCanRecord() ? `To talk now, run the <b>${SHORTCUT_TR}</b> Shortcut (Settings tab shows how). Voice Memos can share straight to it.` : 'Voice Recorder files are in Recordings, in My Files.'}</span></div></div>
     ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => trRow(j)).join('')}</div></section>` : ''}
   </div>`;
 }
@@ -41,7 +41,7 @@ const SHORTCUT_TR = 'Transcribe with Premade';
 
 // iPhone: Home Screen apps reach the PC over http, where Safari keeps the mic off, so a Shortcut records instead.
 function trShortcutGuide() {
-  const base = location.origin, t = encodeURIComponent(TOKEN);
+  const base = PCLINK, t = encodeURIComponent(TOKEN);
   const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
   return `<section class="group"><div class="sectionhead"><b>Record and transcribe</b><i></i></div>
     <details class="iosguide"><summary>Set up "${SHORTCUT_TR}"</summary><ol>
