@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -62,70 +61,118 @@ func (a *App) findUpdate() {
 
 var updating sync.Mutex
 
-// checkUpdate is the Update button: it installs the newest release and restarts.
+// checkUpdate is the Update button. It answers at once (a phone asking through the relay would time out on a
+// 16 MB download), then downloads, swaps the exe and restarts in the background. A failure shows in the pop-up.
 func (a *App) checkUpdate() string {
 	if !updating.TryLock() { // held until the restart
-		return "Updating. The window reopens in a moment."
+		return "Updating. Premade Tools restarts in a moment."
 	}
-	cl := &http.Client{Timeout: 5 * time.Minute}
-	r, err := latest(cl)
-	if err == nil && r.url != "" {
-		err = swapExe(cl, r.url)
-	}
+	a.setUpdErr("")
+	r, err := latest(&http.Client{Timeout: 30 * time.Second})
 	if err != nil || r.url == "" {
 		updating.Unlock()
 		if err != nil {
 			log.Printf("update: %v", err)
-			return "Update failed: " + err.Error()
+			return "Update failed: can't reach GitHub. " + err.Error()
 		}
 		return "You have the newest version."
 	}
-	go func() { time.Sleep(2 * time.Second); restart() }()
-	return "Updating to " + r.ver + ". The window reopens in a moment."
+	go func() {
+		if err := swapExe(r.url); err != nil {
+			log.Printf("update: %v", err)
+			a.setUpdErr("Update failed: " + err.Error())
+			updating.Unlock()
+			return
+		}
+		restart()
+	}()
+	return "Updating to " + r.ver + ". Premade Tools restarts in a moment."
 }
 
-func swapExe(cl *http.Client, url string) error {
+func (a *App) setUpdErr(s string) {
+	a.mu.Lock()
+	a.updErr = s
+	a.mu.Unlock()
+}
+
+func (a *App) updFailed() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.updErr
+}
+
+// swapExe downloads the new exe next to the running one (three tries) and swaps them.
+func swapExe(url string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	resp, err := cl.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("download: %s", resp.Status)
-	}
-	f, err := os.Create(exe + ".new")
-	if err != nil {
-		return err
-	}
-	if _, err = io.Copy(f, resp.Body); err == nil {
-		err = f.Close()
-	} else {
-		f.Close()
+	for try := 0; ; try++ {
+		if err = getExe(url, exe+".new"); err == nil || try == 2 {
+			break
+		}
+		time.Sleep(3 * time.Second)
 	}
 	if err != nil {
+		os.Remove(exe + ".new")
 		return err
 	}
 	os.Remove(exe + ".old")
-	if err := os.Rename(exe, exe+".old"); err != nil { // Windows lets a running exe be renamed, not replaced
+	// Windows lets a running exe be renamed, not replaced. An antivirus scanning the new file can hold it for a moment.
+	for try := 0; ; try++ {
+		if err = os.Rename(exe, exe+".old"); err == nil || try == 9 {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if err != nil {
 		return err
 	}
-	return os.Rename(exe+".new", exe)
+	for try := 0; ; try++ {
+		if err = os.Rename(exe+".new", exe); err == nil || try == 9 {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if err != nil {
+		os.Rename(exe+".old", exe) // put the working one back
+	}
+	return err
+}
+
+// getExe downloads the release exe and makes sure it is one, so a cut-off file never replaces a working program.
+func getExe(url, dst string) error {
+	if err := download(&http.Client{Timeout: 10 * time.Minute}, url, dst, func(float64) {}); err != nil {
+		return err
+	}
+	b := make([]byte, 2)
+	if f, err := os.Open(dst); err == nil {
+		f.Read(b)
+		f.Close()
+	}
+	if fi, err := os.Stat(dst); err != nil || fi.Size() < 1<<20 || string(b) != "MZ" {
+		return fmt.Errorf("the download came out broken, try again")
+	}
+	return nil
 }
 
 func cleanOldExe() {
 	if exe, err := os.Executable(); err == nil {
 		os.Remove(exe + ".old")
+		os.Remove(exe + ".new")
 	}
 }
 
+// restart starts the new copy first and then quits. The new copy waits for the port (see main), so there is
+// no moment where nothing is running and nothing can quit the old copy before the new one has started.
 func restart() {
 	exe, _ := os.Executable()
-	listener.Close() // free the port for the new copy
-	exec.Command(exe, "--background").Start()
+	if err := exec.Command(exe, "--background", "--restarted").Start(); err != nil {
+		log.Printf("restart: %v", err)
+		if os.Rename(exe, exe+".bad") == nil && os.Rename(exe+".old", exe) == nil {
+			exec.Command(exe, "--background", "--restarted").Start()
+		}
+	}
 	os.Exit(0)
 }
 

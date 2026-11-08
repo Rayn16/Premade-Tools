@@ -1,7 +1,7 @@
 // Vault's PC window. Plain JS: the server sends state, this draws it in Premade's look.
 'use strict';
 
-const S = { page: 'home', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null, updLater: '', updBusy: '' };
+const S = { page: 'home', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null, updLater: '', updBusy: '', updErr: '', updAt: 0 };
 const FLOW = {};    // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null;      // /api/ui/state
 let ITEMS = [];     // /api/ui/deleted
@@ -25,6 +25,7 @@ async function refresh() {
   } catch (e) { return; }
   if (VER && VER !== ST.version) { location.reload(); return; } // the PC just updated itself
   VER = ST.version;
+  if (S.updBusy && ST.updErr) { S.updBusy = ''; S.updErr = ST.updErr; } // the download or the swap failed: say why, offer it again
   if (!ST.config.setupDone && S.page !== 'setup') S.page = 'setup';
   const now = JSON.stringify([ST, ITEMS, S.drives, DL, CV, PDFST, TRST, DROPST, FRST]);
   if (now !== LAST || (S.page !== 'deleted' && S.page !== 'download' && S.page !== 'convert' && S.page !== 'pdf' && S.page !== 'transcribe' && S.page !== 'drop' && S.page !== 'friends')) render();
@@ -310,11 +311,11 @@ function pairSheet() {
 // The pop-up that offers a new version. "Later" hides it until the window opens again.
 function updSheet() {
   if (!ST.update || (S.updLater === ST.update && !S.updBusy)) return '';
-  const busy = S.updBusy;
+  const busy = S.updBusy, note = busy || S.updErr;
   return `<div class="backdrop"><section class="sheet upd" role="dialog" aria-modal="true" aria-label="Update ready">
     <div class="upd-body"><img class="upd-crest" src="/icon.svg" alt=""><h2 class="sheet-title">Update ready</h2>
       <p class="upd-text">Premade Tools <b class="mono">${esc(ST.update)}</b> is out. You have <span class="mono">${esc(ST.version)}</span>.</p>
-      ${busy ? `<p class="upd-text" role="status">${esc(busy)}</p>` : ''}</div>
+      ${note ? `<p class="upd-text" role="status">${esc(note)}</p>` : ''}</div>
     <div class="upd-foot"><button type="button" class="btn" data-updlater ${busy ? 'disabled' : ''}>Later</button><button type="button" class="btn primary" data-updnow ${busy ? 'disabled' : ''}>Update now</button></div></section></div>`;
 }
 
@@ -509,11 +510,12 @@ $app.addEventListener('click', async (e) => {
     }
     else if (d.updlater !== undefined) { S.updLater = ST.update; render(); }
     else if (d.updnow !== undefined) {
-      S.updBusy = 'Downloading the update…'; render();
+      S.updBusy = 'Downloading the update…'; S.updErr = ''; S.updAt = Date.now(); render();
       const m = (await api('/api/ui/update', {})).msg;
       S.updBusy = /^Updating/.test(m) ? m : ''; S.updMsg = m;
-      if (!S.updBusy) S.updLater = ST.update; // failed or already new: close it, Settings shows why
-      render();
+      if (/^Update failed/.test(m)) S.updErr = m; // stays open so Update now can be tapped again
+      else if (!S.updBusy) S.updLater = ST.update; // already new
+      render(); soon();
     }
     else if (d.update !== undefined) { S.updMsg = 'Checking…'; render(); S.updMsg = (await api('/api/ui/update', {})).msg; render(); }
     else if (d.rerun !== undefined) { S.page = 'setup'; enterStep(1); }
@@ -567,7 +569,8 @@ async function tick() {
   // download started from it keeps showing its progress.
   const typing = document.activeElement && ['q', 'folder', 'pdfpw', 'frname', 'frmyname', 'frpcname'].includes(document.activeElement.id);
   if (!typing) await refresh();
+  if (S.updBusy && Date.now() - S.updAt > 3 * 60e3) { S.updBusy = ''; S.updErr = "Premade Tools hasn't come back yet. Close this window and open Premade Tools from the Start menu."; render(); }
   clearTimeout(timer);
-  timer = setTimeout(tick, dlRunning() ? 1000 : cvRunning() || pdfBusy() || trBusy() || PDFST?.gs === 'installing' || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' || S.page === 'drop' ? 3000 : FRST?.sends?.some((s) => s.state === 'running') ? 1500 : S.page === 'friends' ? 10000 : 30000);
+  timer = setTimeout(tick, S.updBusy ? 1500 : dlRunning() ? 1000 : cvRunning() || pdfBusy() || trBusy() || PDFST?.gs === 'installing' || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' || S.page === 'drop' ? 3000 : FRST?.sends?.some((s) => s.state === 'running') ? 1500 : S.page === 'friends' ? 10000 : 30000);
 }
 refresh().then(() => { if (S.page === 'setup') enterStep(1); soon(); });
