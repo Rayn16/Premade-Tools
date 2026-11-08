@@ -87,14 +87,13 @@ function render() {
 
 function homeView(off) {
   const done = (jobs) => jobs.filter((j) => j.state === 'done').length;
-  return `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">Your tools</h1><p class="pagelede">Pick a tool to open it.</p></div></div>
+  return `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">Your tools</h1><p class="pagelede">Pick a tool to open it.</p></div>${frHomeBtn('data-tool')}</div>
     <div class="feed scroller">${off}${homeCards('tool', [
       ['download', 'dl', 'Downloader', 'Save videos and photos from any link.', tally(done(dlJobs()), 'download saved', 'downloads saved')],
       ['convert', 'convert', 'Converter', 'Turn files into other formats on your PC.', tally(done(typeof cvJobs === 'function' ? cvJobs() : []), 'file converted', 'files converted')],
       ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', tally(done(pdfJobs()), 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text.', tally(done(trJobs()), 'file transcribed', 'files transcribed')],
       ['drop', 'drop', 'File drop', 'Send files, links and text to your PC.', dropNew() ? `<b>${dropNew()}</b> new for this phone` : tally(dropJobs().length, 'drop this week', 'drops this week')],
-      ['friends', 'friends', 'Friends', 'Send what you make to anyone who has the app.', typeof FRST === 'undefined' || !FRST?.joined ? 'Not joined yet' : (frMe()?.waiting || []).length ? `<b>${frMe().waiting.length}</b> asking to join` : tally(frPeople().filter((p) => p.online).length, 'friend online', 'friends online')],
       ['vault', 'shield', 'Vault', 'Get back what you deleted on your phones.', tally(live().length, 'deleted item', 'deleted items') + ' kept']])}</div>`;
 }
 
@@ -267,7 +266,7 @@ function otherPhone(p, n) {
 
 function drawerView() {
   const c = ST?.config || {};
-  const tools = Object.entries(TOOLS).map(([id, t]) => `<button type="button" class="drawer-tool" data-tool="${id}" aria-current="${S.tool === id ? 'page' : 'false'}">${icon(t.icon)}<span>${t.name}</span></button>`).join('');
+  const tools = Object.entries(TOOLS).filter(([id]) => id !== 'friends').map(([id, t]) => `<button type="button" class="drawer-tool" data-tool="${id}" aria-current="${S.tool === id ? 'page' : 'false'}">${icon(t.icon)}<span>${t.name}</span></button>`).join('');
   return `<div class="drawer-back" data-closedrawer><nav class="drawer" aria-label="Tools">
     <div class="drawer-head">${crest}<span class="wordmark-app">Premade Tools</span></div>
     <p class="drawer-label">Tools</p>${tools}

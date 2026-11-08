@@ -61,7 +61,6 @@ function render() {
     <div class="rail-group eyebrow">PDF</div><div class="rail-nav">${item(['pdf', 'PDF tools', pdfDone || ''])}</div>
     <div class="rail-group eyebrow">Transcribe</div><div class="rail-nav">${item(['transcribe', 'Transcribe', trJobs().filter((j) => j.state === 'done').length || ''])}</div>
     <div class="rail-group eyebrow">File drop</div><div class="rail-nav">${item(['drop', 'File drop', dropNew() || ''])}</div>
-    <div class="rail-group eyebrow">Friends</div><div class="rail-nav">${item(['friends', 'Friends', (frMe()?.waiting || []).length || ''])}</div>
     <div class="rail-group eyebrow">Vault</div><div class="rail-nav">${[['deleted', 'Deleted', live.length], ['phones', 'Phones', ST.phones.length]].map(item).join('')}</div>
     <div class="rail-sep"></div><div class="rail-nav" style="margin-top:8px">${item(['settings', 'Settings', ''])}</div>`;
   const d = vaultDrive();
@@ -147,14 +146,13 @@ function homeView(live, dlDone, cvDone) {
   const dlRun = (DL?.jobs || []).filter((j) => j.state === 'running' || j.state === 'queued').length;
   const cvRun = (CV?.jobs || []).filter((j) => j.state === 'running' || j.state === 'queued').length;
   return `<main class="home scroller">
-    <div class="pagehead"><div><h1 class="pagetitle">Your tools</h1><p class="pagelede">Pick a tool to open it. Everything runs on this PC.</p></div></div>
+    <div class="pagehead"><div><h1 class="pagetitle">Your tools</h1><p class="pagelede">Pick a tool to open it. Everything runs on this PC.</p></div>${frHomeBtn('data-go')}</div>
     ${homeCards('go', [
       ['download', 'dl', 'Downloader', 'Paste a link from TikTok, Instagram, YouTube and more, and save it.', dlRun ? `<b>${dlRun}</b> downloading now` : tally(dlDone, 'download saved', 'downloads saved')],
       ['convert', 'convert', 'Converter', 'Turn photos, videos, audio and documents into other formats.', cvRun ? `<b>${cvRun}</b> converting now` : tally(cvDone, 'file converted', 'files converted')],
       ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', pdfBusy() ? '<b>Working</b> on PDFs now' : tally(pdfJobs().filter((j) => j.state === 'done').length, 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text and subtitles.', trBusy() ? '<b>Listening</b> now' : tally(trJobs().filter((j) => j.state === 'done').length, 'file transcribed', 'files transcribed')],
       ['drop', 'drop', 'File drop', 'Send files, links and text between this PC and your phones.', dropNew() ? `<b>${dropNew()}</b> new from your phones` : tally(dropJobs().length, 'drop this week', 'drops this week')],
-      ['friends', 'friends', 'Friends', 'Send what you make to anyone who has the app.', !FRST?.joined ? 'Not joined yet' : (frMe()?.waiting || []).length ? `<b>${frMe().waiting.length}</b> asking to join` : tally(frPeople().filter((p) => p.online).length, 'friend online', 'friends online')],
       ['deleted', 'shield', 'Vault', 'Keeps what you delete on your phones, so you can get it back.', `${tally(live.length, 'deleted item', 'deleted items')} kept · ${tally(ST.phones.length, 'phone', 'phones')}`]])}
   </main>`;
 }
