@@ -14,6 +14,8 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -35,12 +37,29 @@ final class Vault {
     /** Gallery keeps a folder in the bin while its Recycle bin is on. */
     static boolean binOn() { return new File(TRASH, "com.sec.android.gallery3d").exists(); }
 
-    /** Home Wi-Fi, or a VPN such as Tailscale. Mobile data alone can't reach the PC. */
+    /** Home Wi-Fi, or a VPN such as Tailscale, and the PC answers there. Mobile data alone can't reach the PC. */
     static boolean canReachHome(Context c) {
         ConnectivityManager cm = (ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
         return nc != null && (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                || nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) || nc.hasTransport(NetworkCapabilities.TRANSPORT_VPN));
+                || nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) || nc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) && pick(c);
+    }
+
+    /** The PC's home address first, then its Tailscale one (the PC hands it over in its state): whichever
+     *  answers becomes host(). Not on the main thread. */
+    static boolean pick(Context c) {
+        SharedPreferences p = prefs(c);
+        String lan = p.getString("lan", p.getString("host", null)), ts = p.getString("ts", null);
+        for (String h : new String[]{lan, ts}) {
+            if (h == null || h.lastIndexOf(':') < 0) continue;
+            try (Socket s = new Socket()) {
+                int i = h.lastIndexOf(':');
+                s.connect(new InetSocketAddress(h.substring(0, i), Integer.parseInt(h.substring(i + 1))), 1500);
+                p.edit().putString("lan", lan).putString("host", h).apply();
+                return true;
+            } catch (Exception ignored) {}
+        }
+        return false;
     }
 
     static String enc(String s) {

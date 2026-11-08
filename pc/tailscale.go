@@ -24,6 +24,7 @@ const tsPort = port + 1
 type tailscale struct {
 	mu    sync.Mutex
 	url   string // https://pc.tailnet.ts.net:47111 once it answers
+	ip    string // 100.x.y.z:47110, the plain address the Android app uses (it may use http; pages from the relay may not)
 	state string // "off" (not installed or signed out), "nohttps" (HTTPS certificates off for the tailnet), "ok"
 	cert  *tls.Certificate
 	ln    bool
@@ -45,6 +46,12 @@ func (t *tailscale) Status() (url, state string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.url, t.state
+}
+
+func (t *tailscale) IP() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.ip
 }
 
 func (a *App) tsLoop() {
@@ -72,11 +79,25 @@ func (t *tailscale) setup(a *App) string {
 	out, err := hidden(exec.Command(exe, "status", "--json")).Output()
 	var st struct {
 		BackendState string
-		Self         struct{ DNSName string }
+		Self         struct {
+			DNSName      string
+			TailscaleIPs []string
+		}
 	}
 	if err != nil || json.Unmarshal(out, &st) != nil || st.BackendState != "Running" || st.Self.DNSName == "" {
+		t.mu.Lock()
+		t.ip = ""
+		t.mu.Unlock()
 		return t.set("", "off")
 	}
+	t.mu.Lock()
+	t.ip = ""
+	for _, ip := range st.Self.TailscaleIPs {
+		if !strings.Contains(ip, ":") {
+			t.ip = fmt.Sprintf("%s:%d", ip, port)
+		}
+	}
+	t.mu.Unlock()
 	name := strings.TrimSuffix(st.Self.DNSName, ".")
 	crt, key := filepath.Join(appDir(), "ts.crt"), filepath.Join(appDir(), "ts.key")
 	if out, err := hidden(exec.Command(exe, "cert", "--cert-file", crt, "--key-file", key, name)).CombinedOutput(); err != nil {

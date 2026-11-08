@@ -69,6 +69,17 @@ function dlView(off) {
       <div class="bigbtns">${navigator.clipboard?.readText ? '<button type="button" class="btn" data-dlherepaste>Paste</button>' : ''}<button type="button" class="btn primary" data-dlhere>${icon('dl')}Download</button></div>
       <div class="route"><i class="dotlight"></i><span>Your PC is out of reach, so this iPhone downloads it with the free <b>a-Shell</b> app, through the <b>${SHORTCUT_DL}</b> Shortcut, and saves it to Photos.</span></div></div>
     <p class="mhint">${icon('info')}<span>First time? Set up the Shortcut and a-Shell once: <b>Settings</b> tab, then <b>Share button</b> and <b>When your PC is off</b>.</span></p></div>`;
+  if (OFFLINE && NATIVE?.phoneDownload) { // the S23 app has yt-dlp built in
+    const ph = DS.phone || {};
+    return dlTitle('Download', 'Paste a link, or share one from any app.') + `<div class="feed scroller">${off}
+    <div class="dlbox">
+      <label class="dlinput">${icon('link')}<span class="sr">Link</span><input id="dlhere" value="${esc(DS.url)}" placeholder="Paste a link" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url"></label>
+      ${ph.err ? `<div class="detected is-bad">${icon('alert')}<span>${esc(ph.err)}</span></div>` : ph.busy ? `<div class="detected"><span class="pulse"></span><span>Downloading on this phone… ${ph.pct || 0}%</span></div><div class="prog"><i style="width:${Math.max(2, ph.pct || 0)}%"></i></div>`
+        : ph.done ? `<div class="detected"><i class="dotlight"></i><span>Saved: <b>${esc(ph.done)}</b>, in Gallery.</span></div>` : '<div class="detected">Any link from TikTok, YouTube, Instagram, X, Reddit and about 1,700 other sites.</div>'}
+      <div class="bigbtns">${NATIVE.clipboard ? '<button type="button" class="btn" data-dlpaste2>Paste</button>' : ''}<button type="button" class="btn primary" data-dlphone ${ph.busy ? 'disabled' : ''}>${icon('dl')}Download</button></div>
+      <label class="dlswitch"><span>Audio only (MP3)</span><input type="checkbox" class="switch" role="switch" id="dlaudio" ${DS.audio ? 'checked' : ''}></label>
+      <div class="route"><i class="dotlight"></i><span>Your PC is out of reach, so this phone downloads it and puts it in Gallery.</span></div></div></div>`;
+  }
   if (OFFLINE) return dlTitle('Download', 'Paste a link, or share one from any app.') + `<div class="feed scroller">${off}
     <p class="mhint">${icon('info')}<span>Your PC is off or out of reach. Links you share wait and go to the PC when it's back.</span></p></div>`;
   const mine = dlJobs().filter((j) => j.from === ST?.me).slice(0, 6);
@@ -183,6 +194,8 @@ $app.addEventListener('click', async (e) => {
     else if (d.dlaskno !== undefined) { S.dlAsk = false; render(); }
     else if (d.dlpaste !== undefined) { DS.url = NATIVE.clipboard() || ''; DS.err = ''; dlProbeNow(); }
     else if (d.dlcancel) { await api('/api/phone/dl/cancel/' + d.dlcancel, {}); refresh(); }
+    else if (d.dlphone !== undefined) { if (DS.url.trim()) { DS.phone = { busy: true, pct: 0 }; render(); NATIVE.phoneDownload(DS.url.trim(), DS.audio); } }
+    else if (d.dlpaste2 !== undefined) { DS.url = NATIVE.clipboard() || ''; render(); }
     else if (d.dlhere !== undefined) { if (DS.url.trim()) location.href = runDl(DS.url.trim()); }
     else if (d.dlherepaste !== undefined) { DS.url = (await navigator.clipboard.readText()).trim(); render(); }
     else if (d.dlsave) { saving.add(d.dlsave); NATIVE.saveDownload(d.dlsave); b.textContent = 'Saving…'; }
@@ -197,3 +210,6 @@ $app.addEventListener('input', (e) => {
 });
 $app.addEventListener('change', (e) => { if (e.target.id === 'dlaudio') { DS.audio = e.target.checked; render(); } });
 $app.addEventListener('keydown', (e) => { if (e.target.id === 'dlurl' && e.key === 'Enter') { clearTimeout(dlProbeTimer); e.target.blur(); dlGo(); } });
+// The S23 app reports a download it does by itself (PhoneDL.java).
+window.phoneDlProgress = (pct) => { DS.phone = { busy: true, pct }; const b = document.querySelector('.dlbox .prog i'); if (b) b.style.width = Math.max(2, pct) + '%'; else render(); };
+window.phoneDlDone = (res) => { DS.phone = res.startsWith('ERR:') ? { err: res.slice(4) } : { done: res.split('\n').join(', ') }; if (!DS.phone.err) DS.url = ''; render(); };

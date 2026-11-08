@@ -224,3 +224,49 @@ function localTranscribe(files, to) {
     return out;
   });
 }
+
+// ---------- File drop while the PC is off ----------
+// The phone sends through the Friends relay to its own person, marking the device it's for and which phone it came
+// from ("pc@phoneid"). The PC picks it up from the relay when it's back and puts it in File drop as usual.
+// Needs the PC to have joined Friends; the key comes with the PC's state (kept in localStorage as ptfr).
+const frKey = () => { try { return localStorage.getItem('ptfr') || ''; } catch (e) { return ''; } };
+async function relayCall(method, path, body) {
+  const r = await fetch((HOSTED ? '' : ST?.relay || '') + path, { method, headers: { Authorization: 'Bearer ' + frKey(), 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.error || "Can't reach the internet right now.");
+  return out;
+}
+function relayPart(path, blob, onp) {
+  return new Promise((ok, no) => {
+    const x = new XMLHttpRequest();
+    x.open('PUT', (HOSTED ? '' : ST?.relay || '') + path);
+    x.setRequestHeader('Authorization', 'Bearer ' + frKey());
+    x.upload.onprogress = (e) => e.lengthComputable && onp(e.loaded);
+    x.onload = () => x.status === 200 ? ok(JSON.parse(x.responseText)) : no(new Error(JSON.parse(x.responseText || '{}').error || "That didn't send."));
+    x.onerror = () => no(new Error("Can't reach the internet right now."));
+    x.send(blob);
+  });
+}
+async function localDrop() {
+  const files = [...FD.files];
+  if (FD.text.trim()) files.push(new File([FD.text], /^https?:\/\/\S+$/.test(FD.text.trim()) ? 'Link.txt' : 'Note.txt', { type: 'text/plain' }));
+  const to = FD.to, total = files.reduce((n, f) => n + f.size, 0) || 1;
+  FD.up = 0; FD.err = ''; FD.sent = ''; render();
+  try {
+    const me = (await relayCall('GET', '/people')).id;
+    let before = 0;
+    for (const f of files) {
+      const st = await relayCall('POST', '/send', { to: me, dev: `${to}@${ST?.me || ''}`, name: f.name, size: f.size });
+      const parts = [];
+      for (let off = 0, n = 1; off < f.size || n === 1; off += st.part, n++) {
+        parts.push(await relayPart(`/send/${st.id}/${n}`, f.slice(off, off + st.part), (l) => { FD.up = Math.floor((before + off + l) / total * 100); render(); }));
+        if (!f.size) break;
+      }
+      await relayCall('POST', `/send/${st.id}/done`, { parts });
+      before += f.size;
+    }
+    FD.files = []; FD.text = '';
+    FD.sent = `Sent. It reaches ${dropName(to)} when your PC is back on.`;
+  } catch (e) { FD.err = e.message; }
+  FD.up = -1; render();
+}

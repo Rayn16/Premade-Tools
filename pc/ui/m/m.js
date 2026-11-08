@@ -48,6 +48,8 @@ async function refresh() {
       location.reload(); return;
     }
     VER = ST.version;
+    if (NATIVE?.keepAway && ST.relay && !ST.relay.includes('REPLACE')) NATIVE.keepAway(ST.tsHost || '', `${ST.relay}/m/?t=${encodeURIComponent(TOKEN)}&pc=${encodeURIComponent(ST.remote || '')}`);
+    try { ST.fr ? localStorage.setItem('ptfr', ST.fr) : localStorage.removeItem('ptfr'); } catch (e) {} // the relay key, for drops while the PC is off
     if (HOSTED && ST.remote && ST.remote !== PCURL) { PCURL = ST.remote; try { localStorage.setItem('ptpc', PCURL); } catch (e) {} }
     dlAfterRefresh();
     try { localStorage.setItem('vaultCache', JSON.stringify([ST, ITEMS])); } catch (e) {}
