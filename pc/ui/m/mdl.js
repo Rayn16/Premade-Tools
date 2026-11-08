@@ -176,7 +176,7 @@ async function dlGo(mode, force) {
   try {
     const r = await api('/api/phone/dl/start', { url: DS.url, audio: DS.audio, mode: mode || '', force: !!force });
     DS.probe = r.probe; DS.ask = null; S.dlAsk = false;
-    if (r.job) { DS.url = ''; DS.probe = null; }
+    if (r.job) { DS.url = ''; DS.probe = null; document.activeElement?.blur(); }
     else if (r.repeat) DS.note = { repeat: r.repeat };
     else if (r.probe?.ask) { DS.ask = r.probe; S.dlAsk = true; }
     DL = await api('/api/phone/dl');
