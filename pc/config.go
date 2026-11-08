@@ -42,6 +42,8 @@ type Config struct {
 	FrID       string   `json:"frId"`
 	FrName     string   `json:"frName"` // the name friends see
 	FrPC       string   `json:"frPc"`   // this PC's name in Friends; empty = "PC"
+	LinkID     string   `json:"linkId"` // this PC on the relay, for phones that reach it there (link.go)
+	LinkKey    string   `json:"linkKey"`
 	Phones     []*Phone `json:"phones"`
 }
 

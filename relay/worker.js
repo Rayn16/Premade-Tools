@@ -33,6 +33,9 @@ export default {
   async fetch(req, env) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     const url = new URL(req.url), path = url.pathname, now = Date.now();
+    // A PC's link: /pc/<its id>/… goes to that PC's Link, which passes phone calls along to it (see Link below).
+    const pc = path.match(/^\/pc\/([0-9a-f]{32})\/(link|body\/\d+|api\/phone\/.*)$/);
+    if (pc) return env.LINK.get(env.LINK.idFromName(pc[1])).fetch(req);
 
     // Anyone with the app can ask to join. The very first person becomes the one who approves everyone else.
     if (req.method === 'POST' && path === '/join') {
@@ -142,3 +145,89 @@ export default {
     }
   },
 };
+
+// Link lets phones use a PC with no Tailscale and no setup, at home or away. The PC keeps a WebSocket open here;
+// each phone call becomes a "req" message, the PC pulls the phone's upload from /body/<n>, and sends the answer back
+// as "res", binary pieces (4-byte call number first) and "end". Calls only reach /api/phone/*, which still needs a
+// phone's key, so the relay only ever passes along what a paired phone could send anyway.
+// The socket uses hibernation, so an idle link costs nothing; "ping" is answered without waking it.
+// ponytail: an upload through here is one request, so over 100 MB fails (the free plan's limit); Tailscale has none.
+const NOBODY = [101, 204, 205, 304];
+export class Link {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.calls = new Map(); // call number → { done, body, w }
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+  }
+
+  async fetch(req) {
+    const path = new URL(req.url).pathname.split('/').slice(3).join('/'), url = new URL(req.url);
+    if (path === 'link' || path.startsWith('body/')) { // the PC, with its key; the first key a PC links with is kept
+      const key = (req.headers.get('Authorization') || '').replace(/^Bearer /, '');
+      const want = await this.ctx.storage.get('key'), got = key && await hash(key);
+      if (!got || (want && want !== got)) return fail('wrong key', 401);
+      if (!want) await this.ctx.storage.put('key', got);
+      if (path === 'link') {
+        if (req.headers.get('Upgrade') !== 'websocket') return fail('websocket only', 426);
+        for (const old of this.ctx.getWebSockets()) old.close(1000, 'replaced');
+        const [client, server] = Object.values(new WebSocketPair());
+        this.ctx.acceptWebSocket(server);
+        return new Response(null, { status: 101, webSocket: client });
+      }
+      const c = this.calls.get(Number(path.slice(5)));
+      const body = c?.body;
+      if (!body) return fail('gone', 404);
+      c.body = null;
+      return new Response(body);
+    }
+    const ws = this.ctx.getWebSockets()[0];
+    if (!ws) return new Response("Can't reach your PC.", { status: 503, headers: { 'X-Premade-Link': 'off' } });
+    const n = crypto.getRandomValues(new Uint32Array(1))[0];
+    const h = {};
+    for (const [k, v] of req.headers) if (!/^(cf-|x-forwarded|x-real-ip|host$|connection$|accept-encoding$)/i.test(k)) h[k] = v;
+    const res = new Promise((done) => this.calls.set(n, { done, body: req.body, m: req.method }));
+    ws.send(JSON.stringify({ t: 'req', n, m: req.method, p: url.pathname.replace(/^\/pc\/\w+/, '') + url.search, h, b: !!req.body }));
+    const slow = setTimeout(() => this.finish(n, new Response("Your PC didn't answer.", { status: 504 })), 60e3);
+    const r = await res;
+    clearTimeout(slow);
+    return r;
+  }
+
+  finish(n, r) {
+    const c = this.calls.get(n);
+    if (c?.done) { c.done(r); c.done = null; }
+    if (!c?.w) this.calls.delete(n);
+  }
+
+  async webSocketMessage(ws, msg) {
+    if (typeof msg !== 'string') { // a piece of an answer; the ack tells the PC the phone took it, so it sends more
+      const n = new DataView(msg).getUint32(0), c = this.calls.get(n);
+      if (!c?.w) return;
+      try { await c.w.write(new Uint8Array(msg, 4)); ws.send(JSON.stringify({ t: 'ack', n })); } catch (e) { this.calls.delete(n); ws.send(JSON.stringify({ t: 'stop', n })); }
+      return;
+    }
+    const m = JSON.parse(msg), c = this.calls.get(m.n);
+    if (!c) return;
+    if (m.t === 'res') {
+      if (NOBODY.includes(m.s)) return this.finish(m.n, new Response(null, { status: m.s, headers: m.h }));
+      const len = Number(m.h['content-length'] ?? m.h['Content-Length']);
+      const { readable, writable } = len >= 0 && c.m !== 'HEAD' ? new FixedLengthStream(len) : new TransformStream(); // a known length lets videos seek
+      c.w = writable.getWriter();
+      this.finish(m.n, new Response(readable, { status: m.s, headers: m.h }));
+    } else if (m.t === 'end' || m.t === 'err') {
+      if (c.w) (m.t === 'end' ? c.w.close() : c.w.abort()).catch(() => {});
+      else this.finish(m.n, new Response("Your PC couldn't answer.", { status: 502 }));
+      this.calls.delete(m.n);
+    }
+  }
+
+  webSocketClose() { this.dropAll(); }
+  webSocketError() { this.dropAll(); }
+  dropAll() {
+    for (const [n, c] of this.calls) {
+      if (c.w) c.w.abort().catch(() => {});
+      else this.finish(n, new Response("Can't reach your PC.", { status: 503, headers: { 'X-Premade-Link': 'off' } }));
+    }
+    this.calls.clear();
+  }
+}

@@ -6,10 +6,12 @@ if (qs.get('t')) { try { localStorage.setItem('vaultToken', qs.get('t')); } catc
 const TOKEN = qs.get('t') || (() => { try { return localStorage.getItem('vaultToken'); } catch (e) { return null; } })();
 const NATIVE = window.Vault || null; // Android bridge, absent on iPhone
 // The pages come from the PC itself (Android app, the old iPhone icon) or from the relay (the iPhone icon now), which
-// keeps working with the PC off. From the relay, the PC is reached at its Tailscale https address, saved at pairing.
+// keeps working with the PC off. From the relay, the PC is reached at its Tailscale https address, or through the
+// relay's link to it (link.go), whichever answers; both are saved at pairing and kept up to date.
 const HOSTED = /\.workers\.dev$/.test(location.hostname);
-const kept = (k) => { try { if (qs.has(k)) localStorage.setItem('pt' + k, qs.get(k)); return localStorage.getItem('pt' + k) || ''; } catch (e) { return qs.get(k) || ''; } };
-let PCURL = HOSTED ? kept('pc') : '';
+const kept = (k) => { try { if (qs.get(k)) localStorage.setItem('pt' + k, qs.get(k)); return localStorage.getItem('pt' + k) || ''; } catch (e) { return qs.get(k) || ''; } };
+const PCS = HOSTED ? [kept('pc'), kept('link')].filter(Boolean) : [];
+let PCURL = PCS[0] || '';
 const PCLINK = (HOSTED ? PCURL || kept('lan') : '') || location.origin; // the address Shortcuts use
 
 const S = { tool: 'home', tab: 'home', drawer: false, phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null, view: 'grid' };
@@ -32,8 +34,16 @@ const $app = document.getElementById('app');
 async function api(path, body) {
   const opt = { headers: { Authorization: 'Bearer ' + TOKEN } };
   if (body !== undefined) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
-  if (path.startsWith('/') && HOSTED && !PCURL) throw new Error("Can't reach your PC.");
-  const r = await fetch(path.startsWith('/') ? PCURL + path : path, opt);
+  let r;
+  if (!path.startsWith('/') || !HOSTED) r = await fetch(path.startsWith('/') ? PCURL + path : path, opt);
+  else { // the address that answered last, then the other one
+    for (const base of [PCURL, ...PCS.filter((b) => b !== PCURL)].filter(Boolean)) {
+      try { r = await fetch(base + path, base === PCS.at(-1) ? opt : { ...opt, signal: AbortSignal.timeout(10e3) }); } catch (e) { continue; }
+      if (r.headers.get('X-Premade-Link') === 'off') { r = null; continue; } // the relay: this PC isn't linked right now
+      PCURL = base; break;
+    }
+    if (!r) throw new Error("Can't reach your PC.");
+  }
   if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
   return r.json();
 }
@@ -48,9 +58,13 @@ async function refresh() {
       location.reload(); return;
     }
     VER = ST.version;
-    if (NATIVE?.keepAway && ST.relay && !ST.relay.includes('REPLACE')) NATIVE.keepAway(ST.tsHost || '', `${ST.relay}/m/?t=${encodeURIComponent(TOKEN)}&pc=${encodeURIComponent(ST.remote || '')}`);
+    if (NATIVE?.keepAway && ST.relay && !ST.relay.includes('REPLACE')) NATIVE.keepAway(ST.tsHost || '', `${ST.relay}/m/?t=${encodeURIComponent(TOKEN)}&pc=${encodeURIComponent(ST.remote || '')}&link=${encodeURIComponent(ST.link || '')}`);
     try { ST.fr ? localStorage.setItem('ptfr', ST.fr) : localStorage.removeItem('ptfr'); } catch (e) {} // the relay key, for drops while the PC is off
-    if (HOSTED && ST.remote && ST.remote !== PCURL) { PCURL = ST.remote; try { localStorage.setItem('ptpc', PCURL); } catch (e) {} }
+    if (HOSTED) for (const [k, v] of [['pc', ST.remote], ['link', ST.link]]) { // keep both addresses up to date
+      if (!v || PCS.includes(v)) continue;
+      try { localStorage.setItem('pt' + k, v); } catch (e) {}
+      PCS.splice(k === 'pc' ? 0 : PCS.length, 0, v);
+    }
     dlAfterRefresh();
     try { localStorage.setItem('vaultCache', JSON.stringify([ST, ITEMS])); } catch (e) {}
   } catch (e) {
@@ -111,8 +125,9 @@ function homeView(off) {
 // iPhones still on the old icon (pages from the PC over the home Wi-Fi): offer the new one, which opens anywhere.
 function moveNudge() {
   if (HOSTED && !navigator.standalone && /iP(hone|ad|od)/.test(navigator.userAgent)) return `<div class="notebox is-info">${icon('info')}<div><b>Keep Premade on this iPhone.</b> Tap <b>Share</b> › <b>Add to Home Screen</b>, then open Premade from there. It opens even with your PC off.</div></div>`;
+  if (HOSTED && !PCS.length) return `<div class="notebox is-info">${icon('info')}<div><b>Connect this iPhone to your PC again.</b> On the PC, open Premade › Vault › Phones › <b>Add a phone</b> and scan the code, then open Premade from the new icon. This phone's own tools work until then.</div></div>`;
   if (HOSTED || NATIVE || !ST?.relay || ST.relay.includes('REPLACE') || !/iP(hone|ad|od)/.test(navigator.userAgent)) return '';
-  const to = `${ST.relay}/m/?t=${encodeURIComponent(TOKEN)}&pc=${encodeURIComponent(ST.remote || '')}&lan=${encodeURIComponent(location.origin)}`;
+  const to = `${ST.relay}/m/?t=${encodeURIComponent(TOKEN)}&pc=${encodeURIComponent(ST.remote || '')}&link=${encodeURIComponent(ST.link || '')}&lan=${encodeURIComponent(location.origin)}`;
   return `<div class="notebox is-info">${icon('info')}<div><b>Premade now works away from home.</b> Open the new version, then tap <b>Share</b> › <b>Add to Home Screen</b> and remove this old icon.<div class="acts"><a class="btn small primary" href="${esc(to)}">Open the new version</a></div></div></div>`;
 }
 
