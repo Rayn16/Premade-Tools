@@ -139,9 +139,9 @@ function edPaint(i) {
     if (now !== undefined) svg = `<rect x="${b.x - 1}" y="${b.y - 1}" width="${b.w + 2}" height="${b.h + 2}" fill="#fff"/>` + svg;
     if (typing) continue;
     html += `<div class="edblk${now !== undefined ? ' is-changed' : ''}" data-b="${key}" style="${edPos(b)}">${now !== undefined
-      ? `<span style="${edTextCss(b)};top:calc(${b.oy - b.y - b.size}px * var(--s))">${esc(now)}</span>` : ''}</div>`;
+      ? `<span dir="auto" style="${edTextCss(b)};top:calc(${b.oy - b.y - b.size}px * var(--s))${b.rtl ? ';left:auto;right:0' : ''}">${esc(now)}</span>` : ''}</div>`;
   }
-  for (const it of items.filter((x) => x.type === 'text' && ED.typing?.id !== x.id)) html += `<div class="edtxt" data-it="${it.id}" style="left:calc(${it.x}px * var(--s));top:calc(${it.y}px * var(--s));${edTextCss(it)}">${esc(it.text)}</div>`;
+  for (const it of items.filter((x) => x.type === 'text' && ED.typing?.id !== x.id)) html += `<div class="edtxt" dir="auto" data-it="${it.id}" style="left:calc(${it.x}px * var(--s));top:calc(${it.y}px * var(--s));${edTextCss(it)}">${esc(it.text)}</div>`;
   if (sel?.page === i) {
     const b = edBox(sel);
     html += `<div class="edsel" data-grab="${sel.id}" style="${edPos(b)}">${['pic', 'white', 'mark', 'box', 'oval'].includes(sel.type) ? `<i class="edhandle" data-size="${sel.id}"></i>` : ''}</div>`;
@@ -211,7 +211,8 @@ function edType(on, what) {
       if (v !== was) {
         edSnap();
         if (v === b.text) delete ED.edits[t.key]; else ED.edits[t.key] = v;
-        ED.note = v && v !== b.text && !EDM.fits(b, v) ? "That line's font doesn't have every letter you typed, so it'll be saved in the closest font." : '';
+        ED.note = !v || v === b.text || EDM.fits(b, v) ? '' : b.rtl || EDM.rtlFirst(v) ? "A changed Arabic line is saved in the closest font, so its letters join up right."
+          : "That line's font doesn't have every letter you typed, so it'll be saved in the closest font.";
       }
       edPaint(+i);
     } else {
@@ -226,10 +227,12 @@ function edType(on, what) {
   const el = document.createElement(what.key ? 'input' : 'textarea');
   el.className = 'edtype';
   el.spellcheck = false;
+  el.dir = 'auto'; // Arabic types right to left
   if (what.key) {
     const [i, id] = what.key.split(':'), b = ED.reads[i].blocks[id];
     el.value = ED.edits[what.key] ?? b.text;
-    el.style.cssText = `${edTextCss(b)};left:calc(${b.x - 2}px * var(--s));top:calc(${b.y - 2}px * var(--s));min-width:calc(${b.w + 30}px * var(--s));height:calc(${b.h + 4}px * var(--s))`;
+    const side = b.rtl ? `right:calc(${ED.pages[i].W - b.x - b.w - 2}px * var(--s))` : `left:calc(${b.x - 2}px * var(--s))`; // Arabic grows to the left
+    el.style.cssText = `${edTextCss(b)};${side};top:calc(${b.y - 2}px * var(--s));min-width:calc(${b.w + 30}px * var(--s));height:calc(${b.h + 4}px * var(--s))`;
     ED.typing = { key: what.key, el };
     ED.root.querySelector(`.edpage[data-p="${i}"] .edhtml`).append(el);
     edPaint(+i);
@@ -417,13 +420,14 @@ function edUp(e) {
 // ---------- saving ----------
 // Draws a line the built-in fonts can't (Arabic, emoji…) as a sharp picture.
 async function edTextPng(it, line) {
-  const k = 6, c = document.createElement('canvas'), w = Math.ceil(edMeasure(line, it) + it.size * 0.2), h = Math.ceil(it.size * 1.2);
+  const k = 6, pad = it.size * 0.1, c = document.createElement('canvas'), w = Math.ceil(edMeasure(line, it) + pad * 2), h = Math.ceil(it.size * 1.2);
   c.width = w * k; c.height = h * k;
   const g = c.getContext('2d');
   g.font = `${it.italic ? 'italic ' : ''}${it.bold ? 'bold ' : ''}${it.size * k}px ${ED_FONT[it.family || 'sans']}`;
   g.fillStyle = it.color; g.textBaseline = 'alphabetic';
-  g.fillText(line, 0, it.size * k);
-  return { bytes: new Uint8Array(await (await new Promise((ok) => c.toBlob(ok, 'image/png'))).arrayBuffer()), w, h };
+  g.direction = EDM.rtlFirst(line) ? 'rtl' : 'ltr'; g.textAlign = 'left'; // as the line showed while typing (dir="auto")
+  g.fillText(line, pad * k, it.size * k);
+  return { bytes: new Uint8Array(await (await new Promise((ok) => c.toBlob(ok, 'image/png'))).arrayBuffer()), w, h, pad };
 }
 
 async function edSave() {
