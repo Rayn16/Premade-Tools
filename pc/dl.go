@@ -266,6 +266,7 @@ func (d *Downloader) ytArgs() []string {
 
 func (d *Downloader) probe(u string) *Probe {
 	if !d.eng.Ready() {
+		go d.eng.Update(false) // installs whatever is missing now, not at the next hourly check
 		return &Probe{Err: "The download engines are still being set up. Try again in a minute."}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

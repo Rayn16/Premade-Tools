@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -249,6 +250,9 @@ func (a *App) routes() http.Handler {
 
 // localOnly lets only this PC's own window through. The Host check stops DNS-rebinding pages,
 // and the X-Vault header on API calls stops other web pages from posting to us.
+// fileRoute is a file the PC window shows or saves: the vault's, or a tool's (/api/ui/tr/file/…, the .srt link).
+var fileRoute = regexp.MustCompile(`^/api/ui/(\w+/)?file/`)
+
 func localOnly(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -257,8 +261,8 @@ func localOnly(h http.Handler) http.Handler {
 			http.Error(w, "This page only opens on the PC itself.", 403)
 			return
 		}
-		// Previews load through <img>/<video>, which can't send headers; reads can't change anything.
-		preview := r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/ui/file/")
+		// Previews and saves load through <img>/<video>/<a>, which can't send headers; reads can't change anything.
+		preview := r.Method == "GET" && fileRoute.MatchString(r.URL.Path)
 		if strings.HasPrefix(r.URL.Path, "/api/") && !preview && r.Header.Get("X-Vault") != "1" {
 			http.Error(w, "forbidden", 403)
 			return

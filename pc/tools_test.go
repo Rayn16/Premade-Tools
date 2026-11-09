@@ -292,3 +292,19 @@ func TestMoveVault(t *testing.T) {
 		t.Fatal("the old folder still holds the files")
 	}
 }
+
+// Links and previews in the PC window can't send the X-Vault header: a tool's files open from them (the Subtitles
+// link), while anything else still needs it.
+func TestToolFileLinksOpen(t *testing.T) {
+	h := localOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	for path, want := range map[string]int{"GET /api/ui/tr/file/j1/0": 204, "GET /api/ui/file/i1": 204, "GET /api/ui/state": 403, "POST /api/ui/tr/file/j1/0": 403, "GET /api/ui/tr/files": 403} {
+		m, p, _ := strings.Cut(path, " ")
+		r := httptest.NewRequest(m, p, nil)
+		r.RemoteAddr, r.Host = "127.0.0.1:5000", "127.0.0.1:47110"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != want {
+			t.Errorf("%s without X-Vault: %d, want %d", path, w.Code, want)
+		}
+	}
+}

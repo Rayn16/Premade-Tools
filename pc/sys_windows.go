@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -18,8 +19,20 @@ import (
 
 const runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 
+// hidden runs a program with no window. One that can be cancelled (exec.CommandContext sets Cancel) takes the programs
+// it started down with it: yt-dlp and gallery-dl are a small starter running the real program (and ffmpeg), and
+// soffice.exe runs soffice.bin, so a plain kill left those running and holding the output open.
 func hidden(c *exec.Cmd) *exec.Cmd {
 	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	if c.Cancel != nil {
+		c.Cancel = func() error {
+			if hidden(exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(c.Process.Pid))).Run() != nil {
+				return c.Process.Kill()
+			}
+			return nil
+		}
+		c.WaitDelay = 5 * time.Second // then the output pipes close even if something still holds them
+	}
 	return c
 }
 
