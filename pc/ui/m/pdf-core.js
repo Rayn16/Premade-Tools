@@ -15,9 +15,10 @@ ICON.right = '<path d="M9 6l6 6-6 6"/>';
 ICON.up = '<path d="M6 15l6-6 6 6"/>';
 ICON.down = '<path d="M6 9l6 6 6-6"/>';
 ICON.bin = '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>';
-const PDF_ICON = { merge: 'merge', pages: 'grid', extract: 'check', split: 'split', compress: 'squeeze', lock: 'lock', unlock: 'unlock' };
-const PDF_GO = { merge: 'Merge', pages: 'Save the pages', extract: 'Save these pages', split: 'Split', compress: 'Compress', lock: 'Add password', unlock: 'Remove password' };
-const PDF_ONE = ['pages', 'extract', 'split']; // one PDF at a time
+ICON.pen = '<path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M13.5 6.5l4 4"/>';
+const PDF_ICON = { edit: 'pen', merge: 'merge', pages: 'grid', extract: 'check', split: 'split', compress: 'squeeze', lock: 'lock', unlock: 'unlock' };
+const PDF_GO = { edit: 'Open the editor', merge: 'Merge', pages: 'Save the pages', extract: 'Save these pages', split: 'Split', compress: 'Compress', lock: 'Add password', unlock: 'Remove password' };
+const PDF_ONE = ['edit', 'pages', 'extract', 'split']; // one PDF at a time
 
 let PDFST = null; // GET PDFAPI.base
 const P = { op: '', files: [], pages: [], thumbs: {}, loading: false, bad: '', pw: '', showPw: false, level: 'smaller', up: -1, err: '', gen: 0, drag: -1 };
@@ -231,7 +232,7 @@ document.getElementById('app').addEventListener('click', async (e) => {
   try {
     if (a === 'pick') { P.addMode = !!b.dataset.add; pdfInput.multiple = !PDF_ONE.includes(P.op); return; } // the label opens the picker
     if (a === 'op') { P.op = b.dataset.op; if (PDF_ONE.includes(P.op) && P.files.length > 1) P.files = P.files.slice(0, 1); pdfAfterFiles(); }
-    else if (a === 'go') pdfSend();
+    else if (a === 'go') P.op === 'edit' ? await pdfEditOpen(P.files[0]) : pdfSend(); // the editor sends it when you tap Save (pdf-edit.js)
     else if (a === 'clear') { P.files = []; P.err = ''; pdfAfterFiles(); }
     else if (a === 'drop') { P.files.splice(i, 1); pdfAfterFiles(); }
     else if (a === 'fmove') { pdfMove(P.files, i, i + +b.dataset.by); render(); }

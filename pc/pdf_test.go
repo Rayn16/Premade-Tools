@@ -57,6 +57,8 @@ func TestPdfCheck(t *testing.T) {
 		{[]string{"a.pdf"}, "pages", "1r45", "", true},
 		{[]string{"a.pdf"}, "extract", "", "", true},
 		{[]string{"a.pdf", "b.pdf"}, "split", "", "", true},
+		{[]string{"a.pdf"}, "edit", "", "", false},
+		{[]string{"a.pdf", "b.pdf"}, "edit", "", "", true},
 		{[]string{"a.pdf"}, "lock", "", "", true},
 		{[]string{"a.pdf"}, "wipe", "", "", true},
 	} {
@@ -95,6 +97,9 @@ func TestPdfWork(t *testing.T) {
 	}
 	if m := run(&CvJob{Target: "split", Inputs: []string{"a.pdf"}}); len(m) != 3 || filepath.Base(m[2]) != "a p3.pdf" {
 		t.Fatalf("split: %v", m)
+	}
+	if m := run(&CvJob{Target: "edit", Inputs: []string{"a.pdf"}}); filepath.Base(m[0]) != "a (edited).pdf" || pageCount(t, m[0]) != 3 {
+		t.Fatalf("edit: %v", m)
 	}
 	if m := run(&CvJob{Target: "compress", Inputs: []string{"a.pdf"}}); pageCount(t, m[0]) != 3 {
 		t.Fatal("compress")
