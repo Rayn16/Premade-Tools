@@ -218,15 +218,18 @@ func (a *App) hasPush(phoneID string) bool {
 
 // dropNote is a drop in a few words for a notification.
 func dropNote(it *Drop) string {
-	switch it.Kind {
-	case "text", "link":
-		if r := []rune(it.Text); len(r) > 200 { // a push takes 4 KB at most
-			return string(r[:200]) + "…"
+	s := it.Text
+	if it.Kind == "files" {
+		s = fmt.Sprintf("%d files", len(it.Files))
+		if len(it.Files) == 1 {
+			s = it.Files[0].Name
 		}
-		return it.Text
+		if it.Text != "" { // the note sent with them
+			s += ": " + it.Text
+		}
 	}
-	if len(it.Files) == 1 {
-		return it.Files[0].Name
+	if r := []rune(s); len(r) > 200 { // a push takes 4 KB at most
+		return string(r[:200]) + "…"
 	}
-	return fmt.Sprintf("%d files", len(it.Files))
+	return s
 }

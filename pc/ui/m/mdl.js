@@ -22,6 +22,8 @@ const dlFrom = (j) => (j.local ? 'this phone' : !j.from ? 'the PC' : j.from === 
 const dlThumb = (j) => `<span class="thumb" style="--h:${dlHue(j.id)}">${icon(j.audio ? 'music' : (j.files || []).some((f) => f.kind === 'video') || !j.files?.length ? 'video' : 'photo')}</span>`;
 const dlTag = (s) => `<span class="sitetag">${esc(s || 'Link')}</span>`;
 const fileURL = (j, n, dl) => `${PCURL}/api/phone/dl/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
+// The link in what was pasted ("Look at this https://…"), as the PC finds it (cleanURL); the phone's own download needs it bare.
+const dlLink = (s) => s.match(/https?:\/\/[^\s"'<>]+/i)?.[0].replace(/[.,;!?)]+$/, '') || (/^\S+\.\S+$/.test(s.trim()) ? 'https://' + s.trim() : s.trim());
 const runDl = (text) => 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTCUT_DL) + '&input=text&text=' + encodeURIComponent(text);
 const dlTitle = (name, lede) => `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">${name}</h1><p class="pagelede">${lede}</p></div></div>`;
 
@@ -36,10 +38,12 @@ function dlAfterRefresh() {
 function dlSaveButton(j) {
   if (j.state !== 'done') return '';
   if (NATIVE?.saveDownload) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn small" data-dlsave="${j.id}">${icon('save')}Save</button>`;
-  if (j.audio || (j.files || []).every((f) => f.kind === 'audio' || f.kind === 'file')) return `<a class="btn small" href="${fileURL(j, 0, true)}">${icon('save')}To Files</a>`;
+  if (j.audio || (j.files || []).every((f) => f.kind === 'audio' || f.kind === 'file')) { // several (a playlist's songs) come as one ZIP, which Files opens
+    return `<a class="btn small" href="${j.files?.length > 1 ? `${PCURL}/api/phone/dl/zip/${j.id}?t=${encodeURIComponent(TOKEN)}` : fileURL(j, 0, true)}" data-dlgot="${j.id}">${icon('save')}To Files</a>`;
+  }
   // Opens the video in Safari; its Share button has Save Video / Save Image (to Photos). No Shortcut needed.
   const fs = j.files || [];
-  return fs.map((f, n) => `<a class="btn small" href="${fileURL(j, n, false)}" target="_blank" data-dlopen>${icon('save')}${fs.length > 1 ? 'Item ' + (n + 1) : 'To Photos'}</a>`).join('');
+  return fs.map((f, n) => `<a class="btn small" href="${fileURL(j, n, false)}" target="_blank" data-dlgot="${j.id}">${icon('save')}${fs.length > 1 ? 'Item ' + (n + 1) : 'To Photos'}</a>`).join('');
 }
 
 function dlRow(j, full) {
@@ -50,7 +54,7 @@ function dlRow(j, full) {
     ${state ? `<span class="jobstate">${state}</span>` : ''}${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
     ${j.state === 'running' || j.state === 'queued' ? `<div class="prog"><i style="width:${Math.max(2, j.pct)}%"></i></div>` : ''}
     ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${dlSaveButton(j)}${frShareBtn('dl', j)}${full && j.state === 'done' && (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') ? `<button type="button" class="btn small" data-trdl="${j.id}">${icon('transcribe')}Text</button>` : ''}${j.state === 'running' || j.state === 'queued' ? `<button type="button" class="btn small" data-dlcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
+    <div class="hacts">${dlSaveButton(j)}${frShareBtn('dl', j)}${full && j.state === 'done' && (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') ? `<button type="button" class="btn small" data-trdl="${j.id}">${icon('transcribe')}Text</button>` : ''}${(j.state === 'running' || j.state === 'queued') && j.from === ST?.me ? `<button type="button" class="btn small" data-dlcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
 }
 
 function dlLine() {
@@ -191,12 +195,12 @@ $app.addEventListener('click', async (e) => {
   const d = b.dataset;
   try {
     if (d.dlgo !== undefined) dlGo();
-    else if (d.dlforce !== undefined) dlGo('', true);
+    else if (d.dlforce !== undefined) dlGo(DS.note?.repeat?.mode, true); // a playlist again: the same choice, all or one
     else if (d.dlmode) dlGo(d.dlmode);
     else if (d.dlaskno !== undefined) { S.dlAsk = false; render(); }
     else if (d.dlpaste !== undefined) { DS.url = NATIVE.clipboard() || ''; DS.err = ''; dlProbeNow(); }
     else if (d.dlcancel) { await api('/api/phone/dl/cancel/' + d.dlcancel, {}); refresh(); }
-    else if (d.dlphone !== undefined) { if (DS.url.trim()) { DS.phone = { busy: true, pct: 0 }; render(); NATIVE.phoneDownload(DS.url.trim(), DS.audio); } }
+    else if (d.dlphone !== undefined) { if (DS.url.trim()) { DS.phone = { busy: true, pct: 0 }; render(); NATIVE.phoneDownload(dlLink(DS.url), DS.audio); } }
     else if (d.dlpaste2 !== undefined) { DS.url = NATIVE.clipboard() || ''; render(); }
     else if (d.dlhere !== undefined) {
       if (!DS.url.trim()) return;
@@ -205,12 +209,14 @@ $app.addEventListener('click', async (e) => {
       try { ok = localStorage.getItem('dlShortcutOK') === '1'; } catch {}
       if (!ok && !DS.hereWarned) { DS.hereWarned = true; render(); return; }
       try { localStorage.setItem('dlShortcutOK', '1'); } catch {}
-      location.href = runDl(DS.url.trim());
+      location.href = runDl(dlLink(DS.url));
     }
     else if (d.dlherepaste !== undefined) { DS.url = (await navigator.clipboard.readText()).trim(); render(); }
     else if (d.dlsave) { saving.add(d.dlsave); NATIVE.saveDownload(d.dlsave); b.textContent = 'Saving…'; }
   } catch (err) { DS.err = err.message; render(); }
 });
+// iPhone: opening a download to save it counts as picked up, so the PC stops saying it's waiting for this phone.
+$app.addEventListener('click', (e) => { const a = e.target.closest('a[data-dlgot]'); if (a) api('/api/phone/dl/fetched/' + a.dataset.dlgot, {}).catch(() => {}); });
 $app.addEventListener('input', (e) => {
   if (e.target.id === 'dlhere') DS.url = e.target.value;
   if (e.target.id !== 'dlurl') return;

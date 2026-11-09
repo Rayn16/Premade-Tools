@@ -98,6 +98,8 @@ func (s *Settings) Get() Config {
 }
 
 // DownloadDir is the one folder every tool saves into (Downloader, Converter, PDF tools, Transcribe, File drop, Friends).
+const saveAsk = "Where should Premade Tools save what it makes? Every tool saves here."
+
 func (c Config) DownloadDir() string {
 	if c.DlDir != "" {
 		return c.DlDir

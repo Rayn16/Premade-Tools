@@ -76,7 +76,7 @@ final class Drops {
         JSONArray files = j.optJSONArray("files");
         if (kind.equals("files")) {
             int n = files == null ? 0 : files.length();
-            text = n == 1 ? files.optJSONObject(0).optString("name") : n + " files";
+            text = (n == 1 ? files.optJSONObject(0).optString("name") : n + " files") + (j.optString("text").isEmpty() ? "" : ": " + j.optString("text"));
         } else text = j.optString("text");
         show(c, j.optString("id").hashCode(), from + " sent " + (kind.equals("files") ? "you something" : kind.equals("link") ? "a link" : "text"), text);
     }

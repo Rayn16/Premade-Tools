@@ -6,6 +6,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,6 +45,7 @@ type Job struct {
 	Note    string    `json:"note,omitempty"`  // the error, in plain words
 	Login   string    `json:"login,omitempty"` // site that wants a login
 	Files   []DLFile  `json:"files,omitempty"`
+	Dir     string    `json:"dir,omitempty"` // the save folder the files went to ("" before it was kept: today's)
 	Size    int64     `json:"size"`
 	At      time.Time `json:"at"`
 	Fetched bool      `json:"fetched,omitempty"` // the phone saved it
@@ -423,6 +425,9 @@ func explain(msg, site string) *Probe {
 	case strings.Contains(l, "drm"):
 		return &Probe{Site: site, Err: site + " protects this with DRM, so no downloader can save it."}
 	case strings.Contains(l, "login") || strings.Contains(l, "log in") || strings.Contains(l, "cookies") || strings.Contains(l, "sign in") || strings.Contains(l, "private"):
+		if loginSites[strings.ToLower(site)] == "" { // no login window for this site
+			return &Probe{Site: site, Err: site + " only shows this to logged-in people, and Premade can't log in there."}
+		}
 		return &Probe{Site: site, Login: site, Err: site + " only shows this to logged-in people. Log in once in Settings › Logins and try again."}
 	case strings.Contains(l, "unsupported url") || msg == "":
 		return &Probe{Site: site, Err: "Nothing to download was found at that link. Check it opens a post or video, not a profile or search page."}
@@ -495,7 +500,7 @@ func (d *Downloader) run(id string) {
 		size += fi.Size()
 	}
 	d.update(id, func(j *Job) {
-		j.Files, j.Size, j.Pct = out, size, 100
+		j.Files, j.Dir, j.Size, j.Pct = out, dir, size, 100
 		switch {
 		case len(out) > 0:
 			j.State = "done"
@@ -656,5 +661,5 @@ func (d *Downloader) Path(j *Job, n int) (string, bool) {
 	if !filepath.IsLocal(j.Files[n].Name) {
 		return "", false
 	}
-	return filepath.Join(d.dir(), j.Files[n].Name), true
+	return filepath.Join(cmp.Or(j.Dir, d.dir()), j.Files[n].Name), true
 }

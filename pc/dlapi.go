@@ -35,7 +35,7 @@ func (a *App) dlRoutes(m *http.ServeMux) {
 	})
 	ui("GET /api/ui/dl/file/{id}/{n}", func(w http.ResponseWriter, r *http.Request) { a.dlFile(w, r, false) })
 	ui("POST /api/ui/dl/folder", func(w http.ResponseWriter, r *http.Request) {
-		dir := pickFolder()
+		dir := pickFolder(saveAsk)
 		if dir != "" {
 			a.set.With(func(c *Config) bool { c.DlDir = dir; return true })
 		}
@@ -72,6 +72,13 @@ func (a *App) dlRoutes(m *http.ServeMux) {
 		writeJ(w, "ok")
 	})
 	ph("GET /api/phone/dl/file/{id}/{n}", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.dlFile(w, r, false) })
+	ph("GET /api/phone/dl/zip/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) { // a playlist's songs, for the iPhone's Files
+		if j := a.dl.Get(r.PathValue("id")); j != nil && a.dl.onDisk(j) {
+			a.dlZip(w, j)
+			return
+		}
+		http.Error(w, "The files are gone from the download folder on the PC.", 404)
+	})
 	ph("POST /api/phone/dl/fetched/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		a.dl.update(r.PathValue("id"), func(j *Job) {
 			if j.From == p.ID {

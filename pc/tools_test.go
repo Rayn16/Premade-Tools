@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -334,5 +336,46 @@ func TestIphoneDownloadGet(t *testing.T) {
 	w = call(h, "GET", "/api/phone/dl/ios/get/j1", nil)
 	if w.Body.String() != video || w.Header().Get("Content-Type") != "video/mp4" || !a.dl.Get("j1").Fetched {
 		t.Fatalf("file: %q %q, saved %v", w.Body.String(), w.Header().Get("Content-Type"), a.dl.Get("j1").Fetched)
+	}
+	a.dl.jobs = append(a.dl.jobs, &Job{ID: "j2", State: "done", Audio: true, Files: []DLFile{{Name: "1.mp3"}, {Name: "2.mp3"}}})
+	os.WriteFile(filepath.Join(dir, "1.mp3"), []byte("one"), 0o644)
+	os.WriteFile(filepath.Join(dir, "2.mp3"), []byte("two"), 0o644)
+	w = call(h, "GET", "/api/phone/dl/zip/j2", nil) // an audio playlist, for the iPhone's Files
+	if zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len())); err != nil || len(zr.File) != 2 {
+		t.Fatalf("playlist as a zip: %d %v", w.Code, err)
+	}
+}
+
+// A download, conversion or drop made before the save folder changed is still found in the folder it went to.
+func TestSaveFolderChanged(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	old, now := t.TempDir(), t.TempDir()
+	d := &Downloader{dir: func() string { return now }}
+	if p, _ := d.Path(&Job{Files: []DLFile{{Name: "a.mp4"}}, Dir: old}, 0); p != filepath.Join(old, "a.mp4") {
+		t.Errorf("download: %s", p)
+	}
+	c := &Converter{dir: func() string { return now }}
+	if p, _ := c.Path(&CvJob{Files: []DLFile{{Name: "a.pdf"}}, Dir: old}, 0); p != filepath.Join(old, "a.pdf") {
+		t.Errorf("conversion: %s", p)
+	}
+	tmp := t.TempDir()
+	os.WriteFile(filepath.Join(tmp, "note.txt"), []byte("hi"), 0o644)
+	if _, err := NewDrops(func() string { return old }).Add("p1", "pc", "", tmp, []string{"note.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	it := NewDrops(func() string { return now }).List("")[0] // after a restart, with the new folder
+	if p, ok := NewDrops(func() string { return now }).Path(&it, 0); !ok || p != filepath.Join(old, "note.txt") {
+		t.Errorf("drop: %s %v", p, ok)
+	}
+}
+
+// "Log in to …" is only offered for the sites Premade has a login window for.
+func TestLoginHint(t *testing.T) {
+	if p := explain("ERROR: [vimeo] 123: This video requires login", "Vimeo"); p.Login != "" || !strings.Contains(p.Err, "can't log in") {
+		t.Errorf("Vimeo: %+v", p)
+	}
+	if p := explain("ERROR: [Instagram] abc: login required", "Instagram"); p.Login != "Instagram" {
+		t.Errorf("Instagram: %+v", p)
 	}
 }

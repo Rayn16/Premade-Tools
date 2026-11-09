@@ -163,8 +163,9 @@ func drives() []Drive {
 	return out
 }
 
-func pickFolder() string {
-	out, _ := ps(`Add-Type -AssemblyName System.Windows.Forms;$d=New-Object System.Windows.Forms.FolderBrowserDialog;$d.Description='Where should your vault live?';$d.ShowNewFolderButton=$true;if($d.ShowDialog((New-Object System.Windows.Forms.Form -Property @{TopMost=$true}))-eq'OK'){$d.SelectedPath}`)
+// pickFolder asks for a folder; ask is the question on the dialog (no ' in it).
+func pickFolder(ask string) string {
+	out, _ := ps(`Add-Type -AssemblyName System.Windows.Forms;$d=New-Object System.Windows.Forms.FolderBrowserDialog;$d.Description='` + ask + `';$d.ShowNewFolderButton=$true;if($d.ShowDialog((New-Object System.Windows.Forms.Form -Property @{TopMost=$true}))-eq'OK'){$d.SelectedPath}`)
 	return out
 }
 

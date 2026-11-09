@@ -321,7 +321,7 @@ func (a *App) queueRoutes(m *http.ServeMux, p string, q *Converter, setDir func(
 	})
 	ui("GET /api/ui/"+p+"/file/{id}/{n}", func(w http.ResponseWriter, r *http.Request) { a.queueFile(w, r, q, false) })
 	ui("POST /api/ui/"+p+"/folder", func(w http.ResponseWriter, r *http.Request) {
-		if dir := pickFolder(); dir != "" {
+		if dir := pickFolder(saveAsk); dir != "" {
 			a.set.With(func(c *Config) bool { setDir(c, dir); return true })
 		}
 		writeJ(w, map[string]string{"dir": q.dir()})

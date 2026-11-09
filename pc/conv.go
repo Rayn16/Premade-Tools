@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -88,7 +89,8 @@ type CvJob struct {
 	State   string    `json:"state"`             // queued, running, done, failed
 	Pct     float64   `json:"pct"`
 	Note    string    `json:"note,omitempty"`
-	Files   []DLFile  `json:"files,omitempty"` // relative to the converted folder
+	Files   []DLFile  `json:"files,omitempty"` // relative to Dir
+	Dir     string    `json:"dir,omitempty"`   // the save folder they went to ("" before it was kept: today's)
 	Size    int64     `json:"size"`            // of the results
 	InSize  int64     `json:"inSize"`          // of what was sent
 	At      time.Time `json:"at"`
@@ -292,7 +294,7 @@ func (c *Converter) Path(j *CvJob, n int) (string, bool) {
 	if !filepath.IsLocal(j.Files[n].Name) {
 		return "", false
 	}
-	return filepath.Join(c.dir(), j.Files[n].Name), true
+	return filepath.Join(cmp.Or(j.Dir, c.dir()), j.Files[n].Name), true
 }
 
 func (c *Converter) worker() {
@@ -350,7 +352,7 @@ func (c *Converter) run(id string) {
 	}
 	os.RemoveAll(in)
 	c.update(id, func(j *CvJob) {
-		j.Files, j.Size, j.Pct = res, size, 100
+		j.Files, j.Dir, j.Size, j.Pct = res, out, size, 100
 		switch {
 		case len(res) > 0 && len(fails) > 0:
 			j.State, j.Note = "done", "Some files couldn't be converted. "+strings.Join(fails, " ")

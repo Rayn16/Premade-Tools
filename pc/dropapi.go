@@ -46,7 +46,7 @@ func (a *App) dropRoutes(m *http.ServeMux) {
 		writeJ(w, "ok")
 	})
 	ui("POST /api/ui/drop/folder", func(w http.ResponseWriter, r *http.Request) {
-		if dir := pickFolder(); dir != "" {
+		if dir := pickFolder(saveAsk); dir != "" {
 			a.set.With(func(c *Config) bool { c.DlDir = dir; return true })
 		}
 		writeJ(w, map[string]string{"dir": a.set.Get().DownloadDir()})

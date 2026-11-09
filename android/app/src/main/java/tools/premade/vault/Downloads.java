@@ -67,7 +67,13 @@ final class Downloads {
                     boolean asked = want.contains(id);
                     if (!asked && !me.equals(j.optString("from"))) continue;
                     if (st.equals("queued") || st.equals("running")) { busy = true; if (asked) still.add(id); }
-                    else if (st.equals("done") && (asked || !j.optBoolean("fetched"))) { save(c, j, "/api/phone/dl"); toast(c, "Saved: " + j.optString("title")); }
+                    else if (st.equals("done") && (asked || !j.optBoolean("fetched"))) {
+                        try { save(c, j, "/api/phone/dl"); toast(c, "Saved: " + j.optString("title")); }
+                        catch (Exception e) { // one that can't be saved doesn't hold up the rest; one whose file is gone from the PC is let go
+                            Log.w(Watcher.TAG, "download " + id, e);
+                            if (asked && !(e instanceof java.io.FileNotFoundException)) still.add(id);
+                        }
+                    }
                 }
                 Vault.prefs(c).edit().putString("dlWant", String.join("\n", still) + (still.isEmpty() ? "" : "\n")).apply();
                 return busy;

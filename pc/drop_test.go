@@ -186,3 +186,22 @@ func TestDropShortcutTypes(t *testing.T) {
 		}
 	}
 }
+
+// A note typed with files goes with them, and shows in the pop-up.
+func TestDropNoteWithFiles(t *testing.T) {
+	a, h := testApp(t)
+	a.drops = NewDrops(func() string { return t.TempDir() })
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	mw.WriteField("text", "receipts for March")
+	f, _ := mw.CreateFormFile("f", "march.pdf")
+	f.Write([]byte("%PDF-1.4"))
+	mw.Close()
+	if w := call(h, "POST", "/api/phone/drop/send?to=pc", &b, "Content-Type", mw.FormDataContentType()); w.Code != 200 {
+		t.Fatalf("send: %d %s", w.Code, w.Body)
+	}
+	it := a.drops.List("pc")[0]
+	if it.Kind != "files" || it.Text != "receipts for March" || dropNote(&it) != "march.pdf: receipts for March" {
+		t.Fatalf("%s %q %q", it.Kind, it.Text, dropNote(&it))
+	}
+}

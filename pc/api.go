@@ -77,7 +77,9 @@ func (a *App) routes() http.Handler {
 		writeJ(w, "ok")
 	})
 	ui2("GET /api/ui/drives", func(w http.ResponseWriter, r *http.Request) { writeJ(w, drives()) })
-	ui2("POST /api/ui/pickfolder", func(w http.ResponseWriter, r *http.Request) { writeJ(w, map[string]string{"dir": pickFolder()}) })
+	ui2("POST /api/ui/pickfolder", func(w http.ResponseWriter, r *http.Request) {
+		writeJ(w, map[string]string{"dir": pickFolder("Where should your vault live?")})
+	})
 	ui2("POST /api/ui/vault", a.setVault)
 	ui2("POST /api/ui/settings", a.saveSettings)
 	ui2("GET /api/ui/keep-preview", func(w http.ResponseWriter, r *http.Request) {
