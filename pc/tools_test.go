@@ -223,3 +223,21 @@ func TestPathOfThreeDotsTitle(t *testing.T) {
 		}
 	}
 }
+
+// When GitHub won't say which version is newest (too many asks this hour, say), Update says it couldn't check
+// instead of "You have the newest version."
+func TestUpdateWhenGitHubRefuses(t *testing.T) {
+	_, h := testApp(t)
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"API rate limit exceeded"}`, 403)
+	}))
+	defer gh.Close()
+	old := releasesAPI
+	releasesAPI = gh.URL
+	defer func() { releasesAPI = old }()
+	var out struct{ Msg string }
+	json.NewDecoder(call(h, "POST", "/api/ui/update", nil).Body).Decode(&out)
+	if !strings.HasPrefix(out.Msg, "Update failed") {
+		t.Fatalf("Update said %q", out.Msg)
+	}
+}

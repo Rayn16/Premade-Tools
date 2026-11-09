@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const releasesAPI = "https://api.github.com/repos/Rayn16/Premade-Tools/releases/latest"
+var releasesAPI = "https://api.github.com/repos/Rayn16/Premade-Tools/releases/latest"
 
 type release struct {
 	ver, url string // url is "" when there's nothing newer
@@ -33,7 +33,13 @@ func latest(cl *http.Client) (release, error) {
 			URL  string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	if resp.StatusCode != 200 || json.NewDecoder(resp.Body).Decode(&rel) != nil || !newer(rel.Tag, version) {
+	if resp.StatusCode != 200 {
+		return release{}, fmt.Errorf("GitHub said %s", resp.Status)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return release{}, err
+	}
+	if !newer(rel.Tag, version) {
 		return release{}, nil
 	}
 	for _, as := range rel.Assets {
