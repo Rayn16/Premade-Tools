@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -60,5 +61,29 @@ func TestDrops(t *testing.T) {
 	}
 	if !d.SetClip("pc", "x") || d.SetClip("ph1", "x") {
 		t.Fatal("clip repeat not ignored")
+	}
+}
+
+// Two phones dropping a file with one name at the same moment (two "Note.txt"s): both land, neither overwrites
+// the other.
+func TestDropsSameNameAtOnce(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pc := t.TempDir()
+	d := NewDrops(func() string { return pc })
+	var wg sync.WaitGroup
+	for i := range 20 {
+		tmp := t.TempDir()
+		os.WriteFile(filepath.Join(tmp, "Note.txt"), []byte{byte(i)}, 0o644)
+		wg.Add(1)
+		go func() { defer wg.Done(); d.Add("ph1", "pc", "", tmp, []string{"Note.txt"}) }()
+	}
+	wg.Wait()
+	got := map[string]bool{}
+	for _, it := range d.List("") {
+		b, _ := os.ReadFile(filepath.Join(pc, it.Files[0].Name))
+		got[string(b)] = true
+	}
+	if len(got) != 20 {
+		t.Fatalf("%d of 20 notes are still there", len(got))
 	}
 }

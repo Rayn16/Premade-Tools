@@ -395,7 +395,7 @@ func (c *Converter) transcribe(ctx context.Context, target, src, work, out, name
 		return nil, "", fmt.Errorf("%s", engineError(tail.b.String()))
 	}
 	var files []string
-	txt := freeName(out, name, "txt")
+	txt := freeName(out, name+".txt")
 	srt := strings.TrimSuffix(txt, ".txt") + ".srt"
 	for _, p := range [][2]string{{base + ".txt", txt}, {base + ".srt", srt}} {
 		if err := os.Rename(p[0], p[1]); err != nil {

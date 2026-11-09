@@ -108,7 +108,7 @@ func (d *Drops) Add(from, to, text string, tmp string, names []string) (*Drop, e
 		src := filepath.Join(tmp, n)
 		dst := filepath.Join(it.Dir, n)
 		if to == "pc" {
-			dst = freeDropName(it.Dir, n)
+			dst = freeName(it.Dir, n)
 		}
 		if os.Rename(src, dst) != nil {
 			if err := copyFile(src, dst); err != nil {
@@ -130,18 +130,6 @@ func (d *Drops) Add(from, to, text string, tmp string, names []string) (*Drop, e
 	d.saveLocked()
 	d.mu.Unlock()
 	return it, nil
-}
-
-// freeDropName never overwrites a file already in the PC's Drop folder: "a.jpg", then "a (2).jpg", …
-func freeDropName(dir, name string) string {
-	ext := filepath.Ext(name)
-	p := filepath.Join(dir, name)
-	for n := 2; ; n++ {
-		if _, err := os.Stat(p); os.IsNotExist(err) {
-			return p
-		}
-		p = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(name, ext), n, ext))
-	}
 }
 
 func isLink(s string) bool {

@@ -689,15 +689,9 @@ func (a *App) saveToPC(w http.ResponseWriter, r *http.Request) {
 	home, _ := os.UserHomeDir()
 	dl := filepath.Join(home, "Downloads")
 	name := cleanName(it.Name, 0) // the phone named it, so it may not climb out of Downloads
-	dst := filepath.Join(dl, name)
-	for i := 2; ; i++ { // never overwrite a file already in Downloads
-		if _, err := os.Stat(dst); os.IsNotExist(err) {
-			break
-		}
-		ext := filepath.Ext(name)
-		dst = filepath.Join(dl, fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(name, ext), i, ext))
-	}
+	dst := freeName(dl, name)     // never over a file already in Downloads
 	if err := copyFile(st.objPath(it.Sha), dst); err != nil {
+		os.Remove(dst)
 		http.Error(w, err.Error(), 500)
 		return
 	}

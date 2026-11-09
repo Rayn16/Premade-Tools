@@ -415,14 +415,21 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// freeName finds a name in dir that isn't taken yet: "IMG_1.jpg", then "IMG_1 (2).jpg", …
-func freeName(dir, base, ext string) string {
-	p := filepath.Join(dir, base+"."+ext)
+// freeName takes a name in dir that isn't used yet: "IMG_1.jpg", then "IMG_1 (2).jpg", … Every tool saves into
+// one folder, so it claims the name by making it as an empty file, which the caller then writes over.
+func freeName(dir, name string) string {
+	ext := filepath.Ext(name)
+	p := filepath.Join(dir, name)
 	for n := 2; ; n++ {
-		if _, err := os.Stat(p); os.IsNotExist(err) {
+		f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			f.Close()
 			return p
 		}
-		p = filepath.Join(dir, fmt.Sprintf("%s (%d).%s", base, n, ext))
+		if !os.IsExist(err) {
+			return p // no folder, say: the writer reports it
+		}
+		p = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(name, ext), n, ext))
 	}
 }
 
@@ -435,9 +442,10 @@ func (c *Converter) convert(ctx context.Context, j *CvJob, in string, names []st
 	for i, n := range names {
 		src[i] = filepath.Join(in, n)
 	}
-	dst := freeName(out, baseName(names[0]), j.Target)
+	dst := freeName(out, baseName(names[0])+"."+j.Target)
 	if j.Combine && len(names) > 1 {
-		dst = freeName(out, fmt.Sprintf("%s and %d more", baseName(names[0]), len(names)-1), "pdf")
+		os.Remove(dst)
+		dst = freeName(out, fmt.Sprintf("%s and %d more.pdf", baseName(names[0]), len(names)-1))
 	}
 	ctx, stop := context.WithTimeout(ctx, 2*time.Hour)
 	defer stop()
