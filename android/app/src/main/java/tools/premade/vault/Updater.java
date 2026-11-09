@@ -39,8 +39,14 @@ final class Updater {
             long v = new JSONObject(Vault.call(c, "GET", "/api/phone/app", null)).optLong("version");
             if (v <= myVersion(c)) return;
             if (!c.getPackageManager().canRequestPackageInstalls()) {
-                if (a != null) a.runOnUiThread(() -> a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse("package:" + c.getPackageName()))));
+                // Android's "Allow from this source" screen, at most once a day: coming back from it without the
+                // switch on is the app opening again, and mustn't send you straight back.
+                long now = System.currentTimeMillis();
+                if (a != null && now - Vault.prefs(c).getLong("askedAllowAt", 0) > 24 * 3600_000L) {
+                    Vault.prefs(c).edit().putLong("askedAllowAt", now).apply();
+                    a.runOnUiThread(() -> a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:" + c.getPackageName()))));
+                }
                 return;
             }
             long tried = Vault.prefs(c).getLong("triedUpdate", 0), at = Vault.prefs(c).getLong("triedAt", 0);

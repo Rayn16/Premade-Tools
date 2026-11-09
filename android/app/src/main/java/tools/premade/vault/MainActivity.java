@@ -70,7 +70,8 @@ public class MainActivity extends Activity {
         });
         web.setDownloadListener((url, ua, disposition, mime, len) -> {
             DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, disposition, mime));
+            Downloads.dir(); // Download/Premade, the one folder everything Premade makes lands in
+            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Premade/" + URLUtil.guessFileName(url, disposition, mime));
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             getSystemService(DownloadManager.class).enqueue(req);
         });
