@@ -30,7 +30,7 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk pc/apk/PremadeTools.apk
           echo "$N" > pc/apk/version.txt
       - name: PC program (carries the Android app)
-        run: cd pc && go vet ./... && go test ./... && GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w -X main.version=0.1.$N" -o PremadeTools.exe .
+        run: cd pc && go vet ./... && go test -race ./... && GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w -X main.version=0.1.$N" -o PremadeTools.exe .
       - name: Release (the PC program updates itself from the latest one)
         if: github.ref_name == github.event.repository.default_branch && env.SIGNED == '1'
         env: { GH_TOKEN: '${{ github.token }}' }

@@ -193,12 +193,12 @@ func (d *Downloader) Start(raw string, audio bool, mode string, force bool, from
 	d.mu.Lock()
 	d.jobs = append([]*Job{j}, d.jobs...)
 	d.saveLocked()
+	c := *j // copied while locked: the worker may already be running it
 	d.mu.Unlock()
 	select {
 	case d.wake <- struct{}{}:
 	default:
 	}
-	c := *j
 	return &c, p, nil
 }
 
@@ -640,10 +640,8 @@ func (d *Downloader) Path(j *Job, n int) (string, bool) {
 	if n < 0 || n >= len(j.Files) {
 		return "", false
 	}
-	dir := d.dir()
-	p := filepath.Join(dir, j.Files[n].Name)
-	if rel, err := filepath.Rel(dir, p); err != nil || strings.HasPrefix(rel, "..") {
+	if !filepath.IsLocal(j.Files[n].Name) {
 		return "", false
 	}
-	return p, true
+	return filepath.Join(d.dir(), j.Files[n].Name), true
 }

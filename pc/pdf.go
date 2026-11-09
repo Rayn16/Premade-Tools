@@ -150,7 +150,7 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 
 	switch j.Target {
 	case "merge":
-		dst := freeName(out, base+" merged", "pdf")
+		dst := freeName(out, base+" merged.pdf")
 		if err := api.MergeCreateFile(ctx, src, dst, false, pdfConf()); err != nil {
 			os.Remove(dst)
 			fail("Merging", err)
@@ -159,7 +159,7 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 		made = append(made, dst)
 	case "pages", "extract":
 		name := map[string]string{"pages": " edited", "extract": " pages"}[j.Target]
-		dst := freeName(out, base+name, "pdf")
+		dst := freeName(out, base+name+".pdf")
 		if err := editPages(ctx, src[0], dst, j.Pages); err != nil {
 			os.Remove(dst)
 			fail(j.Inputs[0], err)
@@ -167,8 +167,9 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 		}
 		made = append(made, dst)
 	case "edit": // the editor on the screen made the new PDF; the PC keeps it and sends it back
-		dst := freeName(out, base+" (edited)", "pdf")
+		dst := freeName(out, base+" (edited).pdf")
 		if err := copyFile(src[0], dst); err != nil {
+			os.Remove(dst)
 			fail(j.Inputs[0], err)
 			return
 		}
@@ -190,16 +191,17 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 				if j.From == "" && gsBin() == "" {
 					go gs.Install() // first compress on the PC: fetch Ghostscript for next time (Windows asks once)
 				}
-				dst = freeName(out, baseName(s)+" smaller", "pdf")
+				dst = freeName(out, baseName(s)+" smaller.pdf")
 				err = c.compress(ctx, s, dst, j.Small)
 			case "lock":
-				dst = freeName(out, baseName(s)+" locked", "pdf")
+				dst = freeName(out, baseName(s)+" locked.pdf")
 				err = withPassword(ctx, s, dst, j.pw, true)
 			case "unlock":
-				dst = freeName(out, baseName(s)+" unlocked", "pdf")
+				dst = freeName(out, baseName(s)+" unlocked.pdf")
 				err = withPassword(ctx, s, dst, j.pw, false)
 			}
 			if ctx.Err() != nil {
+				os.Remove(dst)
 				return nil, nil
 			}
 			if err != nil {

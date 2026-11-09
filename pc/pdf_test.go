@@ -121,4 +121,11 @@ func TestPdfWork(t *testing.T) {
 	} else {
 		t.Log(fails[0])
 	}
+	// A job that failed leaves no empty file behind in the folder.
+	ents, _ := os.ReadDir(out)
+	for _, e := range ents {
+		if fi, _ := e.Info(); fi.Mode().IsRegular() && fi.Size() == 0 {
+			t.Errorf("%s was left behind, empty", e.Name())
+		}
+	}
 }

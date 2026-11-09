@@ -310,7 +310,7 @@ func (a *App) phoneAuth(h func(http.ResponseWriter, *http.Request, *Phone, *Stor
 			return
 		}
 		st := a.getStore()
-		if st == nil || a.moving {
+		if st == nil || a.isMoving() {
 			http.Error(w, "vault not ready", 503)
 			return
 		}
@@ -373,7 +373,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	phones := a.phoneViews()
 	c.Phones = nil
 	remote, tsState := a.ts.Status()
-	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "updErr": a.updFailed(), "moving": a.moving, "remote": remote, "tailscale": tsState}
+	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "updErr": a.updFailed(), "moving": a.isMoving(), "remote": remote, "tailscale": tsState}
 	if st := a.getStore(); st != nil {
 		n, b := st.Stats()
 		free, _ := diskSpace(c.VaultDir)
@@ -647,7 +647,7 @@ func unq(s string) string {
 
 func serveItem(w http.ResponseWriter, r *http.Request, st *Store, id string, attach bool) {
 	it := st.Get(id)
-	if st == nil || it == nil || it.Missed {
+	if st == nil || it == nil || it.Sha == "" {
 		http.NotFound(w, r)
 		return
 	}
@@ -682,21 +682,16 @@ func (a *App) saveToPC(w http.ResponseWriter, r *http.Request) {
 	if st != nil {
 		it = st.Get(r.PathValue("id"))
 	}
-	if it == nil || it.Missed {
+	if it == nil || it.Sha == "" {
 		http.NotFound(w, r)
 		return
 	}
 	home, _ := os.UserHomeDir()
 	dl := filepath.Join(home, "Downloads")
-	dst := filepath.Join(dl, it.Name)
-	for i := 2; ; i++ { // never overwrite a file already in Downloads
-		if _, err := os.Stat(dst); os.IsNotExist(err) {
-			break
-		}
-		ext := filepath.Ext(it.Name)
-		dst = filepath.Join(dl, fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(it.Name, ext), i, ext))
-	}
+	name := cleanName(it.Name, 0) // the phone named it, so it may not climb out of Downloads
+	dst := freeName(dl, name)     // never over a file already in Downloads
 	if err := copyFile(st.objPath(it.Sha), dst); err != nil {
+		os.Remove(dst)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -711,7 +706,7 @@ func (a *App) queueRestore(w http.ResponseWriter, r *http.Request) {
 	if st != nil {
 		it = st.Get(id)
 	}
-	if it == nil || it.Missed {
+	if it == nil || it.Sha == "" {
 		http.NotFound(w, r)
 		return
 	}

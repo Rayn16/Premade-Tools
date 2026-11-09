@@ -354,13 +354,17 @@ func (c *Converter) transcribe(ctx context.Context, target, src, work, out, name
 	defer stop()
 	// Whisper wants 16 kHz mono sound; FFmpeg pulls it out of any video or voice memo. Plain ASCII names here,
 	// because whisper.cpp can't open Arabic file names on Windows.
-	wav := filepath.Join(work, "sound.wav")
-	defer os.Remove(wav)
+	tmp, err := os.MkdirTemp(work, "tr-") // its own folder, so no file sent in can have the same name
+	if err != nil {
+		return nil, "", err
+	}
+	defer os.RemoveAll(tmp)
+	wav := filepath.Join(tmp, "sound.wav")
 	if err := runEngine(ctx, c.bin("ffmpeg"), []string{"-hide_banner", "-nostdin", "-y", "-i", src, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav}, nil); err != nil {
 		return nil, "", err
 	}
 	prog(0.02)
-	base := filepath.Join(work, "words")
+	base := filepath.Join(tmp, "words")
 	cmd := hidden(exec.CommandContext(ctx, whisper.Bin(), whisperArgs(whisper.Model(target), wav, base, target)...))
 	var tail limitWriter
 	tail.b, tail.n = &strings.Builder{}, 8<<10
@@ -385,7 +389,7 @@ func (c *Converter) transcribe(ctx context.Context, target, src, work, out, name
 		}
 		close(done)
 	}()
-	err := cmd.Wait()
+	err = cmd.Wait()
 	pw.Close()
 	<-done
 	if err != nil {
@@ -395,11 +399,12 @@ func (c *Converter) transcribe(ctx context.Context, target, src, work, out, name
 		return nil, "", fmt.Errorf("%s", engineError(tail.b.String()))
 	}
 	var files []string
-	txt := freeName(out, name, "txt")
+	txt := freeName(out, name+".txt", ".srt")
 	srt := strings.TrimSuffix(txt, ".txt") + ".srt"
 	for _, p := range [][2]string{{base + ".txt", txt}, {base + ".srt", srt}} {
 		if err := os.Rename(p[0], p[1]); err != nil {
 			if err := copyFile(p[0], p[1]); err != nil {
+				os.Remove(p[1])
 				return files, lang, fmt.Errorf("couldn't save the text")
 			}
 			os.Remove(p[0])

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -116,6 +117,9 @@ func (f *Friends) call(method, path string, body any, out any) error {
 	}
 	if sr, ok := body.(*io.SectionReader); ok { // R2 wants to know each part's length up front
 		req.ContentLength = sr.Size()
+		if sr.Size() == 0 { // or Go sends an empty part with no length at all
+			req.Body = http.NoBody
+		}
 	}
 	if t := f.a.set.Get().FrTok; t != "" {
 		req.Header.Set("Authorization", "Bearer "+t)
@@ -250,10 +254,7 @@ func (f *Friends) receive(it frItem) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	name := filepath.Base(strings.ReplaceAll(it.Name, "\\", "/"))
-	if name == "." || name == "/" || name == "" {
-		name = "file"
-	}
+	name := cleanName(it.Name, 0)
 	out, err := os.Create(filepath.Join(tmp, name))
 	if err != nil {
 		return err
@@ -420,6 +421,7 @@ func (f *Friends) State(from string) map[string]any {
 	out := map[string]any{"joined": c.FrTok != "", "name": c.FrName, "pc": f.devices()[0].Name, "err": f.err, "sends": sends, "ready": !strings.Contains(relayURL, "REPLACE")}
 	if f.last != nil && c.FrTok != "" {
 		p := *f.last
+		p.People = slices.Clone(p.People) // Send holds pointers into the cached list: sort a copy
 		sort.Slice(p.People, func(i, j int) bool {
 			if p.People[i].Online != p.People[j].Online {
 				return p.People[i].Online

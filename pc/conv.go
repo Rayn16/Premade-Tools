@@ -247,12 +247,12 @@ func (c *Converter) add(j *CvJob) *CvJob {
 	c.mu.Lock()
 	c.jobs = append([]*CvJob{j}, c.jobs...)
 	c.saveLocked()
+	cp := *j // copied while locked: the worker may already be running it
 	c.mu.Unlock()
 	select {
 	case c.wake <- struct{}{}:
 	default:
 	}
-	cp := *j
 	return &cp
 }
 
@@ -289,12 +289,10 @@ func (c *Converter) Path(j *CvJob, n int) (string, bool) {
 	if n < 0 || n >= len(j.Files) {
 		return "", false
 	}
-	dir := c.dir()
-	p := filepath.Join(dir, j.Files[n].Name)
-	if rel, err := filepath.Rel(dir, p); err != nil || strings.HasPrefix(rel, "..") {
+	if !filepath.IsLocal(j.Files[n].Name) {
 		return "", false
 	}
-	return p, true
+	return filepath.Join(c.dir(), j.Files[n].Name), true
 }
 
 func (c *Converter) worker() {
@@ -415,14 +413,35 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// freeName finds a name in dir that isn't taken yet: "IMG_1.jpg", then "IMG_1 (2).jpg", …
-func freeName(dir, base, ext string) string {
-	p := filepath.Join(dir, base+"."+ext)
-	for n := 2; ; n++ {
-		if _, err := os.Stat(p); os.IsNotExist(err) {
-			return p
+// freeName takes a name in dir that isn't used yet: "IMG_1.jpg", then "IMG_1 (2).jpg", … Every tool saves into
+// one folder, so it claims the name by making it as an empty file, which the caller then writes over. Each of
+// also (".srt") is claimed with the same name, for files that go together.
+func freeName(dir, name string, also ...string) string {
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for n := 1; ; n++ {
+		if n > 1 {
+			stem = fmt.Sprintf("%s (%d)", strings.TrimSuffix(name, ext), n)
 		}
-		p = filepath.Join(dir, fmt.Sprintf("%s (%d).%s", base, n, ext))
+		var got []string
+		var err error
+		for _, e := range append([]string{ext}, also...) {
+			var f *os.File
+			if f, err = os.OpenFile(filepath.Join(dir, stem+e), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644); err != nil {
+				break
+			}
+			f.Close()
+			got = append(got, f.Name())
+		}
+		if err == nil {
+			return got[0]
+		}
+		for _, p := range got {
+			os.Remove(p)
+		}
+		if !os.IsExist(err) {
+			return filepath.Join(dir, stem+ext) // no folder, say: the writer reports it
+		}
 	}
 }
 
@@ -435,9 +454,10 @@ func (c *Converter) convert(ctx context.Context, j *CvJob, in string, names []st
 	for i, n := range names {
 		src[i] = filepath.Join(in, n)
 	}
-	dst := freeName(out, baseName(names[0]), j.Target)
+	dst := freeName(out, baseName(names[0])+"."+j.Target)
 	if j.Combine && len(names) > 1 {
-		dst = freeName(out, fmt.Sprintf("%s and %d more", baseName(names[0]), len(names)-1), "pdf")
+		os.Remove(dst)
+		dst = freeName(out, fmt.Sprintf("%s and %d more.pdf", baseName(names[0]), len(names)-1))
 	}
 	ctx, stop := context.WithTimeout(ctx, 2*time.Hour)
 	defer stop()
