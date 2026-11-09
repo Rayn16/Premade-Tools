@@ -640,7 +640,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request, p *Phone, st *Store
 	body := bufio.NewReader(r.Body)
 	name = unq(name)
 	if filepath.Ext(name) == "" { // Shortcuts gives photo names without the extension
-		head, _ := body.Peek(16)
+		head, _ := body.Peek(4096) // a ProRAW photo says so a few hundred bytes in
 		name += sniffExt(head)
 	}
 	it := Item{Key: key, Name: name, Folder: unq(h.Get("X-Folder")), Phone: p.ID, DeletedAt: msTime(at)}
@@ -655,25 +655,54 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request, p *Phone, st *Store
 	writeJ(w, map[string]string{"id": saved.ID})
 }
 
-// sniffExt names a file type from its first bytes (the kinds an iPhone's Photos holds).
+// sniffExt names a file type from its first bytes, for what Shortcuts send without the extension: photos and videos,
+// voice memos, documents. Telling Word, Excel and PowerPoint files from other ZIPs needs the first few KB.
 func sniffExt(b []byte) string {
-	if len(b) >= 12 && string(b[4:8]) == "ftyp" {
-		switch t := string(b[8:12]); {
+	s := string(b)
+	if len(s) >= 12 && s[4:8] == "ftyp" {
+		switch t := s[8:12]; {
 		case t == "heic" || t == "heix" || t == "mif1" || t == "msf1" || t == "hevc":
 			return ".heic"
+		case t == "avif" || t == "avis":
+			return ".avif"
 		case t == "qt  ":
 			return ".mov"
+		case t == "M4A ":
+			return ".m4a"
 		default:
 			return ".mp4"
 		}
 	}
+	riff := len(s) >= 12 && s[:4] == "RIFF"
 	switch {
-	case len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8:
+	case strings.HasPrefix(s, "\xff\xd8"):
 		return ".jpg"
-	case len(b) >= 4 && string(b[1:4]) == "PNG":
+	case strings.HasPrefix(s, "\x89PNG"):
 		return ".png"
-	case len(b) >= 4 && string(b[:4]) == "GIF8":
+	case strings.HasPrefix(s, "GIF8"):
 		return ".gif"
+	case riff && s[8:12] == "WEBP":
+		return ".webp"
+	case riff && s[8:12] == "WAVE":
+		return ".wav"
+	case strings.HasPrefix(s, "ID3"), strings.HasPrefix(s, "\xff\xfb"), strings.HasPrefix(s, "\xff\xf3"):
+		return ".mp3"
+	case strings.HasPrefix(s, "%PDF-"):
+		return ".pdf"
+	case strings.HasPrefix(s, "{\\rtf"):
+		return ".rtf"
+	case strings.HasPrefix(s, "II*\x00"), strings.HasPrefix(s, "MM\x00*"):
+		if strings.Contains(s, "\x12\xc6\x01\x00\x04\x00\x00\x00") || strings.Contains(s, "\xc6\x12\x00\x01\x00\x00\x00\x04") {
+			return ".dng" // it has a DNGVersion: an iPhone ProRAW photo
+		}
+		return ".tif"
+	case strings.HasPrefix(s, "PK\x03\x04"):
+		for _, o := range [][2]string{{"\x00word/", ".docx"}, {"\x00xl/", ".xlsx"}, {"\x00ppt/", ".pptx"}} {
+			if strings.Contains(s, o[0]) {
+				return o[1]
+			}
+		}
+		return ".zip"
 	}
 	return ""
 }

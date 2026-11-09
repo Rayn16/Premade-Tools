@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"mime/multipart"
 	"net/http/httptest"
@@ -159,5 +160,29 @@ func TestPiecesUpload(t *testing.T) {
 	mw.Close()
 	if w := call(h, "POST", "/api/phone/drop/send?to=pc", &b, "Content-Type", mw.FormDataContentType()); w.Code != 400 {
 		t.Fatalf("a file whose pieces never came: %d", w.Code)
+	}
+}
+
+// The Drop to PC Shortcut sends names without their extensions: a document gets its own back from its first bytes,
+// and only plain text that's no known kind of file arrives as text.
+func TestDropShortcutTypes(t *testing.T) {
+	a, h := testApp(t)
+	a.drops = NewDrops(func() string { return t.TempDir() })
+	var docx bytes.Buffer
+	zw := zip.NewWriter(&docx)
+	for _, n := range []string{"[Content_Types].xml", "word/document.xml"} {
+		f, _ := zw.Create(n)
+		f.Write([]byte("<w/>"))
+	}
+	zw.Close()
+	for body, want := range map[string]string{"%PDF-1.1\ntrailer<</Root 1 0 R>>\n%%EOF": "Report.pdf", docx.String(): "Report.docx",
+		"{\\rtf1\\ansi hello}": "Report.rtf", "see you at 5": "text"} {
+		if w := call(h, "POST", "/api/phone/drop/ios?to=pc&name=Report", strings.NewReader(body)); !strings.HasPrefix(w.Body.String(), "OK") {
+			t.Fatalf("%s: %s", want, w.Body)
+		}
+		got := a.drops.List("pc")[0]
+		if name := got.Kind; len(got.Files) > 0 && got.Files[0].Name != want || len(got.Files) == 0 && name != want {
+			t.Errorf("sent as %s, arrived as %s %+v", want, got.Kind, got.Files)
+		}
 	}
 }

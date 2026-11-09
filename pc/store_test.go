@@ -86,7 +86,10 @@ func TestIphone(t *testing.T) {
 	if len(st.Deleted()) != 0 || strings.Join(need, ",") != "IMG_2,IMG_3" {
 		t.Fatalf("back on the phone: deleted=%d need=%v", len(st.Deleted()), need)
 	}
-	for in, want := range map[string]string{"\x00\x00\x00\x18ftypheic": ".heic", "\x00\x00\x00\x14ftypqt  ": ".mov", "\xff\xd8\xff\xe0": ".jpg", "\x89PNG": ".png", "hello": ""} {
+	for in, want := range map[string]string{"\x00\x00\x00\x18ftypheic": ".heic", "\x00\x00\x00\x14ftypqt  ": ".mov", "\xff\xd8\xff\xe0": ".jpg", "\x89PNG": ".png", "hello": "",
+		"\x00\x00\x00\x1cftypM4A ": ".m4a", "RIFF\x00\x00\x00\x00WEBPVP8 ": ".webp", "ID3\x04": ".mp3", "\xff\xfeh\x00i\x00": "",
+		"II*\x00\x08\x00\x00\x00\x01\x00\x12\xc6\x01\x00\x04\x00\x00\x00\x01\x06\x00\x00": ".dng", "II*\x00\x08\x00\x00\x00\x00\x00": ".tif",
+		"PK\x03\x04\x14\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x0b\x00\x00\x00keyword/a.txt": ".zip"} {
 		if got := sniffExt([]byte(in)); got != want {
 			t.Errorf("sniffExt(%q) = %q, want %q", in, got, want)
 		}

@@ -124,8 +124,9 @@ func (a *App) dropRoutes(m *http.ServeMux) {
 		}
 		writeJ(w, a.drops.Clip())
 	})
-	// The iPhone's "Drop to PC" Shortcut sends each item as the body (?to=pc|phone id&name=…). A name without an
-	// extension and a short body of plain text means copied text or a link; anything else is a file.
+	// The iPhone's "Drop to PC" Shortcut sends each item as the body (?to=pc|phone id&name=…), with the name but not
+	// the extension. A short body of plain text means copied text or a link; anything else is a file, its type told
+	// from its first bytes. ponytail: a small .txt file looks the same as copied text, so it arrives as text.
 	// Replies "OK: what happened" or "ERR: why".
 	ph("POST /api/phone/drop/ios", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -139,7 +140,7 @@ func (a *App) dropRoutes(m *http.ServeMux) {
 		head, _ := body.Peek(64 << 10)
 		var it *Drop
 		var err error
-		if filepath.Ext(name) == "" && len(head) < 64<<10 && utf8.Valid(head) && !strings.ContainsRune(string(head), 0) {
+		if filepath.Ext(name) == "" && len(head) < 64<<10 && utf8.Valid(head) && !strings.ContainsRune(string(head), 0) && sniffExt(head) == "" {
 			it, err = a.drops.Add(p.ID, to, string(head), "", nil)
 		} else {
 			name = cleanName(name, 0)
