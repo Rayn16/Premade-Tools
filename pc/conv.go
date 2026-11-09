@@ -424,22 +424,23 @@ func freeName(dir, name string, also ...string) string {
 			stem = fmt.Sprintf("%s (%d)", strings.TrimSuffix(name, ext), n)
 		}
 		var got []string
+		var err error
 		for _, e := range append([]string{ext}, also...) {
-			f, err := os.OpenFile(filepath.Join(dir, stem+e), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
-			if err != nil {
-				if !os.IsExist(err) {
-					return filepath.Join(dir, stem+ext) // no folder, say: the writer reports it
-				}
+			var f *os.File
+			if f, err = os.OpenFile(filepath.Join(dir, stem+e), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644); err != nil {
 				break
 			}
 			f.Close()
 			got = append(got, f.Name())
 		}
-		if len(got) == 1+len(also) {
+		if err == nil {
 			return got[0]
 		}
 		for _, p := range got {
 			os.Remove(p)
+		}
+		if !os.IsExist(err) {
+			return filepath.Join(dir, stem+ext) // no folder, say: the writer reports it
 		}
 	}
 }
