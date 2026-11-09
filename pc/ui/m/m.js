@@ -281,16 +281,22 @@ const SHORTCUT = 'Vault backup';
 const neverBackedUp = (p) => new Date(p.LastSeen) - new Date(p.Paired) < 5000;
 const runShortcut = 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTCUT);
 
+// The PC held back a backup that didn't see many photos it keeps (Store.SyncPhoneList), most likely Shortcuts let
+// see only some of them.
+const heldNote = (p) => p.Held ? `<div class="notebox">${icon('info')}<div><b>The last backup didn't see ${p.Held} photos.</b> They don't show as deleted, because that many at once usually means Shortcuts can see only some photos. Open <b>Settings</b> › <b>Apps</b> › <b>Shortcuts</b> › <b>Photos</b>, pick <b>Full Access</b>, then tap <b>Back up now</b>.<div class="acts"><button type="button" class="btn small" data-heldok>I deleted them</button></div></div></div>` : '';
+
 function iosNudge() {
   const me = phoneById(ST.me);
   if (!me || me.Kind !== 'iphone') return '';
+  if (me.Held) return heldNote(me);
   if (!navigator.standalone) return `<p class="mhint ios-nudge">${icon('info')}<span>Tap <b>Share</b>, then <b>Add to Home Screen</b>, then open Vault from there.</span></p>`;
   if (neverBackedUp(me)) return `<p class="mhint ios-nudge">${icon('info')}<span>One more step: add the backup Shortcut. Open <b>Phones</b> and follow the steps.</span></p>`;
   return '';
 }
 
 function iosGuide(p) {
-  const base = PCLINK, t = encodeURIComponent(TOKEN);
+  // The home address: the backup runs at home, and the relay takes nothing over 100 MB, so a long video would stop it.
+  const base = kept('lan') || PCLINK, t = encodeURIComponent(TOKEN), redo = p.Relay && base !== PCLINK;
   const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
   const steps = [
     `Open <b>Shortcuts</b>, tap <b>+</b> and name it <b>${SHORTCUT}</b>.`,
@@ -307,7 +313,8 @@ function iosGuide(p) {
     `Tap <b>Back up now</b> below to run it once. Allow access to Photos and to devices on your network when asked. The first run sends every photo, so keep the screen on and the iPhone on Wi-Fi.`,
     `Make it run by itself: <b>Automation</b> tab › <b>+</b> › <b>Wi-Fi</b>, pick your home Wi-Fi, choose <b>Run Immediately</b> and pick <b>${SHORTCUT}</b>. Add a second one with <b>Charger</b> › <b>Is Connected</b>.`,
   ];
-  return `<details class="iosguide" ${neverBackedUp(p) ? 'open' : ''}><summary>Set up the backup Shortcut</summary>
+  return `${heldNote(p)}${redo ? `<div class="notebox">${icon('info')}<div><b>Update your backup Shortcut.</b> It sends photos through the internet, which takes nothing over 100 MB, so a long video stops every backup. Open it in Shortcuts, and in each address change the part before <b>/api</b> to <b>${esc(base)}</b>.</div></div>` : ''}
+    <details class="iosguide" ${neverBackedUp(p) || redo ? 'open' : ''}><summary>Set up the backup Shortcut</summary>
     <ol>${steps.map((x) => `<li>${x}</li>`).join('')}</ol></details>
     <a class="btn primary block" href="${runShortcut}">Back up now</a>`;
 }
@@ -374,6 +381,7 @@ $app.addEventListener('click', async (e) => {
       watchRestore(it);
     }
     else if (d.fix) { NATIVE.fix(d.fix); }
+    else if (d.heldok !== undefined) { await api('/api/phone/ios/held', {}); refresh(); }
     else if (d.keep) {
       if (KEEPDAYS[d.keep] < KEEPDAYS[ST.config.keep]) {
         const p = await api('/api/phone/keep-preview?keep=' + d.keep);

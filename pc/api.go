@@ -107,9 +107,6 @@ func (a *App) routes() http.Handler {
 		m.HandleFunc(p, a.phoneAuth(h))
 	}
 	ph("POST /api/phone/checkin", a.checkin)
-	ph("GET /api/phone/have", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
-		writeJ(w, map[string]bool{"have": st.Has(p.ID, r.URL.Query().Get("key"))})
-	})
 	ph("PUT /api/phone/upload", a.upload)
 	ph("POST /api/phone/missed", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		var in struct {
@@ -122,33 +119,6 @@ func (a *App) routes() http.Handler {
 		}
 		st.AddMissed(Item{Key: in.Folder + "/" + in.Name, Name: in.Name, Folder: in.Folder, Phone: p.ID, Note: in.Note, DeletedAt: msTime(in.At)})
 		writeJ(w, "ok")
-	})
-	ph("POST /api/phone/list", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
-		var in struct {
-			Keys     []string `json:"keys"`
-			Complete bool     `json:"complete"`
-		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil {
-			http.Error(w, "bad request", 400)
-			return
-		}
-		keys := in.Keys
-		if !in.Complete {
-			keys = nil // a partial list only asks what's missing; it never marks anything deleted
-		}
-		need, err := st.SyncPhoneList(p.ID, keys, time.Now())
-		if !in.Complete {
-			for _, k := range in.Keys {
-				if !st.Has(p.ID, k) {
-					need = append(need, k)
-				}
-			}
-		}
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		writeJ(w, map[string]any{"need": need})
 	})
 	// The iPhone's Shortcut speaks plain text: it sends the names of every photo and video on the phone,
 	// one per line, and gets back the ones the PC still needs as "|name|name|" so an If "contains" can test each.
@@ -164,14 +134,22 @@ func (a *App) routes() http.Handler {
 			http.Error(w, "The Shortcut sent no photo names. Check it can see your photos.", 400)
 			return
 		}
-		a.touch(p.ID)
-		need, err := st.SyncPhoneList(p.ID, keys, time.Now())
+		a.touch(p.ID, strings.HasPrefix(r.RemoteAddr, "relay:"))
+		need, _, err := st.SyncPhoneList(p.ID, keys, time.Now(), false)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprint(w, "|"+strings.Join(need, "|")+"|")
+	})
+	// The user says they did delete the photos a too-short list left out (SyncPhoneList).
+	ph("POST /api/phone/ios/held", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		if err := st.Confirm(p.ID, time.Now()); err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		writeJ(w, "ok")
 	})
 	// Files the PC wants back in the iPhone's Photos, one id per line ("none" when there are none).
 	ph("GET /api/phone/ios/restores", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
@@ -348,12 +326,18 @@ type phoneView struct {
 	Paired, LastSeen time.Time
 	Status           json.RawMessage
 	Restores         int
+	Held             int  // iPhone: photos its last backup left out that don't show as deleted yet
+	Relay            bool // iPhone: its backup Shortcut has the relay's address
 }
 
 func (a *App) phoneViews() []phoneView {
-	phones := []phoneView{}
+	phones, st := []phoneView{}, a.getStore()
 	for _, p := range a.set.Get().Phones {
-		phones = append(phones, phoneView{append([]string{}, p.Restores...), p.ID, p.Name, p.Kind, p.Paired, p.LastSeen, p.Status, len(p.Restores)})
+		v := phoneView{append([]string{}, p.Restores...), p.ID, p.Name, p.Kind, p.Paired, p.LastSeen, p.Status, len(p.Restores), 0, p.Relay}
+		if st != nil {
+			v.Held = st.Held(p.ID)
+		}
+		phones = append(phones, v)
 	}
 	return phones
 }
@@ -605,12 +589,12 @@ func (a *App) pair(w http.ResponseWriter, r *http.Request) {
 	writeJ(w, map[string]string{"token": p.Token, "id": p.ID, "remote": remote, "relay": relayURL, "link": a.linkURL()})
 }
 
-// touch marks a phone as just seen.
-func (a *App) touch(id string) {
+// touch marks an iPhone as just backed up, and whether its Shortcut has the relay's address.
+func (a *App) touch(id string, relay bool) {
 	a.set.With(func(c *Config) bool {
 		for _, q := range c.Phones {
 			if q.ID == id {
-				q.LastSeen = time.Now()
+				q.LastSeen, q.Relay = time.Now(), relay
 			}
 		}
 		return true

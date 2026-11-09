@@ -40,12 +40,24 @@ type Store struct {
 	mu    sync.Mutex
 	dir   string
 	items []*Item
+	// iPhone, kept in memory: how many photos have each name in each phone's last list, the copies sent since then,
+	// and a list held back for looking too short (SyncPhoneList), under its own lock so the screens never wait on mu.
+	want map[string]map[string]int
+	sent map[string]map[string]bool
+	hmu  sync.Mutex
+	held map[string]heldList
+}
+
+// heldList is an iPhone list SyncPhoneList didn't act on, and how many photos it would have marked as deleted.
+type heldList struct {
+	keys []string
+	n    int
 }
 
 // OpenStore opens the vault in dir, or starts a new one there. A list of files that can't be read is never taken
 // for an empty vault (the next save would write over it): the copy from the save before stands in, else it fails.
 func OpenStore(dir string) (*Store, error) {
-	s := &Store{dir: dir}
+	s := &Store{dir: dir, want: map[string]map[string]int{}, sent: map[string]map[string]bool{}, held: map[string]heldList{}}
 	if err := os.MkdirAll(filepath.Join(dir, "objects"), 0o755); err != nil {
 		return nil, err
 	}
@@ -152,12 +164,22 @@ func (s *Store) Add(it Item, body io.Reader, wantSha string) (*Item, error) {
 			return nil, err
 		}
 	}
-	if old := s.findLocked(it.Phone, it.Key); old != nil {
+	if it.Hidden {
+		if old, back := s.againLocked(it.Phone, it.Key, sha); old != nil {
+			if back {
+				return old, s.saveLocked()
+			}
+			return old, nil
+		}
+	} else if old := s.findLocked(it.Phone, it.Key); old != nil {
 		return old, nil
 	}
 	it.ID, it.Sha, it.Size = newID(), sha, n
 	if it.Kind == "" {
 		it.Kind = kindOf(it.Name)
+	}
+	if it.Hidden {
+		s.sent[it.Phone][it.ID] = true
 	}
 	s.items = append(s.items, &it)
 	return &it, s.saveLocked()
@@ -175,37 +197,114 @@ func (s *Store) AddMissed(it Item) error {
 	return s.saveLocked()
 }
 
-// SyncPhoneList is for the iPhone: every hidden copy whose key is no longer on the phone becomes a deleted file.
-// Only call it with a complete list, or files would show as deleted after a cut-short run.
-func (s *Store) SyncPhoneList(phone string, keys []string, now time.Time) (need []string, err error) {
-	on := make(map[string]bool, len(keys))
+// againLocked tells, for an iPhone upload, which copy the PC already keeps it is: the same content under the same name
+// is that photo sent again (back on the phone, if it showed as deleted), unless that copy came in since the last list
+// and the list has more photos by this name than the PC keeps: then it's an exact copy on the phone, a photo of its own.
+// nil means a new photo. iPhone names come round again (IMG_0001 after IMG_9999), so a name alone can't say.
+func (s *Store) againLocked(phone, key, sha string) (old *Item, back bool) {
+	if s.sent[phone] == nil {
+		s.sent[phone] = map[string]bool{}
+	}
+	sent, kept := s.sent[phone], 0
+	for _, it := range s.items {
+		if it.Phone != phone || it.Key != key || it.Missed || it.Dismissed {
+			continue
+		}
+		if it.Hidden {
+			kept++
+		}
+		if it.Sha != sha {
+			continue
+		}
+		if old == nil {
+			old = it
+		}
+		if !sent[it.ID] {
+			sent[it.ID] = true
+			if back = !it.Hidden && it.ByTime; back {
+				it.Hidden, it.ByTime, it.DeletedAt = true, false, time.Time{}
+			}
+			return it, back
+		}
+	}
+	if old != nil && kept < s.want[phone][key] {
+		return nil, false
+	}
+	return old, false
+}
+
+// SyncPhoneList is for the iPhone: its Shortcut lists every photo's name, once for each photo that has it, and gets
+// back the names the PC wants sent. A hidden copy whose name the phone has fewer of than the PC keeps becomes a
+// deleted file; when it can't tell which of several went, all of them do and the name is asked for again, so the
+// ones still on the phone come back as they arrive (againLocked). Only call it with a complete list.
+// A drop too big to be real (Shortcuts was let see only some photos) marks nothing unless sure; held says how many
+// it would have marked, and Confirm marks them once the user says they did delete them.
+func (s *Store) SyncPhoneList(phone string, keys []string, now time.Time, sure bool) (need []string, held int, err error) {
+	want := make(map[string]int, len(keys))
 	for _, k := range keys {
-		on[k] = true
+		want[k]++
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	have := map[string]bool{}
-	changed := false
+	kept, total, gone := map[string][]*Item{}, 0, 0
 	for _, it := range s.items {
-		if it.Phone != phone || it.Missed {
-			continue
-		}
-		have[it.Key] = true
-		if it.Hidden && !on[it.Key] {
-			it.Hidden, it.ByTime, it.DeletedAt, changed = false, true, now, true
-		} else if !it.Hidden && it.ByTime && !it.Dismissed && on[it.Key] {
-			it.Hidden, it.ByTime, it.DeletedAt, changed = true, false, time.Time{}, true // back on the phone (a list that came up short)
+		if it.Phone == phone && it.Hidden {
+			kept[it.Key] = append(kept[it.Key], it)
+			total++
 		}
 	}
-	for _, k := range keys {
-		if !have[k] {
-			need = append(need, k)
-		}
+	for k, hs := range kept {
+		gone += max(len(hs)-want[k], 0)
 	}
-	if changed {
+	// ponytail: "more than half, and over 50" is a guess at a drop nobody makes by hand; tune it if real ones trip it.
+	if !sure && gone > 50 && gone*2 > total {
+		held = gone
+	}
+	s.hmu.Lock()
+	if held > 0 {
+		s.held[phone] = heldList{keys, held}
+	} else {
+		delete(s.held, phone)
+	}
+	s.hmu.Unlock()
+	if held == 0 && gone > 0 {
+		for k, hs := range kept {
+			if want[k] < len(hs) {
+				for _, it := range hs {
+					it.Hidden, it.ByTime, it.DeletedAt = false, true, now
+				}
+				delete(kept, k)
+			}
+		}
 		err = s.saveLocked()
 	}
-	return need, err
+	s.want[phone], s.sent[phone] = want, map[string]bool{}
+	asked := map[string]bool{}
+	for _, k := range keys {
+		if want[k] > len(kept[k]) && !asked[k] {
+			need, asked[k] = append(need, k), true
+		}
+	}
+	return need, held, err
+}
+
+// Held is how many photos the iPhone's last list left out without them showing as deleted (SyncPhoneList).
+func (s *Store) Held(phone string) int {
+	s.hmu.Lock()
+	defer s.hmu.Unlock()
+	return s.held[phone].n
+}
+
+// Confirm marks the photos a held list left out as deleted: the user says they did delete them.
+func (s *Store) Confirm(phone string, now time.Time) error {
+	s.hmu.Lock()
+	h, ok := s.held[phone]
+	s.hmu.Unlock()
+	if !ok {
+		return errors.New("Back up again first, then try this.")
+	}
+	_, _, err := s.SyncPhoneList(phone, h.keys, now, true)
+	return err
 }
 
 func (s *Store) Get(id string) *Item {

@@ -184,8 +184,15 @@ func (a *App) warnings() []string {
 		}
 	}
 	a.mu.Lock()
-	verr := a.noVault
+	verr, st := a.noVault, a.store
 	a.mu.Unlock()
+	if st != nil {
+		for _, p := range c.Phones {
+			if n := st.Held(p.ID); n > 0 {
+				out = append(out, fmt.Sprintf("%s's last backup left out %d photos the vault keeps for it, so they don't show as deleted. Open Premade on that iPhone to check.", p.Name, n))
+			}
+		}
+	}
 	if verr != "" {
 		out = append(out, "Can't open the vault in "+c.VaultDir+": "+verr+". Plug in its drive, or pick another folder in Settings.")
 	}
