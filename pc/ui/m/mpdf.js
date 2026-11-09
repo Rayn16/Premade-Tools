@@ -8,7 +8,7 @@ const pdfBlobs = {};         // iPhone: job id → File[] fetched ahead, so Save
 const pdfURL = (j, n, dl) => `${PCURL}/api/phone/pdf/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
 
 const PDFAPI = {
-  get base() { return PCURL + '/api/phone/pdf'; }, // PCURL changes when the other address answers
+  get base() { return PCURL + '/api/phone/pdf'; }, // PCURL can change (home, Tailscale, the relay link), so read it each time
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => pdfPoll(),
