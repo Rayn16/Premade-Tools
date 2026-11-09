@@ -150,7 +150,7 @@ function homeView(live, dlDone, cvDone) {
     ${homeCards('go', [
       ['download', 'dl', 'Downloader', 'Paste a link from TikTok, Instagram, YouTube and more, and save it.', dlRun ? `<b>${dlRun}</b> downloading now` : tally(dlDone, 'download saved', 'downloads saved')],
       ['convert', 'convert', 'Converter', 'Turn photos, videos, audio and documents into other formats.', cvRun ? `<b>${cvRun}</b> converting now` : tally(cvDone, 'file converted', 'files converted')],
-      ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', pdfBusy() ? '<b>Working</b> on PDFs now' : tally(pdfJobs().filter((j) => j.state === 'done').length, 'PDF done', 'PDFs done')],
+      ['pdf', 'pdf', 'PDF', 'Edit, merge, split, compress and lock PDFs.', pdfBusy() ? '<b>Working</b> on PDFs now' : tally(pdfJobs().filter((j) => j.state === 'done').length, 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text and subtitles.', trBusy() ? '<b>Listening</b> now' : tally(trJobs().filter((j) => j.state === 'done').length, 'file transcribed', 'files transcribed')],
       ['drop', 'drop', 'File drop', 'Send files, links and text between this PC and your phones.', dropNew() ? `<b>${dropNew()}</b> new from your phones` : tally(dropJobs().length, 'drop this week', 'drops this week')],
       ['deleted', 'shield', 'Vault', 'Keeps what you delete on your phones, so you can get it back.', `${tally(live.length, 'deleted item', 'deleted items')} kept · ${tally(ST.phones.length, 'phone', 'phones')}`]])}

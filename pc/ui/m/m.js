@@ -135,7 +135,7 @@ function homeView(off) {
     <div class="feed scroller">${off}${moveNudge()}${homeCards('tool', [
       ['download', 'dl', 'Downloader', 'Save videos and photos from any link.', tally(done(dlJobs()), 'download saved', 'downloads saved')],
       ['convert', 'convert', 'Converter', 'Turn files into other formats on your PC.', tally(done(typeof cvJobs === 'function' ? cvJobs() : []), 'file converted', 'files converted')],
-      ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', tally(done(pdfJobs()), 'PDF done', 'PDFs done')],
+      ['pdf', 'pdf', 'PDF', 'Edit, merge, split, compress and lock PDFs.', tally(done(pdfJobs()), 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text.', tally(done(trJobs()), 'file transcribed', 'files transcribed')],
       ['drop', 'drop', 'File drop', 'Send files, links and text to your PC.', dropNew() ? `<b>${dropNew()}</b> new for this phone` : tally(dropJobs().length, 'drop this week', 'drops this week')],
       ['vault', 'shield', 'Vault', 'Get back what you deleted on your phones.', tally(live().length, 'deleted item', 'deleted items') + ' kept']])}</div>`;

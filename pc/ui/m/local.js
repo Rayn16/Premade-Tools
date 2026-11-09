@@ -146,7 +146,7 @@ function localConvert(kind, files, to, small, combine) {
 }
 
 // ---------- PDF tools (pdf-lib; page pictures for Compress come from PDF.js, as for the page grid) ----------
-const PDF_LOCAL = { local: true, gs: 'ok', dir: '', jobs: [], ops: [tg('merge', 'Merge', 'Put PDFs together into one, in the order you pick'), tg('pages', 'Pages', 'Reorder, turn or delete pages'),
+const PDF_LOCAL = { local: true, gs: 'ok', dir: '', jobs: [], ops: [tg('edit', 'Edit', 'Change the text, add text, pictures, a signature or drawings'), tg('merge', 'Merge', 'Put PDFs together into one, in the order you pick'), tg('pages', 'Pages', 'Reorder, turn or delete pages'),
   tg('extract', 'Pick pages', 'Save only the pages you pick as a new PDF'), tg('split', 'Split', 'Every page as its own PDF'), tg('compress', 'Compress', 'Make it smaller to send. On the phone, pages become pictures.'),
   tg('lock', 'Add password', 'It asks for the password to open'), tg('unlock', 'Remove password', 'Opens without asking')] };
 async function pdfShots(bytes, level) {
