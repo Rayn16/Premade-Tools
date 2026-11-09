@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -239,5 +240,55 @@ func TestUpdateWhenGitHubRefuses(t *testing.T) {
 	json.NewDecoder(call(h, "POST", "/api/ui/update", nil).Body).Decode(&out)
 	if !strings.HasPrefix(out.Msg, "Update failed") {
 		t.Fatalf("Update said %q", out.Msg)
+	}
+}
+
+// Moving the vault to another folder: the files go with it and open from there, the old folder is cleared, and
+// phones asking in the meantime are told to wait, never given a half-moved vault.
+func TestMoveVault(t *testing.T) {
+	a, h := testApp(t)
+	var up struct{ ID string }
+	json.NewDecoder(call(h, "PUT", "/api/phone/upload", strings.NewReader("data"), "X-Key", "k1", "X-Name", "a.jpg").Body).Decode(&up)
+	old, dir := a.set.Get().VaultDir, filepath.Join(t.TempDir(), "New vault")
+	stop, phone := make(chan bool), make(chan error, 1)
+	go func() { // a phone checking in all through the move
+		for {
+			select {
+			case <-stop:
+				phone <- nil
+				return
+			default:
+			}
+			if w := call(h, "GET", "/api/phone/deleted", nil); w.Code != 200 && w.Code != 503 {
+				phone <- fmt.Errorf("phone got %d %s", w.Code, w.Body)
+				return
+			}
+		}
+	}()
+	if w := call(h, "POST", "/api/ui/vault", strings.NewReader(fmt.Sprintf(`{"dir":%q}`, dir))); w.Code != 200 {
+		t.Fatalf("move: %d %s", w.Code, w.Body)
+	}
+	for end := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		var st struct{ Moving bool }
+		json.NewDecoder(call(h, "GET", "/api/ui/state", nil).Body).Decode(&st)
+		if !st.Moving && a.set.Get().VaultDir != old {
+			break
+		}
+		if time.Now().After(end) {
+			t.Fatal("the move never finished")
+		}
+	}
+	close(stop)
+	if err := <-phone; err != nil {
+		t.Fatal(err)
+	}
+	if got := a.set.Get().VaultDir; got != dir {
+		t.Fatalf("vault is at %q", got)
+	}
+	if w := call(h, "GET", "/api/ui/file/"+up.ID, nil); w.Body.String() != "data" {
+		t.Fatalf("file after the move: %d %q", w.Code, w.Body)
+	}
+	if _, err := os.Stat(filepath.Join(old, "objects")); !os.IsNotExist(err) {
+		t.Fatal("the old folder still holds the files")
 	}
 }

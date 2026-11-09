@@ -310,7 +310,7 @@ func (a *App) phoneAuth(h func(http.ResponseWriter, *http.Request, *Phone, *Stor
 			return
 		}
 		st := a.getStore()
-		if st == nil || a.moving {
+		if st == nil || a.isMoving() {
 			http.Error(w, "vault not ready", 503)
 			return
 		}
@@ -373,7 +373,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	phones := a.phoneViews()
 	c.Phones = nil
 	remote, tsState := a.ts.Status()
-	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "updErr": a.updFailed(), "moving": a.moving, "remote": remote, "tailscale": tsState}
+	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "updErr": a.updFailed(), "moving": a.isMoving(), "remote": remote, "tailscale": tsState}
 	if st := a.getStore(); st != nil {
 		n, b := st.Stats()
 		free, _ := diskSpace(c.VaultDir)

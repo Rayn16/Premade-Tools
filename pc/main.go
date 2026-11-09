@@ -101,6 +101,12 @@ func (a *App) getStore() *Store {
 	return a.store
 }
 
+func (a *App) isMoving() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.moving
+}
+
 // loop does the slow chores: clearing old files, drive health, warnings, updates.
 func (a *App) loop() {
 	tick := 0
