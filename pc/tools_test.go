@@ -148,3 +148,36 @@ func TestFriendFileNames(t *testing.T) {
 		t.Fatal("the send never finished")
 	}
 }
+
+// Notifications put names and titles from outside (a video's title, a phone's name) into a PowerShell script.
+// PowerShell ends a '...' string at a curly quote too (‘ ’ ‚ ‛), so "Rayan’s video" broke the notification,
+// and a title could close the string and run its own commands.
+func TestPsQuote(t *testing.T) {
+	for _, s := range []string{"Rayan’s video", "it's", "‘quoted’", "a‚b‛c", "’’", ""} {
+		lit := psQuote(s)
+		if got, rest, ok := psRead(lit); !ok || got != s || rest != "" {
+			t.Errorf("psQuote(%q) = %s, which PowerShell reads as %q followed by %q", s, lit, got, rest)
+		}
+	}
+}
+
+// psRead reads a single-quoted string as PowerShell's tokenizer does: any of its five single quote marks ends it,
+// unless the next character is one too, and then the pair is one quote mark.
+func psRead(lit string) (val, rest string, ok bool) {
+	isQ := func(c rune) bool { return strings.ContainsRune("'‘’‚‛", c) }
+	r := []rune(lit)
+	if len(r) == 0 || !isQ(r[0]) {
+		return "", lit, false
+	}
+	var b strings.Builder
+	for i := 1; i < len(r); i++ {
+		if isQ(r[i]) {
+			if i+1 >= len(r) || !isQ(r[i+1]) {
+				return b.String(), string(r[i+1:]), true
+			}
+			i++
+		}
+		b.WriteRune(r[i])
+	}
+	return b.String(), "", false
+}

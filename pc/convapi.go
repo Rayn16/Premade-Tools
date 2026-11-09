@@ -199,6 +199,12 @@ func cleanName(s string, n int) string {
 // winDevice matches the names Windows opens a device for instead of a file (CON, NUL, COM1, …), extension or not.
 var winDevice = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³]|conin\$|conout\$)$`)
 
+// psQuote makes s one single-quoted PowerShell string. PowerShell takes ‘ ’ ‚ ‛ as quote marks too, so each of the
+// five is doubled, as PowerShell's own CodeGeneration.EscapeSingleQuotedStringContent does.
+func psQuote(s string) string { return "'" + psQuotes.Replace(s) + "'" }
+
+var psQuotes = strings.NewReplacer("'", "''", "‘", "‘‘", "’", "’’", "‚", "‚‚", "‛", "‛‛")
+
 func saveBody(r io.Reader, dir, name string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

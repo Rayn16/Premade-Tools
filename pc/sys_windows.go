@@ -28,8 +28,6 @@ func ps(script string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-func psQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-
 // lowPriority keeps Vault out of the way of games: below-normal CPU plus background I/O and memory priority.
 func lowPriority() {
 	h := windows.CurrentProcess()
