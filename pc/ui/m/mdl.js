@@ -152,7 +152,7 @@ function dlSettingsView(off) {
   return `${dlTitle('Settings', 'How downloads get to this phone.')}<div class="headrule"></div>
     <div class="feed scroller">${off}${ios}
     <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Download folder</h2><p class="vaultpath-m">${esc(DL?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Change it on the PC in Settings.</p></div>
+      <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(DL?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>
       <div class="block"><h2 class="block-title">Logins</h2><p class="block-hint">${(DL?.logins || []).length ? 'Logged in to ' + esc(DL.logins.join(', ')) + '. ' : ''}For Instagram stories and other posts that need an account, log in once on the PC: Settings › Logins.</p></div>
       <div class="block"><h2 class="block-title">Engines</h2><p class="block-hint mono">${eng.map((e) => `${esc(e.name)} ${esc(e.version || e.state)}`).join(' · ')}</p></div>
     </div></section>

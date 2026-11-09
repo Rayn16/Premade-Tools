@@ -2,7 +2,6 @@ package tools.premade.vault;
 
 import android.content.Context;
 import android.media.MediaScannerConnection;
-import android.os.Environment;
 
 import com.yausername.ffmpeg.FFmpeg;
 import com.yausername.youtubedl_android.YoutubeDL;
@@ -51,11 +50,7 @@ final class PhoneDL {
             File[] got = dir.listFiles();
             for (int k = 0; got != null && k < got.length; k++) {
                 File f = got[k];
-                String n = f.getName().toLowerCase();
-                String pub = n.matches(".*\\.(mp3|m4a|opus|ogg|wav)$") ? Environment.DIRECTORY_MUSIC
-                        : n.matches(".*\\.(jpe?g|png|webp|gif|heic)$") ? Environment.DIRECTORY_PICTURES : Environment.DIRECTORY_MOVIES;
-                File d = new File(Environment.getExternalStoragePublicDirectory(pub), "Premade");
-                d.mkdirs();
+                File d = Downloads.dir();
                 File out = new File(d, f.getName());
                 for (int i = 2; out.exists(); i++) out = new File(d, i + " " + f.getName());
                 if (!f.renameTo(out)) { java.nio.file.Files.copy(f.toPath(), out.toPath()); f.delete(); }

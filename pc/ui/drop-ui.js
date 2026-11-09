@@ -32,7 +32,7 @@ function dropSettings() {
   return `<div class="cols" style="margin-top:18px">
     <div class="col">
       <section><h2 class="group-label">File drop · where files go</h2><div class="rows">
-        <div class="row"><div class="row-text"><span class="row-title">PC folder</span><span class="row-hint mono">${esc(DROPST.dir)}</span></div><button type="button" class="btn small" data-droppc="folder">Change…</button></div>
+        <div class="row"><div class="row-text"><span class="row-title">Save folder, the same for every tool</span><span class="row-hint mono">${esc(DROPST.dir)}</span></div><button type="button" class="btn small" data-droppc="folder">Change…</button></div>
         <div class="row"><div class="row-text"><span class="row-title">Kept in the list</span><span class="row-hint">7 days. Files already saved stay where they are.</span></div></div>
       </div></section>
     </div>

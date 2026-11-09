@@ -144,7 +144,7 @@ function cvSettingsView(off) {
   return `${dlTitle('Settings', 'Where converted files go.')}<div class="headrule"></div>
     <div class="feed scroller">${off}${ios}
     <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Converted folder</h2><p class="vaultpath-m">${esc(CVS?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Change it on the PC in Settings.</p></div>
+      <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(CVS?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>
       <div class="block"><h2 class="block-title">What it converts</h2><p class="block-hint">${(CVS?.kinds || []).map((k) => `<b>${esc(k.label)}s</b> to ${k.targets.map((x) => esc(x.label)).join(', ')}`).join('. ')}.</p></div>
       <div class="block"><h2 class="block-title">Engines</h2><p class="block-hint">Pictures ${CVS?.ready.magick ? 'ready' : 'setting up'} · Video and sound ${CVS?.ready.ffmpeg ? 'ready' : 'setting up'} · Office files ${CVS?.office === 'ok' ? 'ready' : 'need LibreOffice on the PC'}</p></div>
     </div></section>

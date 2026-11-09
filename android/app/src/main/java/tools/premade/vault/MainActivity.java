@@ -212,7 +212,7 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface public void saveDrop(String id) {
             new Thread(() -> {
-                if (Downloads.saveOne(MainActivity.this, id, "/api/phone/drop")) Downloads.toast(MainActivity.this, "Saved into Premade folders on this phone.");
+                if (Downloads.saveOne(MainActivity.this, id, "/api/phone/drop")) Downloads.toast(MainActivity.this, "Saved into Download › Premade on this phone.");
                 runOnUiThread(() -> web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null));
             }).start();
         }
@@ -227,13 +227,10 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void keepAway(String ts, String away) {
             Vault.prefs(MainActivity.this).edit().putString("ts", ts.isEmpty() ? null : ts).putString("away", away.isEmpty() ? null : away).apply();
         }
-        /** Saves something the phone made itself (local.js): pictures, videos, sound and PDFs in their usual folders › Premade. */
+        /** Saves something the phone made itself (local.js): into Download › Premade like everything else. */
         @JavascriptInterface public String saveLocal(String name, String type, String b64) {
             try {
-                String dir = type.startsWith("image/") ? Environment.DIRECTORY_PICTURES : type.startsWith("video/") ? Environment.DIRECTORY_MOVIES
-                        : type.startsWith("audio/") ? Environment.DIRECTORY_MUSIC : type.equals("application/pdf") ? Environment.DIRECTORY_DOCUMENTS : Environment.DIRECTORY_DOWNLOADS;
-                java.io.File d = new java.io.File(Environment.getExternalStoragePublicDirectory(dir), "Premade");
-                d.mkdirs();
+                java.io.File d = Downloads.dir();
                 name = new java.io.File(name).getName();
                 java.io.File out = new java.io.File(d, name);
                 int dot = name.lastIndexOf('.');

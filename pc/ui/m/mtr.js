@@ -62,7 +62,7 @@ function trSettingsView(off) {
       <div class="block"><h2 class="block-title">Text and subtitles</h2><p class="block-hint">Open a finished file and tap Copy text. Subtitles (.srt) ${IOS ? 'open in Safari; tap Share › Save to Files' : 'save into Downloads'}.</p></div>
     </div></section>
     <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Transcripts folder</h2><p class="vaultpath-m">${esc(TRST?.dir || '')}</p><p class="block-hint">A .txt and an .srt of everything stay here. Change it on the PC in Settings.</p></div>
+      <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(TRST?.dir || '')}</p><p class="block-hint">A .txt and an .srt of everything stay here. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>
       <div class="block"><h2 class="block-title">Speech engine</h2><p class="block-hint">${e.state === 'ok' ? `Whisper is ready${e.gpu ? ' on the graphics card' : ''}.` : e.state === 'installing' ? `The PC is getting it (${e.pct}%).` : 'The PC gets Whisper (free, about 2.3 GB) the first time something is transcribed.'}${e.translate ? ' Translating to English is ready too.' : ''}</p></div>
     </div></section>
     <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>`;

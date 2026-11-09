@@ -119,7 +119,7 @@ function cvSettings() {
   return `<div class="cols" style="margin-top:18px">
     <div class="col">
       <section><h2 class="group-label">Converter · where files go</h2><div class="rows">
-        <div class="row"><div class="row-text"><span class="row-title">PC folder</span><span class="row-hint mono">${esc(CV.dir)}</span></div><button class="btn small" data-cv="folder">Change…</button></div>
+        <div class="row"><div class="row-text"><span class="row-title">Save folder, the same for every tool</span><span class="row-hint mono">${esc(CV.dir)}</span></div><button class="btn small" data-cv="folder">Change…</button></div>
         <div class="row"><div class="row-text"><span class="row-title">Phones</span><span class="row-hint">Files sent from a phone go back to that phone. A copy stays here.</span></div></div>
       </div></section>
     </div>

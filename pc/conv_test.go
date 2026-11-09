@@ -71,8 +71,8 @@ func TestConvertEndToEnd(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a := &App{set: LoadSettings()}
 	out := t.TempDir()
-	a.set.With(func(c *Config) bool { c.CvDir = out; return true })
-	a.cv = NewConverter(a.cvBin, func() string { return a.set.Get().ConvertDir() })
+	a.set.With(func(c *Config) bool { c.DlDir = out; return true })
+	a.cv = NewConverter(a.cvBin, func() string { return a.set.Get().DownloadDir() })
 	srv := httptest.NewServer(a.routesForTest())
 	defer srv.Close()
 	src := t.TempDir()

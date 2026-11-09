@@ -27,7 +27,7 @@ func (a *App) trRoutes(m *http.ServeMux) {
 		go whisper.Install(to, nil)
 		writeJ(w, "ok")
 	})
-	a.queueRoutes(m, "tr", a.tr, func(c *Config, dir string) { c.TrDir = dir })
+	a.queueRoutes(m, "tr", a.tr, func(c *Config, dir string) { c.DlDir = dir })
 
 	ph("GET /api/phone/tr", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.trState(p.ID)) })
 	ph("POST /api/phone/tr/start", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.trStart(w, r, p.ID) })
@@ -88,7 +88,7 @@ func (a *App) trText(j *CvJob) string {
 }
 
 func (a *App) trState(from string) map[string]any {
-	dir := a.set.Get().TrOutDir()
+	dir := a.set.Get().DownloadDir()
 	free, _ := diskSpace(dir)
 	return map[string]any{"jobs": a.tr.Jobs(from), "engine": whisper.State(), "dir": dir, "free": human(int64(free))}
 }

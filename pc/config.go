@@ -31,12 +31,8 @@ type Config struct {
 	WarnSpace  bool     `json:"warnSpace"`
 	StartWin   bool     `json:"startWin"`
 	SetupDone  bool     `json:"setupDone"`
-	DlDir      string   `json:"dlDir"`     // where downloads go; empty = Downloads\Premade
+	DlDir      string   `json:"dlDir"`     // the one folder every tool saves into; empty = Downloads\Premade
 	DlNightly  bool     `json:"dlNightly"` // yt-dlp nightly builds (site fixes first)
-	CvDir      string   `json:"cvDir"`     // where converted files go; empty = Downloads\Premade\Converted
-	PdfDir     string   `json:"pdfDir"`    // where PDF tools save; empty = Downloads\Premade\PDF
-	TrDir      string   `json:"trDir"`     // where transcripts go; empty = Downloads\Premade\Transcripts
-	DropDir    string   `json:"dropDir"`   // where File drop saves; empty = Downloads\Premade\Drop
 	ClipSync   bool     `json:"clipSync"`  // pass copied text between the PC and phones
 	FrTok      string   `json:"frTok"`     // Friends: this person's key on the relay; empty = not joined
 	FrID       string   `json:"frId"`
@@ -98,43 +94,11 @@ func (s *Settings) Get() Config {
 	return c
 }
 
-// DownloadDir is where the Downloader saves files.
+// DownloadDir is the one folder every tool saves into (Downloader, Converter, PDF tools, Transcribe, File drop, Friends).
 func (c Config) DownloadDir() string {
 	if c.DlDir != "" {
 		return c.DlDir
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "Downloads", "Premade")
-}
-
-// ConvertDir is where the Converter saves files.
-func (c Config) ConvertDir() string {
-	if c.CvDir != "" {
-		return c.CvDir
-	}
-	return filepath.Join(c.DownloadDir(), "Converted")
-}
-
-// PdfOutDir is where the PDF tools save files.
-func (c Config) PdfOutDir() string {
-	if c.PdfDir != "" {
-		return c.PdfDir
-	}
-	return filepath.Join(c.DownloadDir(), "PDF")
-}
-
-// DropOutDir is where File drop saves what's sent to this PC.
-func (c Config) DropOutDir() string {
-	if c.DropDir != "" {
-		return c.DropDir
-	}
-	return filepath.Join(c.DownloadDir(), "Drop")
-}
-
-// TrOutDir is where Transcribe saves text and subtitles.
-func (c Config) TrOutDir() string {
-	if c.TrDir != "" {
-		return c.TrDir
-	}
-	return filepath.Join(c.DownloadDir(), "Transcripts")
 }

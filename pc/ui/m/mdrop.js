@@ -62,12 +62,12 @@ function dropSettingsView(off) {
   return `${dlTitle('Settings', 'Sending, picking up, and the clipboard.')}<div class="headrule"></div>
     <div class="feed scroller">${off}${IOS ? dropShortcutGuide() : ''}
     <section class="group"><div class="sectionhead"><b>On this phone</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Picking up</h2><p class="block-hint">${IOS ? 'Open File drop to see what was sent here. Save opens it in Safari; tap Share › Save Image or Save to Files.' : 'A notification says when something arrives (checked every 15 minutes, and at once while Premade is open). Files save into Pictures, Movies, Music or Downloads › Premade.'}</p></div>
+      <div class="block"><h2 class="block-title">Picking up</h2><p class="block-hint">${IOS ? 'Open File drop to see what was sent here. Save opens it in Safari; tap Share › Save Image or Save to Files.' : 'A notification says when something arrives (checked every 15 minutes, and at once while Premade is open). Files save into Download › Premade, the same folder every tool uses.'}</p></div>
       <div class="block"><h2 class="block-title">Sync the clipboard</h2><div class="chips"><button type="button" class="pill" data-dropm="clip" data-on="1" aria-pressed="${!!DROPST?.clipSync}">${DROPST?.clipSync ? icon('check') : ''}On</button><button type="button" class="pill" data-dropm="clip" data-on="" aria-pressed="${!DROPST?.clipSync}">${!DROPST?.clipSync ? icon('check') : ''}Off</button></div>
         <p class="block-hint">${IOS ? 'iPhones only let apps touch the clipboard when you tap, so the PC\'s copy waits in File drop with a Copy button, and the Shortcut sends yours.' : 'What you copy on the PC lands on this phone, and what you copy here reaches the PC while Premade is open (Android hides the clipboard from apps in the background).'}</p></div>
     </div></section>
     <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Drop folder</h2><p class="vaultpath-m">${esc(DROPST?.dir || '')}</p><p class="block-hint">Files sent to the PC land here. Text goes onto its clipboard. Change the folder on the PC in Settings.</p></div>
+      <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(DROPST?.dir || '')}</p><p class="block-hint">Files sent to the PC land here. Text goes onto its clipboard. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>
     </div></section>
     <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>`;
 }
