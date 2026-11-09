@@ -28,8 +28,9 @@ type App struct {
 	warn    map[string]time.Time // last time each warning was shown as a Windows notification
 	upd     string               // newer version waiting, if any
 	updErr  string               // why the last Update now failed
-	moving  bool
-	health  string // vault drive health, "" when unknown
+	moving  *moveSnap            // set while the vault moves: what the screens show meanwhile
+	noVault string               // why the vault folder can't be opened right now
+	health  string               // vault drive health, "" when unknown
 	eng     *Engines
 	dl      *Downloader
 	cv      *Converter
@@ -82,11 +83,14 @@ func main() {
 	go a.tsLoop()
 	go a.linkLoop()
 	if c := a.set.Get(); c.VaultDir != "" {
-		if a.store, err = OpenStore(c.VaultDir); err != nil {
-			log.Printf("vault at %s: %v", c.VaultDir, err)
-		}
+		a.openVault()
 		setAutostart(c.StartWin)
 	}
+	go func() { // a vault that couldn't be opened (its drive plugged in late, say) comes back by itself
+		for range time.Tick(30 * time.Second) {
+			a.openVault()
+		}
+	}()
 	go a.loop()
 	if !*background {
 		go openWindow(fmt.Sprintf("http://127.0.0.1:%d/", port))
@@ -101,10 +105,32 @@ func (a *App) getStore() *Store {
 	return a.store
 }
 
+// openVault opens the vault folder when it isn't open yet, and keeps why it can't be for warnings().
+func (a *App) openVault() {
+	dir := a.set.Get().VaultDir
+	if dir == "" || a.getStore() != nil {
+		return
+	}
+	st, err := OpenStore(dir)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.store != nil || a.set.Get().VaultDir != dir { // set up from the window meanwhile
+		return
+	}
+	if err != nil {
+		if a.noVault != err.Error() {
+			log.Printf("vault at %s: %v", dir, err)
+		}
+		a.noVault = err.Error()
+		return
+	}
+	a.store, a.noVault = st, ""
+}
+
 func (a *App) isMoving() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.moving
+	return a.moving != nil
 }
 
 // loop does the slow chores: clearing old files, drive health, warnings, updates.
@@ -124,16 +150,16 @@ func (a *App) loop() {
 				a.health = h
 				a.mu.Unlock()
 			}
-			for _, w := range a.warnings() {
-				a.mu.Lock()
-				due := time.Since(a.warn[w]) > 24*time.Hour
-				if due {
-					a.warn[w] = time.Now()
-				}
-				a.mu.Unlock()
-				if due {
-					notify("Vault", w)
-				}
+		}
+		for _, w := range a.warnings() {
+			a.mu.Lock()
+			due := time.Since(a.warn[w]) > 24*time.Hour
+			if due {
+				a.warn[w] = time.Now()
+			}
+			a.mu.Unlock()
+			if due {
+				notify("Vault", w)
 			}
 		}
 		a.drops.Clear(time.Now())
@@ -156,6 +182,12 @@ func (a *App) warnings() []string {
 				out = append(out, p.Name+" hasn't checked in for 3 days.")
 			}
 		}
+	}
+	a.mu.Lock()
+	verr := a.noVault
+	a.mu.Unlock()
+	if verr != "" {
+		out = append(out, "Can't open the vault in "+c.VaultDir+": "+verr+". Plug in its drive, or pick another folder in Settings.")
 	}
 	if c.VaultDir != "" {
 		if free, total := diskSpace(c.VaultDir); c.WarnSpace && total > 0 && (free < 20<<30 || free*20 < total) {

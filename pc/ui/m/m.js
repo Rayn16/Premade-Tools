@@ -168,7 +168,7 @@ function deletedView(off) {
     <div class="rails"><div class="rail" role="group" aria-label="Type">${pills(typeOpts, 'type')}</div>
     ${phoneOpts.length > 2 ? `<div class="rail rail-sm" role="group" aria-label="Phone">${pills(phoneOpts, 'phone')}</div>` : ''}</div>
     <div class="headrule"></div>
-    <div class="feed scroller" id="dl">${off}${iosNudge()}${listView()}</div>`;
+    <div class="feed scroller" id="dl">${off}${ST.vault ? `<div class="notebox is-info">${icon('info')}<div>${esc(ST.vault)}</div></div>` : ''}${iosNudge()}${listView()}</div>`;
 }
 
 function listView() {

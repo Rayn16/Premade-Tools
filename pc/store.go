@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,21 +42,37 @@ type Store struct {
 	items []*Item
 }
 
+// OpenStore opens the vault in dir, or starts a new one there. A list of files that can't be read is never taken
+// for an empty vault (the next save would write over it): the copy from the save before stands in, else it fails.
 func OpenStore(dir string) (*Store, error) {
 	s := &Store{dir: dir}
 	if err := os.MkdirAll(filepath.Join(dir, "objects"), 0o755); err != nil {
 		return nil, err
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "index.json"))
-	if err == nil {
-		err = json.Unmarshal(b, &s.items)
-	} else if errors.Is(err, os.ErrNotExist) {
-		err = nil
+	var bad error
+	for _, name := range []string{"index.json", "index.json.bak"} {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err == nil {
+			if err = json.Unmarshal(b, &s.items); err == nil {
+				return s, nil
+			}
+			s.items = nil
+		}
+		if bad == nil && !errors.Is(err, os.ErrNotExist) {
+			bad = err
+		}
 	}
-	return s, err
+	if bad != nil {
+		return nil, fmt.Errorf("its list of files can't be read (%v)", bad)
+	}
+	return s, nil
 }
 
-func (s *Store) saveLocked() error { return writeJSON(filepath.Join(s.dir, "index.json"), s.items) }
+func (s *Store) saveLocked() error {
+	p := filepath.Join(s.dir, "index.json")
+	os.Rename(p, p+".bak") // the copy OpenStore falls back on
+	return writeJSON(p, s.items)
+}
 
 func writeJSON(path string, v any) error {
 	b, err := json.MarshalIndent(v, "", " ")
@@ -63,7 +80,18 @@ func writeJSON(path string, v any) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(b)
+	if err == nil {
+		err = f.Sync() // on disk before the rename, so a power cut can't leave an empty file in its place
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

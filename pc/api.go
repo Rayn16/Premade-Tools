@@ -64,13 +64,7 @@ func (a *App) routes() http.Handler {
 
 	ui2 := func(p string, h http.HandlerFunc) { m.Handle(p, localOnly(h)) }
 	ui2("GET /api/ui/state", a.state)
-	ui2("GET /api/ui/deleted", func(w http.ResponseWriter, r *http.Request) {
-		if st := a.getStore(); st != nil {
-			writeJ(w, st.Deleted())
-		} else {
-			writeJ(w, []Item{})
-		}
-	})
+	ui2("GET /api/ui/deleted", func(w http.ResponseWriter, r *http.Request) { writeJ(w, a.deletedNow()) })
 	ui2("GET /api/ui/file/{id}", a.uiFile)
 	ui2("POST /api/ui/save/{id}", a.saveToPC)
 	ui2("POST /api/ui/restore/{id}", a.queueRestore)
@@ -220,22 +214,24 @@ func (a *App) routes() http.Handler {
 	// The phone screens (Android app and iPhone home-screen app), served from this PC so both stay in step.
 	m.Handle("GET /m/", static)
 	m.Handle("GET /icon.svg", static)
-	ph("GET /api/phone/state", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+	// These answer while the vault can't be opened or is moving, so the phone's other tools keep working.
+	pt := func(p string, h func(http.ResponseWriter, *http.Request, *Phone)) { m.HandleFunc(p, a.tokenOnly(h)) }
+	pt("GET /api/phone/state", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		c := a.set.Get()
 		free, _ := diskSpace(c.VaultDir)
 		remote, tsState := a.ts.Status()
 		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "remote": remote, "tailscale": tsState, "relay": relayURL, "link": a.linkURL(), "fr": c.FrTok, "tsHost": a.ts.IP(), "update": a.newVer(), "updErr": a.updFailed(), "free": human(int64(free)),
-			"config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
+			"vault": a.vaultNote(), "config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
 	})
-	ph("POST /api/phone/update", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+	pt("POST /api/phone/update", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		writeJ(w, map[string]string{"msg": a.checkUpdate()})
 	})
-	ph("GET /api/phone/app", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+	pt("GET /api/phone/app", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		v, _ := apkFile.ReadFile("apk/version.txt")
 		n, _ := strconv.Atoi(strings.TrimSpace(string(v)))
 		writeJ(w, map[string]int{"version": n})
 	})
-	ph("GET /api/phone/deleted", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) { writeJ(w, st.Deleted()) })
+	pt("GET /api/phone/deleted", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.deletedNow()) })
 	ph("GET /api/phone/view/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		serveItem(w, r, st, r.PathValue("id"), r.URL.Query().Has("dl"))
 	})
@@ -251,7 +247,7 @@ func (a *App) routes() http.Handler {
 		}
 		writeJ(w, map[string]any{"count": n, "size": human(b)})
 	})
-	ph("POST /api/phone/settings", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+	pt("POST /api/phone/settings", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		var in map[string]json.RawMessage
 		json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in)
 		out := map[string]json.RawMessage{}
@@ -374,12 +370,55 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	c.Phones = nil
 	remote, tsState := a.ts.Status()
 	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "updErr": a.updFailed(), "moving": a.isMoving(), "remote": remote, "tailscale": tsState}
-	if st := a.getStore(); st != nil {
-		n, b := st.Stats()
+	a.mu.Lock()
+	st, mv := a.store, a.moving
+	a.mu.Unlock()
+	if st != nil {
+		var n int
+		var b int64
+		if mv != nil {
+			n, b = mv.n, mv.b
+		} else {
+			n, b = st.Stats()
+		}
 		free, _ := diskSpace(c.VaultDir)
 		out["count"], out["bytes"], out["free"] = n, human(b), human(int64(free))
 	}
 	writeJ(w, out)
+}
+
+// moveSnap is what the screens show while the vault moves, since the store is held for the whole copy.
+type moveSnap struct {
+	items []Item
+	n     int
+	b     int64
+}
+
+// deletedNow is the vault's list of deleted files: as it was before a move while one runs, empty while it can't be opened.
+func (a *App) deletedNow() []Item {
+	a.mu.Lock()
+	st, mv := a.store, a.moving
+	a.mu.Unlock()
+	switch {
+	case mv != nil:
+		return mv.items
+	case st == nil:
+		return []Item{}
+	}
+	return st.Deleted()
+}
+
+// vaultNote tells the phones why the vault can't take files right now ("" when it can).
+func (a *App) vaultNote() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case a.moving != nil:
+		return "The vault is moving to a new folder on your PC. It takes files again when that's done."
+	case a.store == nil && a.noVault != "":
+		return "Your PC can't open the vault folder. Check that its drive is plugged in."
+	}
+	return ""
 }
 
 func (a *App) setVault(w http.ResponseWriter, r *http.Request) {
@@ -391,14 +430,18 @@ func (a *App) setVault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := a.set.Get().VaultDir
-	if old == "" || old == dir {
+	if old == "" || old == dir || a.getStore() == nil { // a vault that can't be opened has nothing to move: start here
+		if a.isMoving() {
+			http.Error(w, "The vault is still moving. Try again when it's done.", 409)
+			return
+		}
 		st, err := OpenStore(dir)
 		if err != nil {
 			http.Error(w, "Can't use that folder: "+err.Error(), 400)
 			return
 		}
 		a.mu.Lock()
-		a.store = st
+		a.store, a.noVault = st, ""
 		a.mu.Unlock()
 		a.set.With(func(c *Config) bool { c.VaultDir = dir; return true })
 		setAutostart(a.set.Get().StartWin)
@@ -415,9 +458,15 @@ func (a *App) setVault(w http.ResponseWriter, r *http.Request) {
 
 // moveVault copies everything to the new folder, switches over, then removes the old copy.
 func (a *App) moveVault(old, dir string) {
+	st := a.getStore()
+	n, b := st.Stats()
+	mv := &moveSnap{items: st.Deleted(), n: n, b: b}
 	a.mu.Lock()
-	a.moving = true
-	st := a.store
+	if a.moving != nil { // one move at a time
+		a.mu.Unlock()
+		return
+	}
+	a.moving = mv
 	a.mu.Unlock()
 	st.mu.Lock() // holds uploads until the move is done
 	err := filepath.Walk(old, func(p string, fi os.FileInfo, err error) error {
@@ -436,6 +485,7 @@ func (a *App) moveVault(old, dir string) {
 		a.set.With(func(c *Config) bool { c.VaultDir = dir; return true })
 		os.RemoveAll(filepath.Join(old, "objects"))
 		os.Remove(filepath.Join(old, "index.json"))
+		os.Remove(filepath.Join(old, "index.json.bak"))
 		os.RemoveAll(filepath.Join(old, "tmp"))
 		os.Remove(old)
 	} else {
@@ -443,7 +493,7 @@ func (a *App) moveVault(old, dir string) {
 	}
 	st.mu.Unlock()
 	a.mu.Lock()
-	a.moving = false
+	a.moving = nil
 	a.mu.Unlock()
 }
 
