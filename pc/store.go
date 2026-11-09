@@ -114,6 +114,9 @@ func (s *Store) Add(it Item, body io.Reader, wantSha string) (*Item, error) {
 	if wantSha != "" && !strings.EqualFold(wantSha, sha) {
 		return nil, errors.New("file changed on the way: hash differs")
 	}
+	// Locked from here: Clear and Dismiss must not delete this object before its item is listed.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	dst := s.objPath(sha)
 	if _, err := os.Stat(dst); errors.Is(err, os.ErrNotExist) {
 		os.MkdirAll(filepath.Dir(dst), 0o755)
@@ -121,8 +124,6 @@ func (s *Store) Add(it Item, body io.Reader, wantSha string) (*Item, error) {
 			return nil, err
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if old := s.findLocked(it.Phone, it.Key); old != nil {
 		return old, nil
 	}
@@ -234,7 +235,7 @@ func (s *Store) Expired(cutoff time.Time) (n int, bytes int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, it := range s.items {
-		if !it.Hidden && it.DeletedAt.Before(cutoff) {
+		if !it.Hidden && !it.Dismissed && it.DeletedAt.Before(cutoff) {
 			n++
 			bytes += it.Size
 		}
@@ -275,7 +276,7 @@ func (s *Store) Stats() (count int, bytes int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, it := range s.items {
-		if !it.Hidden && !it.Missed {
+		if !it.Hidden && !it.Missed && !it.Dismissed {
 			count++
 			bytes += it.Size
 		}
