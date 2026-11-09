@@ -223,6 +223,7 @@ export class Link {
       const body = c?.body;
       if (!body) return fail('gone', 404);
       c.body = null;
+      clearTimeout(c.slow); // the PC has started on it: a big upload takes as long as it takes
       return new Response(body);
     }
     const ws = this.ctx.getWebSockets()[0];
@@ -232,7 +233,7 @@ export class Link {
     for (const [k, v] of req.headers) if (!/^(cf-|x-forwarded|x-real-ip|host$|connection$|accept-encoding$)/i.test(k)) h[k] = v;
     const res = new Promise((done) => this.calls.set(n, { done, body: req.body, m: req.method }));
     ws.send(JSON.stringify({ t: 'req', n, m: req.method, p: url.pathname.replace(/^\/pc\/\w+/, '') + url.search, h, b: !!req.body }));
-    const slow = setTimeout(() => this.finish(n, new Response("Your PC didn't answer.", { status: 504 })), 60e3);
+    const slow = this.calls.get(n).slow = setTimeout(() => this.finish(n, new Response("Your PC didn't answer.", { status: 504 })), 60e3);
     const r = await res;
     clearTimeout(slow);
     return r;
