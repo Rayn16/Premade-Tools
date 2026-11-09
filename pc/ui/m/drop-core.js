@@ -102,6 +102,8 @@ function dropSend() {
 const dropCopied = (key) => { FD.copied = key; render(); setTimeout(() => { FD.copied = ''; render(); }, 1800); };
 
 document.getElementById('app').addEventListener('click', async (e) => {
+  // Open the picker ourselves rather than leave it to the label: on Rayan's PC the label alone didn't open it.
+  if (e.target.closest('label[for="dropfile"]')) { e.preventDefault(); dropInput.click(); return; }
   const b = e.target.closest('[data-drop],[data-dropto]');
   if (!b) return;
   if (b.dataset.dropto) { FD.to = b.dataset.dropto; render(); return; }

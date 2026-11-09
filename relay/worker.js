@@ -24,6 +24,24 @@ function cleanDevices(list) {
 
 const view = (p, now) => ({ id: p.id, name: p.name, devices: JSON.parse(p.devices), online: now - p.seen < ONLINE, seen: p.seen });
 
+// Android pop-ups through Firebase Cloud Messaging (free). The FIREBASE_SERVICE_ACCOUNT secret is the service account
+// JSON from the Firebase console; a signed token from it buys an access token that lasts an hour.
+let fcmAuth = { tok: '', until: 0 };
+const b64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function fcmToken(sa) {
+  if (fcmAuth.until > Date.now()) return fcmAuth.tok;
+  const now = Math.floor(Date.now() / 1000), enc = (o) => b64u(new TextEncoder().encode(JSON.stringify(o)));
+  const msg = enc({ alg: 'RS256', typ: 'JWT' }) + '.' + enc({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/firebase.messaging', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 });
+  const der = Uint8Array.from(atob(sa.private_key.replace(/-----[^-]+-----|\s/g, '')), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const jwt = msg + '.' + b64u(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(msg)));
+  const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=' + jwt });
+  const t = await r.json();
+  if (!t.access_token) throw new Error('Firebase sign-in failed');
+  fcmAuth = { tok: t.access_token, until: Date.now() + (t.expires_in - 120) * 1000 };
+  return fcmAuth.tok;
+}
+
 async function used(env) {
   const r = await env.DB.prepare('SELECT COALESCE(SUM(size), 0) AS b FROM items').first();
   return r.b;
@@ -68,6 +86,18 @@ export default {
       return json({ id: me.id, name, approved: !!me.approved, admin: !!me.admin });
     }
     if (!me.approved) return json({ id: me.id, name: me.name, approved: false, admin: false, people: [], waiting: [] }, path === '/people' ? 200 : 403);
+
+    // A PC asking for a pop-up on one of its Android phones: { token, title, body }. 410 = that phone's token is dead.
+    if (req.method === 'POST' && path === '/push') {
+      if (!env.FIREBASE_SERVICE_ACCOUNT) return fail('Push is not set up on the relay yet.', 501);
+      const b = await req.json().catch(() => ({})), sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+      const r = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + await fcmToken(sa), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: { token: clean(b.token, 4096), android: { priority: 'high' }, data: { title: clean(b.title, 200), body: clean(b.body, 500), tool: 'drop' } } }),
+      });
+      if (r.status === 404 || r.status === 400) return fail('That phone is no longer registered.', 410);
+      return r.ok ? json('ok') : fail('Firebase said ' + r.status, 502);
+    }
 
     if (req.method === 'GET' && path === '/people') {
       const { results } = await env.DB.prepare('SELECT * FROM people ORDER BY name').all();

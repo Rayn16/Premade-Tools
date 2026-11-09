@@ -2,6 +2,7 @@
 'use strict';
 
 const S = { page: 'home', phone: 'all', type: 'all', q: '', sel: null, closed: false, msg: '', pair: null, pairBase: 0, step: 1, drive: null, drives: null, folder: '', basePhones: 0, updMsg: '', ask: null, updLater: '', updBusy: '', updErr: '', updAt: 0 };
+if (location.hash === '#drop') S.page = 'drop'; // a clicked File drop notification opens the window here
 const FLOW = {};    // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null;      // /api/ui/state
 let ITEMS = [];     // /api/ui/deleted

@@ -32,6 +32,7 @@ function dropToolsView(off) {
     ${FD.err ? `<div class="notebox">${icon('alert')}<div>${esc(FD.err)}</div></div>` : ''}
     ${FD.sent ? `<div class="notebox is-info">${icon('check')}<div>${esc(FD.sent)}</div></div>` : ''}
     ${fresh.length ? `<section class="sec"><h2 class="group-label">New for this phone</h2><div class="rows hrows">${fresh.map(dropRow).join('')}</div></section>` : ''}
+    ${IOS && !DROPST.local ? pushBlock(true) : ''}
     ${DROPST.local ? '' : dropClipCard(note)}
     <div class="dlbox cvbox" style="margin-top:14px">${dropBox()}
       <div class="route"><i class="dotlight"></i><span>${DROPST.local ? 'Your PC is off, so this goes through the internet and waits there (up to 7 days) until the PC picks it up.' : IOS ? `From any app: <b>Share</b> › <b>${SHORTCUT_DROP}</b> (Settings tab shows how).` : 'From any app: <b>Share</b> › <b>Send with Premade</b>.'}</span></div></div>
@@ -58,10 +59,43 @@ function dropShortcutGuide() {
     </ol></details></section>`;
 }
 
+// iPhone pop-ups (web push): only from the Home Screen icon, which comes from the relay over https.
+const pushOK = () => HOSTED && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+function pushBlock(card) {
+  if (NATIVE || !DROPST || OFFLINE) return '';
+  const on = DROPST.push && pushOK() && Notification.permission === 'granted';
+  if (card && (on || !pushOK())) return ''; // the Drop tab only offers it where it can work; Settings explains the rest
+  const hint = !HOSTED ? 'Open Premade from its Home Screen icon to turn these on.'
+    : !pushOK() ? 'Open Premade from its Home Screen icon (not Safari) to turn these on. Needs iOS 16.4 or newer.'
+    : Notification.permission === 'denied' ? 'Notifications are off for Premade. Turn them on in iPhone Settings › Notifications › Premade.'
+    : on ? 'A pop-up shows when your PC or other phone sends something here.' : 'Get a pop-up when your PC or other phone sends something here, even with Premade closed.';
+  const btn = !pushOK() || Notification.permission === 'denied' ? '' : on
+    ? `<button type="button" class="btn small" data-dropm="pushoff">Turn off</button>` : `<button type="button" class="btn small primary" data-dropm="pushon">${icon('info')}Turn on notifications</button>`;
+  return card ? `<div class="dropclip"><div class="dropclip-head"><span class="row-hint">${hint}</span>${btn}</div></div>`
+    : `<div class="block"><h2 class="block-title">Notifications ${on ? '· on' : ''}</h2><p class="block-hint">${hint}</p>${btn ? `<div class="chips">${btn}</div>` : ''}</div>`;
+}
+async function pushOn() {
+  if (await Notification.requestPermission() !== 'granted') throw new Error('Notifications are off for Premade. Turn them on in iPhone Settings › Notifications › Premade.');
+  const reg = await navigator.serviceWorker.ready;
+  const key = Uint8Array.from(atob(DROPST.vapid.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  let sub;
+  try { sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }); } catch (e) {
+    await (await reg.pushManager.getSubscription())?.unsubscribe(); // made for another PC's key
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+  }
+  await api('/api/phone/drop/push', sub.toJSON());
+}
+async function pushOff() {
+  await api('/api/phone/drop/push', {});
+  await (await (await navigator.serviceWorker.ready).pushManager.getSubscription())?.unsubscribe();
+}
+navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.tool) { S.tool = e.data.tool; S.tab = TOOLS[e.data.tool].tabs[0][0]; S.drawer = false; render(); } });
+
 function dropSettingsView(off) {
   return `${dlTitle('Settings', 'Sending, picking up, and the clipboard.')}<div class="headrule"></div>
     <div class="feed scroller">${off}${IOS ? dropShortcutGuide() : ''}
     <section class="group"><div class="sectionhead"><b>On this phone</b><i></i></div><div class="panel">
+      ${pushBlock(false)}
       <div class="block"><h2 class="block-title">Picking up</h2><p class="block-hint">${IOS ? 'Open File drop to see what was sent here. Save opens it in Safari; tap Share › Save Image or Save to Files.' : 'A notification says when something arrives (checked every 15 minutes, and at once while Premade is open). Files save into Download › Premade, the same folder every tool uses.'}</p></div>
       <div class="block"><h2 class="block-title">Sync the clipboard</h2><div class="chips"><button type="button" class="pill" data-dropm="clip" data-on="1" aria-pressed="${!!DROPST?.clipSync}">${DROPST?.clipSync ? icon('check') : ''}On</button><button type="button" class="pill" data-dropm="clip" data-on="" aria-pressed="${!DROPST?.clipSync}">${!DROPST?.clipSync ? icon('check') : ''}Off</button></div>
         <p class="block-hint">${IOS ? 'iPhones only let apps touch the clipboard when you tap, so the PC\'s copy waits in File drop with a Copy button, and the Shortcut sends yours.' : 'What you copy on the PC lands on this phone, and what you copy here reaches the PC while Premade is open (Android hides the clipboard from apps in the background).'}</p></div>
@@ -79,6 +113,7 @@ $app.addEventListener('click', async (e) => {
   try {
     if (a === 'copy') { trCopy(it.text); dropCopied(id); api('/api/phone/drop/fetched/' + id, {}).catch(() => {}); }
     else if (a === 'seen') api('/api/phone/drop/fetched/' + id, {}).then(dropRefresh).then(render).catch(() => {}); // the link still opens
+    else if (a === 'pushon' || a === 'pushoff') { b.disabled = true; await (a === 'pushon' ? pushOn() : pushOff()); await dropRefresh(); render(); }
     else if (a === 'save') { NATIVE.saveDrop(id); b.disabled = true; }
     else if (a === 'clip') { await api('/api/phone/settings', { clipSync: !!b.dataset.on }); await dropRefresh(); render(); }
   } catch (err) { FD.err = err.message; render(); }

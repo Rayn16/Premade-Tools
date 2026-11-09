@@ -32,8 +32,9 @@ import java.util.concurrent.CountDownLatch;
 final class Drops {
     private static final String CHANNEL = "drops";
 
-    /** From the background job: notify about new drops, and put a newer copy from elsewhere on the clipboard. */
-    static void check(Context c) {
+    /** From the background job or a Firebase push: notify about new drops, and put a newer copy from elsewhere on the
+     *  clipboard. False when the PC couldn't be asked. */
+    static boolean check(Context c) {
         try {
             JSONObject s = new JSONObject(Vault.call(c, "GET", "/api/phone/drop", null));
             String me = s.optString("me");
@@ -45,7 +46,22 @@ final class Drops {
                 Vault.call(c, "POST", "/api/phone/drop/seen/" + j.getString("id"), null);
             }
             if (s.optBoolean("clipSync")) syncClip(c, me, s.optJSONObject("clip"), false);
-        } catch (Exception e) { Log.w(Watcher.TAG, "drops", e); }
+            return true;
+        } catch (Exception e) { Log.w(Watcher.TAG, "drops", e); return false; }
+    }
+
+    /** Hands this phone's Firebase token to the PC, so a drop can wake the phone at once (PushService). Quietly does
+     *  nothing in a build without Firebase set up. */
+    static void registerPush(Context c) {
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken()
+                    .addOnSuccessListener((t) -> new Thread(() -> sendToken(c, t)).start());
+        } catch (Exception e) { Log.i(Watcher.TAG, "no Firebase in this build"); }
+    }
+
+    static void sendToken(Context c, String token) {
+        try { Vault.call(c, "POST", "/api/phone/drop/fcm", new JSONObject().put("token", token)); }
+        catch (Exception e) { Log.w(Watcher.TAG, "fcm token", e); }
     }
 
     private static String name(JSONObject s, String id) {
@@ -56,21 +72,25 @@ final class Drops {
     }
 
     private static void notifyDrop(Context c, JSONObject j, String from) {
-        NotificationManager nm = c.getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel(CHANNEL, "File drop", NotificationManager.IMPORTANCE_DEFAULT));
         String kind = j.optString("kind"), text;
         JSONArray files = j.optJSONArray("files");
         if (kind.equals("files")) {
             int n = files == null ? 0 : files.length();
             text = n == 1 ? files.optJSONObject(0).optString("name") : n + " files";
         } else text = j.optString("text");
+        show(c, j.optString("id").hashCode(), from + " sent " + (kind.equals("files") ? "you something" : kind.equals("link") ? "a link" : "text"), text);
+    }
+
+    /** A File drop notification; tapping it opens File drop. */
+    static void show(Context c, int id, String title, String text) {
+        NotificationManager nm = c.getSystemService(NotificationManager.class);
+        nm.createNotificationChannel(new NotificationChannel(CHANNEL, "File drop", NotificationManager.IMPORTANCE_HIGH));
         Intent open = new Intent(c, MainActivity.class).putExtra("tool", "drop").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent pi = PendingIntent.getActivity(c, j.optString("id").hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent pi = PendingIntent.getActivity(c, id, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification n = new Notification.Builder(c, CHANNEL).setSmallIcon(R.drawable.ic_mono)
-                .setContentTitle(from + " sent " + (kind.equals("files") ? "you something" : kind.equals("link") ? "a link" : "text"))
-                .setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text))
+                .setContentTitle(title).setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text))
                 .setContentIntent(pi).setAutoCancel(true).build();
-        try { nm.notify(j.optString("id").hashCode(), n); } catch (SecurityException e) { Log.w(Watcher.TAG, "notify off", e); }
+        try { nm.notify(id, n); } catch (SecurityException e) { Log.w(Watcher.TAG, "notify off", e); }
     }
 
     /**

@@ -33,10 +33,14 @@ jobs:
           npx wrangler r2 bucket list | grep -q 'premade-friends' || npx wrangler r2 bucket create premade-friends
       - name: Worker and page
         if: env.SKIP != '1'
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           sh build.sh
           set -o pipefail
           npx wrangler deploy | tee deploy.log
+          # Android pop-ups (File drop): the Firebase service account, once Rayan has added it as a repo secret.
+          if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | npx wrangler secret put FIREBASE_SERVICE_ACCOUNT; fi
           echo "Relay address: $(grep -o 'https://[^ ]*workers.dev' deploy.log | head -1)"
           U=$(grep -o 'https://[^ ]*workers.dev' deploy.log | head -1)
           sleep 5

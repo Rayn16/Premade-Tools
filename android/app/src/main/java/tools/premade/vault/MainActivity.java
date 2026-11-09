@@ -121,6 +121,7 @@ public class MainActivity extends Activity {
         else {
             WatchJob.schedule(this);
             WatchJob.now(this);
+            Drops.registerPush(this);
             String tool = getIntent().getStringExtra("tool"); // a File drop notification was tapped
             setIntent(new Intent());
             new Thread(() -> {

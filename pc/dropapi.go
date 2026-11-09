@@ -78,6 +78,44 @@ func (a *App) dropRoutes(m *http.ServeMux) {
 		writeJ(w, "ok")
 	})
 	// A phone's copy: {"text": …}. Ignored while clipboard sync is off.
+	// The iPhone app turning notifications on (a PushSubscription as JSON) or off (an empty body).
+	ph("POST /api/phone/drop/push", func(w http.ResponseWriter, r *http.Request, p *Phone) {
+		var sub PushSub
+		json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&sub)
+		if sub.Endpoint != "" && !strings.HasPrefix(sub.Endpoint, "https://") {
+			http.Error(w, "bad subscription", 400)
+			return
+		}
+		a.set.With(func(c *Config) bool {
+			for _, q := range c.Phones {
+				if q.ID == p.ID {
+					q.Push = nil
+					if sub.Endpoint != "" {
+						q.Push, _ = json.Marshal(sub)
+					}
+				}
+			}
+			return true
+		})
+		if sub.Endpoint != "" {
+			a.pushTo(p.ID, "Notifications are on", "Things sent to this phone will pop up here.")
+		}
+		writeJ(w, "ok")
+	})
+	// The Android app's Firebase token (it changes now and then), so the PC can ask the relay for a pop-up.
+	ph("POST /api/phone/drop/fcm", func(w http.ResponseWriter, r *http.Request, p *Phone) {
+		var in struct{ Token string }
+		json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&in)
+		a.set.With(func(c *Config) bool {
+			for _, q := range c.Phones {
+				if q.ID == p.ID {
+					q.FCM = strings.TrimSpace(in.Token)
+				}
+			}
+			return true
+		})
+		writeJ(w, "ok")
+	})
 	ph("POST /api/phone/drop/clip", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		var in struct{ Text string }
 		json.NewDecoder(io.LimitReader(r.Body, 300<<10)).Decode(&in)
@@ -141,7 +179,7 @@ func (a *App) dropTo(to, from string) string {
 func (a *App) dropState(me, who string) map[string]any {
 	c := a.set.Get()
 	return map[string]any{"me": me, "devices": a.dropDevices(), "jobs": a.drops.List(who), "clip": a.drops.Clip(),
-		"clipSync": c.ClipSync, "dir": c.DownloadDir()}
+		"clipSync": c.ClipSync, "dir": c.DownloadDir(), "vapid": vapidPublic(), "push": a.hasPush(me)}
 }
 
 func (a *App) dropSend(w http.ResponseWriter, r *http.Request, from string) {
