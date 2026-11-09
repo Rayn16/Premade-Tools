@@ -33,7 +33,7 @@ async function pdfEditOpen(file) {
     P.err = /encrypt|password/i.test(e.message) ? 'This PDF has a password. Remove it first with Remove password, then edit it.' : "This PDF couldn't be opened. It may be damaged.";
     return render();
   }
-  try { view = await (await pdfLib()).getDocument({ data: bytes.slice(), isEvalSupported: false }).promise; } catch (e) { P.err = "This PDF couldn't be opened. It may be damaged."; return render(); }
+  try { view = await (await pdfLib()).getDocument({ data: bytes.slice(), ...PDFJS_OPT }).promise; } catch (e) { P.err = "This PDF couldn't be opened. It may be damaged."; return render(); }
   Object.assign(ED, { on: true, file, bytes, doc, view, tool: 'edit', shape: 'box', ink: ED_INK[0], hi: ED_HI[0], thick: 2, tsize: 14, items: [], edits: {}, pics: {}, sel: null,
     undo: [], z: 1, busy: false, note: '', reads: {}, drawn: {}, typing: null });
   ED.pages = doc.getPages().map((p) => EDM.view(p));

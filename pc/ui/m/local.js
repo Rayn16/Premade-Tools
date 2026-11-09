@@ -150,7 +150,7 @@ const PDF_LOCAL = { local: true, gs: 'ok', dir: '', jobs: [], ops: [tg('edit', '
   tg('extract', 'Pick pages', 'Save only the pages you pick as a new PDF'), tg('split', 'Split', 'Every page as its own PDF'), tg('compress', 'Compress', 'Make it smaller to send. On the phone, pages become pictures.'),
   tg('lock', 'Add password', 'It asks for the password to open'), tg('unlock', 'Remove password', 'Opens without asking')] };
 async function pdfShots(bytes, level) {
-  const lib = await pdfLib(), task = lib.getDocument({ data: bytes.slice(), isEvalSupported: false }), doc = await task.promise, out = [];
+  const lib = await pdfLib(), task = lib.getDocument({ data: bytes.slice(), ...PDFJS_OPT }), doc = await task.promise, out = [];
   const dpi = level === 'smallest' ? 96 : 144, q = level === 'smallest' ? 0.5 : 0.7;
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i), vp1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: dpi / 72 });

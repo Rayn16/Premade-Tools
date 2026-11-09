@@ -37,6 +37,9 @@ async function pdfRefresh() {
 
 // ---------- page pictures ----------
 let pdfjs = null;
+// Scanned PDFs keep their pages as JBIG2 or JPEG 2000 pictures, which PDF.js decodes with these (blank pages
+// without them); the fonts stand in for ones a PDF names but doesn't carry.
+const PDFJS_OPT = { isEvalSupported: false, wasmUrl: '/m/pdfjs/wasm/', standardFontDataUrl: '/m/pdfjs/standard_fonts/' };
 async function pdfLib() {
   if (!pdfjs) {
     pdfjs = await import('/m/pdfjs/pdf.min.mjs');
@@ -53,7 +56,7 @@ async function pdfLoad() {
   let doc;
   try {
     const lib = await pdfLib();
-    doc = await lib.getDocument({ data: new Uint8Array(await f.arrayBuffer()), isEvalSupported: false }).promise;
+    doc = await lib.getDocument({ data: new Uint8Array(await f.arrayBuffer()), ...PDFJS_OPT }).promise;
     if (gen !== P.gen) return;
     P.pages = Array.from({ length: doc.numPages }, (_, i) => ({ n: i + 1, rot: 0, sel: false }));
     render();
