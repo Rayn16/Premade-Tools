@@ -637,6 +637,18 @@ func fileKind(name string) string {
 }
 
 // Path gives a job's file on disk, refusing anything outside the download folder.
+// onDisk says if any of a job's files is still in the download folder.
+func (d *Downloader) onDisk(j *Job) bool {
+	for i := range j.Files {
+		if p, ok := d.Path(j, i); ok {
+			if _, err := os.Stat(p); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (d *Downloader) Path(j *Job, n int) (string, bool) {
 	if n < 0 || n >= len(j.Files) {
 		return "", false

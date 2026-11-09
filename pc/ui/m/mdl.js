@@ -132,19 +132,18 @@ function dlSettingsView(off) {
     <section class="group"><div class="sectionhead"><b>Share button</b><i></i></div>
     <details class="iosguide"><summary>Set up "${SHORTCUT_DL}"</summary><ol>
       <li>Open <b>Shortcuts</b>, tap <b>+</b> and name it <b>${SHORTCUT_DL}</b>. Tap <b>ⓘ</b> and turn on <b>Show in Share Sheet</b>. Under <b>Receive</b>, keep only <b>URLs</b>, <b>Safari web pages</b> and <b>Text</b>, and set <b>If there's no input</b> to <b>Get Clipboard</b>.</li>
-      <li>Add <b>Get Network Details</b> (Wi-Fi, <b>Network Name</b>), then <b>If</b> <b>Network Details</b> <b>is</b> your home Wi-Fi name. Everything up to <b>Otherwise</b> runs at home through your PC.</li>
-      <li>Inside the If: <b>Get Contents of URL</b> with the address below, Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Shortcut Input</b>.${field('Start', `${base}/api/phone/dl/ios/start?t=${t}`)}</li>
-      <li><b>Set Variable</b> named <b>Job</b> to <b>Contents of URL</b>. Then <b>If</b> <b>Job</b> <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with <b>Job</b>, then <b>Stop This Shortcut</b>. <b>End If</b>.</li>
+      <li>Add <b>Get Contents of URL</b> with the address below, Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Shortcut Input</b>.${field('Start', `${base}/api/phone/dl/ios/start?t=${t}`)}</li>
+      <li><b>Set Variable</b> named <b>Job</b> to <b>Contents of URL</b>. Then <b>If</b> <b>Job</b> <b>begins with</b> <b>ERR OFF</b> (your PC is off or offline): do the steps in <b>When your PC is off</b> below, then <b>Stop This Shortcut</b>. <b>End If</b>.</li>
+      <li>Then <b>If</b> <b>Job</b> <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with <b>Job</b>, then <b>Stop This Shortcut</b>. <b>End If</b>.</li>
       <li><b>Repeat</b> <b>40</b> times. Inside it: a <b>Text</b> with the address below, with <b>Job</b> put where it says JOB, then <b>Get Contents of URL</b> of that Text.${field('Get', `${base}/api/phone/dl/ios/get/JOB?t=${t}`)}</li>
       <li>Still inside the Repeat: <b>If</b> <b>Contents of URL</b> <b>begins with</b> <b>WAIT</b>, do nothing (the PC waits up to 20 seconds each time). <b>Otherwise</b>: <b>If</b> it <b>begins with</b> <b>ERR</b>, <b>Show Notification</b> and <b>Stop This Shortcut</b>. <b>Otherwise</b>: <b>If</b> <b>File Extension</b> <b>is</b> <b>zip</b>, <b>Extract Archive</b> then <b>Save to Photo Album</b>; <b>Otherwise</b> <b>Save to Photo Album</b> on <b>Contents of URL</b>. Then <b>Show Notification</b> “Saved to Photos” and <b>Stop This Shortcut</b>.</li>
-      <li>After the Repeat ends, still at home: <b>Show Notification</b> “Still downloading on the PC. Open Premade Tools to save it later.”</li>
-      <li><b>Otherwise</b> (away from home Wi-Fi): see <b>When your PC is off</b> below.</li>
+      <li>After the Repeat ends: <b>Show Notification</b> “Still downloading on the PC. Open Premade Tools to save it later.”</li>
       <li>Try it: in TikTok tap <b>Share</b> › <b>More</b> › <b>${SHORTCUT_DL}</b>. Allow access to devices on your network and to Photos when asked.</li>
     </ol></details></section>
     <section class="group"><div class="sectionhead"><b>When your PC is off</b><i></i></div>
     <details class="iosguide"><summary>Download on the iPhone with a-Shell</summary><ol>
       <li>Install <b>a-Shell</b> (free, App Store). Open it and run this once (it takes a minute):${field('Setup', 'pip install -U yt-dlp gallery-dl')}</li>
-      <li>In the Shortcut's <b>Otherwise</b> part: add a-Shell's <b>Execute Command</b> with this command, and put <b>Shortcut Input</b> where it says LINK (keep the quotes).${field('Command', 'mkdir -p ~/Documents/premade && cd ~/Documents/premade && rm -f * && (yt-dlp -f "b[ext=mp4]/b" -o "%(title).80B.%(ext)s" "LINK" || gallery-dl -D . "LINK")')}</li>
+      <li>In the Shortcut, inside <b>If Job begins with ERR OFF</b>: add a-Shell's <b>Execute Command</b> with this command, and put <b>Shortcut Input</b> where it says LINK (keep the quotes).${field('Command', 'mkdir -p ~/Documents/premade && cd ~/Documents/premade && rm -f * && (yt-dlp -f "b[ext=mp4]/b" -o "%(title).80B.%(ext)s" "LINK" || gallery-dl -D . "LINK")')}</li>
       <li>Then a-Shell's <b>Get File</b> (or <b>Get Contents of Folder</b> on a-Shell › <b>premade</b>) and <b>Save to Photo Album</b>.</li>
       <li>Keep the screen on while it runs. YouTube may not work without the PC, so YouTube links are best shared at home.</li>
     </ol></details></section>` : `

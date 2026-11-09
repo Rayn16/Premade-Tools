@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -95,6 +96,18 @@ func TestRelayLink(t *testing.T) {
 	}
 	if c, b, _ := do("GET", "/api/phone/file/"+d[0].ID+"?t=tok", nil, "Range", "bytes=10-19"); c != 206 || !bytes.Equal(b, big[10:20]) {
 		t.Fatalf("range: %d %q", c, b)
+	}
+	// No PC on a link: the app sees the "off" header; a Shortcut, which reads only the words, sees ERR OFF.
+	for path, want := range map[string]string{"/api/phone/dl/ios/start": "ERR OFF: ", "/api/phone/state": "Can't reach"} {
+		res, err := http.Post(relay+"/pc/"+randHex(16)+path+"?t=tok", "text/plain", strings.NewReader("https://example.com"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != 503 || res.Header.Get("X-Premade-Link") != "off" || !strings.HasPrefix(string(b), want) {
+			t.Errorf("%s with the PC off: %d %q %q", path, res.StatusCode, res.Header.Get("X-Premade-Link"), b)
+		}
 	}
 	// Someone else can't take over the PC's place on the relay.
 	r, _ := http.NewRequest("GET", base+"/body/1", nil)

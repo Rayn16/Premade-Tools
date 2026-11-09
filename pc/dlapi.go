@@ -120,20 +120,25 @@ func (a *App) dlRoutes(m *http.ServeMux) {
 			}
 			j = a.dl.Get(j.ID)
 		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		say := func(s string) { w.Header().Set("Content-Type", "text/plain; charset=utf-8"); fmt.Fprint(w, s) }
 		switch {
 		case j == nil:
-			fmt.Fprint(w, "ERR: That download is gone from the PC.")
+			say("ERR: That download is gone from the PC.")
 		case j.State == "failed":
-			fmt.Fprint(w, "ERR: "+j.Note)
+			say("ERR: " + j.Note)
 		case j.State != "done":
-			fmt.Fprintf(w, "WAIT %d", int(j.Pct))
-		case len(j.Files) == 1:
-			a.dl.update(j.ID, func(j *Job) { j.Fetched = true })
-			a.dlFile(w, r, true)
+			say(fmt.Sprintf("WAIT %d", int(j.Pct)))
+		case !a.dl.onDisk(j):
+			say("ERR: The file is gone from the download folder on the PC.")
 		default:
-			a.dl.update(j.ID, func(j *Job) { j.Fetched = true })
-			a.dlZip(w, j)
+			if len(j.Files) == 1 {
+				a.dlFile(w, r, true)
+			} else {
+				a.dlZip(w, j)
+			}
+			if r.Context().Err() == nil { // the phone took all of it
+				a.dl.update(j.ID, func(j *Job) { j.Fetched = true })
+			}
 		}
 	})
 }

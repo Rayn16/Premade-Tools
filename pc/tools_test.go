@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -306,5 +307,32 @@ func TestToolFileLinksOpen(t *testing.T) {
 		if w.Code != want {
 			t.Errorf("%s without X-Vault: %d, want %d", path, w.Code, want)
 		}
+	}
+}
+
+// The Download Shortcut gets words starting with ERR when the file is gone, the file with its own type, and the
+// download counts as saved on the iPhone only once the phone took all of it.
+func TestIphoneDownloadGet(t *testing.T) {
+	a, h := testApp(t)
+	dir := t.TempDir()
+	a.dl = &Downloader{path: filepath.Join(dir, "downloads.json"), dir: func() string { return dir }}
+	a.dl.jobs = []*Job{{ID: "j1", State: "done", Files: []DLFile{{Name: "clip.xyz"}}}}
+	w := call(h, "GET", "/api/phone/dl/ios/get/j1", nil)
+	if !strings.HasPrefix(w.Body.String(), "ERR: ") || a.dl.Get("j1").Fetched {
+		t.Fatalf("file gone: %q, saved %v", w.Body.String(), a.dl.Get("j1").Fetched)
+	}
+	video := "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00isommp42 a video"
+	os.WriteFile(filepath.Join(dir, "clip.xyz"), []byte(video), 0o644)
+	r := httptest.NewRequest("GET", "/api/phone/dl/ios/get/j1", nil)
+	r.Header.Set("Authorization", "Bearer tok")
+	ctx, stop := context.WithCancel(r.Context())
+	stop() // the phone went away
+	h.ServeHTTP(httptest.NewRecorder(), r.WithContext(ctx))
+	if a.dl.Get("j1").Fetched {
+		t.Fatal("counted as saved, but the phone went away")
+	}
+	w = call(h, "GET", "/api/phone/dl/ios/get/j1", nil)
+	if w.Body.String() != video || w.Header().Get("Content-Type") != "video/mp4" || !a.dl.Get("j1").Fetched {
+		t.Fatalf("file: %q %q, saved %v", w.Body.String(), w.Header().Get("Content-Type"), a.dl.Get("j1").Fetched)
 	}
 }
