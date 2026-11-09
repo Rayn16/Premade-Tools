@@ -160,3 +160,20 @@ func TestMovingVaultDoesNotFreezeLists(t *testing.T) {
 		t.Fatal("the lists waited for the move")
 	}
 }
+
+// A restore sent to a phone that's away can be called off, from the PC window or a phone.
+func TestCancelRestore(t *testing.T) {
+	a, h := testApp(t)
+	call(h, "PUT", "/api/phone/upload", strings.NewReader("data"), "X-Key", "k1", "X-Name", "a.jpg")
+	id := a.getStore().Deleted()[0].ID
+	pending := func() int { return len(a.set.Get().Phones[0].Restores) }
+	for _, cancel := range []string{"/api/ui/unrestore/", "/api/phone/unrestore/"} {
+		call(h, "POST", "/api/ui/restore/"+id, nil)
+		if pending() != 1 {
+			t.Fatal("the restore didn't wait for the phone")
+		}
+		if w := call(h, "POST", cancel+id, nil); w.Code != 200 || pending() != 0 {
+			t.Fatalf("%s: %d, %d still waiting", cancel, w.Code, pending())
+		}
+	}
+}

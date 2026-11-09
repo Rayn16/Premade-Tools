@@ -24,7 +24,14 @@ let EDM = null; // the engine module
 const edUid = () => Math.random().toString(36).slice(2, 10);
 const edEl = (sel) => ED.root.querySelector(sel);
 
+// One at a time: a second tap while the first opens would leave a dead editor over the app.
+let edOpening = false;
 async function pdfEditOpen(file) {
+  if (ED.on || edOpening) return;
+  edOpening = true;
+  try { await edOpen(file); } finally { edOpening = false; }
+}
+async function edOpen(file) {
   EDM ??= await import('/m/lib/pdf-edit.mjs');
   const { openPdf } = await import('/m/lib/pdf-local.mjs');
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -57,7 +64,7 @@ async function pdfEditOpen(file) {
   ED.vp = vm?.content;
   if (vm && PDFAPI.touch) vm.content = ED.vp + ',maximum-scale=1';
   edFit();
-  ED.io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) edShow(+e.target.dataset.p); }), { root: edEl('.edscroll'), rootMargin: '600px 0px' });
+  ED.io = new IntersectionObserver((es) => es.forEach((e) => (e.isIntersecting ? edShow : edHide)(+e.target.dataset.p)), { root: edEl('.edscroll'), rootMargin: '600px 0px' });
   ED.root.querySelectorAll('.edpage').forEach((n) => ED.io.observe(n));
   edBar();
 }
@@ -78,6 +85,13 @@ function edFit() {
   edEl('.edpages').style.setProperty('--s', ED.s);
   ED.drawn = {};
   ED.root.querySelectorAll('.edpage').forEach((n) => { const r = n.getBoundingClientRect(), sc = edEl('.edscroll').getBoundingClientRect(); if (r.bottom > sc.top - 600 && r.top < sc.bottom + 600) edShow(+n.dataset.p); });
+}
+
+// A page well out of sight gives back its picture, so a long PDF doesn't fill an iPhone's memory (it reloads the app).
+function edHide(i) {
+  const cv = ED.root?.querySelector(`.edpage[data-p="${i}"] canvas`);
+  if (cv) cv.width = cv.height = 0;
+  delete ED.drawn[i];
 }
 
 // A page came into sight: draw it (sharp for this zoom) and read its text.
@@ -389,12 +403,12 @@ function edUp(e) {
   if (edFingers.size || !g) { if (!edFingers.size) edGest = null; return; }
   edGest = null;
   if (g.pan) return;
-  if (g.from) { if (!g.moved) ED.undo.pop(); edPaint(g.i); return; }
+  if (g.from) { if (!g.moved) ED.undo.pop(); edPaint(g.i); return edBar(); } // edBar: Undo lights up
   if (g.fresh) {
     const it = g.it, b = edBox(it);
     if (it.type !== 'draw' && Math.max(b.w, b.h) < (it.pts ? 14 : 4)) { ED.items = ED.items.filter((x) => x !== it); ED.undo.pop(); }
     edPaint(g.i);
-    return;
+    return edBar();
   }
   if (!g.tap) return;
   // A tap: pick what you added, change a line, or put new text there.

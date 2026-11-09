@@ -69,6 +69,7 @@ func (a *App) routes() http.Handler {
 	ui2("GET /api/ui/file/{id}", a.uiFile)
 	ui2("POST /api/ui/save/{id}", a.saveToPC)
 	ui2("POST /api/ui/restore/{id}", a.queueRestore)
+	ui2("POST /api/ui/unrestore/{id}", a.cancelRestore)
 	ui2("POST /api/ui/dismiss/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if st := a.getStore(); st != nil {
 			st.Dismiss(r.PathValue("id"))
@@ -212,6 +213,7 @@ func (a *App) routes() http.Handler {
 	})
 	pt("GET /api/phone/deleted", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.deletedNow()) })
 	pt("PUT /api/phone/piece", a.piece)
+	pt("POST /api/phone/unrestore/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.cancelRestore(w, r) })
 	ph("GET /api/phone/view/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		serveItem(w, r, st, r.PathValue("id"), r.URL.Query().Has("dl"))
 	})
@@ -754,6 +756,17 @@ func (a *App) queueRestore(w http.ResponseWriter, r *http.Request) {
 			if p.ID == it.Phone {
 				p.Restores = append(without(p.Restores, id), id)
 			}
+		}
+		return true
+	})
+	writeJ(w, "ok")
+}
+
+// cancelRestore takes a file off the waiting list of the phone it was going back to: an away phone may not ask for days.
+func (a *App) cancelRestore(w http.ResponseWriter, r *http.Request) {
+	a.set.With(func(c *Config) bool {
+		for _, p := range c.Phones {
+			p.Restores = without(p.Restores, r.PathValue("id"))
 		}
 		return true
 	})

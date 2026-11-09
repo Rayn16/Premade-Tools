@@ -60,6 +60,28 @@ assert.ok(Math.abs(t.angle) < 1 && t.x > 9 && t.x < 11, 'added text reads uprigh
   assert.equal(logical('Total 450 لاير'), 'Total 450 ريال');
   assert.equal(logical('Hello world'), 'Hello world');
 }
+// A value set off from its label, as a tab does, is a line of its own, so changing it leaves it where it was; words
+// a space apart stay one line.
+{
+  const d5 = await PDFDocument.create(), f5 = await d5.embedFont(StandardFonts.Helvetica), pg = d5.addPage([400, 300]);
+  const w = (s) => f5.widthOfTextAtSize(s, 12);
+  pg.drawText('Amount due:', { x: 40, y: 250, size: 12, font: f5 });
+  pg.drawText('450.00', { x: 40 + w('Amount due:') + 16, y: 250, size: 12, font: f5 });
+  pg.drawText('Paid', { x: 40, y: 220, size: 12, font: f5 });
+  pg.drawText('in full', { x: 40 + w('Paid') + 4, y: 220, size: 12, font: f5 });
+  const doc5 = await PDFDocument.load(await d5.save()), r5 = readText(doc5, doc5.getPage(0));
+  assert.deepEqual(r5.blocks.map((b) => b.text), ['Amount due:', '450.00', 'Paid in full']);
+}
+// A scan's text layer (letters that don't show): a changed line is covered and drawn, as the screen shows it, since
+// the old words are in the picture. Text after the layer's q … Q shows again.
+{
+  const d6 = await PDFDocument.create(), pg = d6.addPage([400, 300]), ctx = d6.context;
+  pg.node.setFontDictionary(PDFName.of('F1'), ctx.register(ctx.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica' })));
+  pg.node.set(PDFName.of('Contents'), ctx.register(ctx.stream('q BT 3 Tr /F1 20 Tf 1 0 0 1 40 250 Tm (Total: 450) Tj ET Q BT /F1 20 Tf 1 0 0 1 40 200 Tm (Shown) Tj ET')));
+  const doc6 = await PDFDocument.load(await d6.save()), p6 = doc6.getPage(0), r6 = readText(doc6, p6);
+  assert.deepEqual(r6.blocks.map((b) => [b.text, b.unseen]), [['Total: 450', true], ['Shown', false]]);
+  assert.deepEqual(editText(doc6, p6, r6, { 0: 'Total: 540' }).map((x) => x.type), ['white', 'text']);
+}
 // A letter the line's font doesn't have is never written as a code the font's own map says is another letter.
 {
   const d4 = await PDFDocument.create(), pg = d4.addPage([400, 300]), ctx = d4.context;

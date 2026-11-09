@@ -195,8 +195,9 @@ export function logical(s) {
 }
 const rtlFirst = (s) => new RegExp(`^[^\\p{L}${R}]*[${R}]`, 'u').test(s); // a line that reads right to left, as dir="auto" decides
 
-// Reads every line of text the page draws. Each block is one line: { id, text, rtl, x, y, w, h (view points), size,
-// color, family, bold, italic, angle }. The page's text inside embedded drawings (forms) isn't read.
+// Reads every line of text the page draws. Each block is one line: { id, text, rtl, unseen, x, y, w, h (view points),
+// size, color, family, bold, italic, angle }; unseen is a scan's text layer, letters that don't show over the picture.
+// The page's text inside embedded drawings (forms) isn't read.
 export function readText(doc, page) {
   const ctx = doc.context, V = view(page);
   const cs = page.node.Contents();
@@ -209,13 +210,13 @@ export function readText(doc, page) {
   const font = (key) => fonts[key] ??= (() => { const d = fontsDict?.lookup(PDFName.of(key)); return d instanceof PDFDict ? readFont(ctx, d) : null; })();
 
   const list = parseOps(src), runs = [], gstack = [];
-  let g = { ctm: ID, color: [0, 0, 0] }, t = null, tm = ID, tlm = ID;
+  let g = { ctm: ID, color: [0, 0, 0], tr: 0 }, t = null, tm = ID, tlm = ID;
   const ts = { fk: '', fs: 0, tc: 0, tw: 0, th: 1, tl: 0, rise: 0 };
   const nextLine = (tx, ty) => { tlm = mul([1, 0, 0, 1, tx, ty], tlm); tm = tlm; };
   const show = (o, items) => {
     const f = font(ts.fk);
     if (!f) return;
-    const r = { op: o, f, size: ts.fs, th: ts.th, rise: ts.rise, tc: ts.tc, tw: ts.tw, tm, ctm: g.ctm, color: g.color, text: '', adv: 0 };
+    const r = { op: o, f, size: ts.fs, th: ts.th, rise: ts.rise, tc: ts.tc, tw: ts.tw, tm, ctm: g.ctm, color: g.color, text: '', adv: 0, unseen: g.tr % 4 === 3 };
     for (const it of items) {
       if (typeof it === 'number') { const dx = -it / 1000 * ts.fs * ts.th; r.adv += dx; if (it < -180) r.text += ' '; continue; }
       if (!it?.s) continue;
@@ -239,6 +240,7 @@ export function readText(doc, page) {
       case 'cm': g = { ...g, ctm: mul([n(0), n(1), n(2), n(3), n(4), n(5)], g.ctm) }; break;
       case 'g': g = { ...g, color: [n(0), n(0), n(0)] }; break;
       case 'rg': g = { ...g, color: [n(0), n(1), n(2)] }; break;
+      case 'Tr': g = { ...g, tr: n(0) }; break; // 3: letters that don't show, like a scan's text layer
       case 'k': g = { ...g, color: [0, 1, 2].map((i) => (1 - n(i)) * (1 - n(3))) }; break;
       case 'sc': case 'scn': if (a.length === 1) g = { ...g, color: [n(0), n(0), n(0)] }; else if (a.length === 3) g = { ...g, color: [n(0), n(1), n(2)] }; break;
       case 'BT': t = true; tm = tlm = ID; break;
@@ -269,7 +271,7 @@ export function readText(doc, page) {
     const m = mul(r.tm, r.ctm), sz = Math.hypot(m[2], m[3]) * r.size;
     if (b) {
       const [px, py] = at(inv(b.frame), ...at(m, 0, r.rise));
-      const s0 = b.size, gap = px - b.end, back = b.start - px - r.adv, near = (g) => g > -0.5 * s0 && g < 1.6 * s0;
+      const s0 = b.size, gap = px - b.end, back = b.start - px - r.adv, near = (g) => g > -0.5 * s0 && g < s0; // further is a tab: "Label:   value" is two
       if ((Math.abs(py) < 0.3 * s0 || !r.adv) && Math.abs(sz - b.vsize) < 0.35 * b.vsize && (near(gap) || near(back))) {
         const sp = (g, a, z) => g > 0.18 * s0 && !/\s$/.test(a) && !/^\s/.test(z) ? ' ' : '';
         if (near(gap)) { b.text += sp(gap, b.text, r.text) + r.text; b.end = Math.max(b.end, px + r.adv); }
@@ -289,7 +291,7 @@ export function readText(doc, page) {
   return { src, list, blocks: blocks.filter((x) => x.text.trim()).map((x, i) => {
     const xs = x.pts.map((p) => p[0]), ys = x.pts.map((p) => p[1]), r = x.runs[0], f = r.f, text = logical(x.text.trim());
     const vm = mul(x.frame, V.m), [ox, oy] = at(vm, 0, r.rise);
-    return { id: i, text, rtl: rtlFirst(text), runs: x.runs, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
+    return { id: i, text, rtl: rtlFirst(text), unseen: x.runs.every((q) => q.unseen), runs: x.runs, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
       ox, oy, size: x.vsize, angle: Math.atan2(vm[1], vm[0]) * 180 / Math.PI, color: '#' + r.color.map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, '0')).join(''),
       family: /times|serif|roman|georgia|garamond|cambria|book/i.test(f.base) && !/sans/i.test(f.base) ? 'serif' : /courier|mono|consol/i.test(f.base) ? 'mono' : 'sans',
       bold: /bold|black|heavy|semibold|demi/i.test(f.base), italic: /italic|oblique/i.test(f.base) };
@@ -342,8 +344,9 @@ export function editText(doc, page, read, edits, hide = []) {
   for (const [id, text] of Object.entries(edits)) {
     const b = read.blocks[id];
     if (!b || text === b.text) continue;
-    const codes = text ? encode(b.runs[0].f, text) : [];
+    const codes = !text ? [] : b.unseen ? null : encode(b.runs[0].f, text);
     b.runs.forEach((r, i) => reps.push({ s: r.op.start, e: r.op.end, to: swap(r, i === 0 && codes && text ? codes : null) }));
+    if (b.unseen) extra.push({ type: 'white', x: b.x - 1, y: b.y - 1, w: b.w + 2, h: b.h + 2 }); // on a scan the words are in the picture: covered, as the screen shows
     if (!codes && text) extra.push({ type: 'text', text, x: b.ox, y: b.oy - b.size, size: b.size, color: b.color, family: b.family, bold: b.bold, italic: b.italic, angle: b.angle,
       ...(b.rtl && { end: b.x + b.w }) }); // a right-to-left line keeps its right edge
   }

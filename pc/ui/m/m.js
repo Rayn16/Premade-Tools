@@ -215,7 +215,8 @@ function sheetView() {
 function actions(it, p, me) {
   const f = FLOW[it.id];
   if (f?.done) return `<div class="done">${icon('check')}<span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>on ${esc(f.name)}</em></span></div><div class="actions-quiet"><button type="button" class="quiet" data-closesheet>Done</button></div>`;
-  if (f?.wait || p?.Pending?.includes(it.id)) return `<div class="restoring"><div class="restoring-row">${icon('spin', 'spin')}Restoring…</div><div class="progline"><span></span></div>${f?.wait ? `<p>${esc(f.wait)}</p>` : ''}</div>`;
+  if (f?.wait || p?.Pending?.includes(it.id)) return `<div class="restoring"><div class="restoring-row">${icon('spin', 'spin')}Restoring…</div><div class="progline"><span></span></div>${f?.wait ? `<p>${esc(f.wait)}</p>` : ''}</div>
+    <div class="actions-quiet"><button type="button" class="quiet" data-unrestore="${it.id}">Cancel</button></div>`;
   if (f === 'confirm') return `<div class="confirm"><p class="confirm-text">Delete this from the vault?</p><p class="confirm-sub">The copy on this PC is deleted. It can't be brought back.</p>
     <div class="confirm-row"><button type="button" class="btn" data-unconfirm="${it.id}">Keep it</button><button type="button" class="btn danger" data-dismiss="${it.id}">Dismiss</button></div></div>`;
   const target = me ? 'this phone' : p ? p.Name : '';
@@ -380,6 +381,7 @@ $app.addEventListener('click', async (e) => {
       S.msg = ''; render();
       watchRestore(it);
     }
+    else if (d.unrestore) { await api('/api/phone/unrestore/' + d.unrestore, {}); FLOW[d.unrestore] = { cancelled: true }; refresh(); }
     else if (d.fix) { NATIVE.fix(d.fix); }
     else if (d.heldok !== undefined) { await api('/api/phone/ios/held', {}); refresh(); }
     else if (d.keep) {
@@ -411,6 +413,7 @@ function closeSheet() {
 function watchRestore(it) {
   const t0 = Date.now();
   const t = setInterval(async () => {
+    if (FLOW[it.id]?.cancelled) { clearInterval(t); delete FLOW[it.id]; return; }
     await refresh();
     const p = phoneById(it.phone);
     if (p && (p.Pending || []).includes(it.id) && Date.now() - t0 < 20 * 60e3) return;
