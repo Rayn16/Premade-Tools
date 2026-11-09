@@ -224,7 +224,7 @@ func (a *App) routes() http.Handler {
 		c := a.set.Get()
 		free, _ := diskSpace(c.VaultDir)
 		remote, tsState := a.ts.Status()
-		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "remote": remote, "tailscale": tsState, "relay": relayURL, "link": a.linkURL(), "fr": c.FrTok, "tsHost": a.ts.IP(), "update": a.newVer(), "free": human(int64(free)),
+		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "remote": remote, "tailscale": tsState, "relay": relayURL, "link": a.linkURL(), "fr": c.FrTok, "tsHost": a.ts.IP(), "update": a.newVer(), "updErr": a.updFailed(), "free": human(int64(free)),
 			"config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
 	})
 	ph("POST /api/phone/update", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
@@ -373,7 +373,7 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	phones := a.phoneViews()
 	c.Phones = nil
 	remote, tsState := a.ts.Status()
-	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "moving": a.moving, "remote": remote, "tailscale": tsState}
+	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "updErr": a.updFailed(), "moving": a.moving, "remote": remote, "tailscale": tsState}
 	if st := a.getStore(); st != nil {
 		n, b := st.Stats()
 		free, _ := diskSpace(c.VaultDir)
