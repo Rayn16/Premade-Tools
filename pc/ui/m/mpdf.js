@@ -38,10 +38,12 @@ async function pdfFetch(j) {
   pdfBlobs[j.id] = 'loading';
   try {
     pdfBlobs[j.id] = await Promise.all(j.files.map(async (f, n) => {
-      const b = await (await fetch(pdfURL(j, n))).blob();
+      const r = await fetch(pdfURL(j, n));
+      if (!r.ok) throw new Error(await r.text()); // never save the PC's error as the PDF
+      const b = await r.blob();
       return new File([b], f.name.split(/[\\/]/).pop(), { type: 'application/pdf' });
     }));
-  } catch (e) { delete pdfBlobs[j.id]; }
+  } catch (e) { pdfBlobs[j.id] = 'failed'; } // Save then falls back to the link, and Get tries again
   render();
 }
 

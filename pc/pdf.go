@@ -205,7 +205,7 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 			}
 			if ctx.Err() != nil {
 				os.Remove(dst)
-				return nil, nil
+				return made, nil
 			}
 			if err != nil {
 				os.Remove(dst)

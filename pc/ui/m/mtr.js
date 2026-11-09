@@ -50,6 +50,7 @@ function trShortcutGuide() {
       <li><b>Get Contents of URL</b> with the address below. Method <b>POST</b>, Request Body <b>File</b>, pick <b>Sound</b>. <b>Set Variable</b> <b>Job</b> to it. <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> and <b>Stop This Shortcut</b>. For English text from any language, change <b>to=text</b> to <b>to=en</b>.${field('Start', `${base}/api/phone/tr/ios/start?t=${t}&name=Recording.m4a&to=text`)}</li>
       <li>Add a <b>Text</b> “no” and <b>Set Variable</b> <b>Done</b> to it. Then <b>Repeat</b> <b>300</b> times, and inside it <b>If</b> <b>Done</b> <b>is</b> “no”:</li>
       <li>…<b>Get Contents of URL</b> of the address below, with <b>Job</b> put where it says JOB. <b>If</b> it <b>begins with</b> <b>WAIT</b>: <b>Wait</b> 2 seconds. <b>Otherwise</b>, <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with it. <b>Otherwise</b>: <b>Copy to Clipboard</b> and <b>Show Result</b>. In both of these, <b>Set Variable</b> <b>Done</b> to a Text “yes”.${field('Get', `${base}/api/phone/tr/ios/get/JOB?t=${t}`)}</li>
+      <li>After the Repeat: <b>If</b> <b>Done</b> <b>is</b> “no”: <b>Show Notification</b> “Still transcribing on the PC. The text will be in Premade Tools › History.”</li>
       <li>Put it where your thumb is: <b>Share</b> › <b>Add to Home Screen</b>, or Settings › <b>Action Button</b> › Shortcut. Allow the microphone and devices on your network when asked. The text also lands in History here and on the PC.</li>
     </ol></details></section>`;
 }

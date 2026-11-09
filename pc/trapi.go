@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -24,7 +25,7 @@ func (a *App) trRoutes(m *http.ServeMux) {
 		if to != "en" {
 			to = "text"
 		}
-		go whisper.Install(to, nil)
+		go whisper.Install(context.Background(), to, nil)
 		writeJ(w, "ok")
 	})
 	a.queueRoutes(m, "tr", a.tr, func(c *Config, dir string) { c.DlDir = dir })
@@ -54,10 +55,10 @@ func (a *App) trRoutes(m *http.ServeMux) {
 		}
 		fmt.Fprint(w, j.ID)
 	})
-	// Step 2: poll: "WAIT 42" while it runs, then the text itself, or "ERR: why".
+	// Step 2: poll: "WAIT 42" while it runs (each call waits up to 20 s), then the text itself, or "ERR: why".
 	ph("GET /api/phone/tr/ios/get/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
+		j := a.tr.waitDone(r, r.PathValue("id"))
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		j := a.tr.Get(r.PathValue("id"))
 		switch {
 		case j == nil:
 			fmt.Fprint(w, "ERR: That recording is gone from the PC.")

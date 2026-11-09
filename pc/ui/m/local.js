@@ -44,7 +44,7 @@ document.getElementById('app').addEventListener('click', (e) => { const b = e.ta
 // ---------- pictures ----------
 // Drawn on a canvas, so HEIC works wherever the phone shows HEIC (every iPhone). iPhones cap a canvas near
 // 16 million pixels, so a 48 MP photo comes out at about 16 MP.
-async function lcPicture(f) {
+async function lcPicture(f, opaque) {
   const url = URL.createObjectURL(f);
   try {
     const img = new Image();
@@ -53,7 +53,9 @@ async function lcPicture(f) {
     const k = Math.min(1, Math.sqrt(16e6 / (img.naturalWidth * img.naturalHeight)));
     const c = document.createElement('canvas');
     c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const g = c.getContext('2d');
+    if (opaque) { g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); } // a JPEG can't be see-through: white, not black
+    g.drawImage(img, 0, 0, c.width, c.height);
     return c;
   } finally { URL.revokeObjectURL(url); }
 }
@@ -63,7 +65,7 @@ async function lcPictures(j, files, to, small, combine) {
     const { PDFDocument } = await import('/m/lib/pdf-lib.min.mjs');
     const docs = [], out = [];
     for (const [i, f] of files.entries()) {
-      const c = await lcPicture(f), jpg = new Uint8Array(await (await canvasBlob(c, 'image/jpeg', small ? 0.6 : 0.85)).arrayBuffer());
+      const c = await lcPicture(f, true), jpg = new Uint8Array(await (await canvasBlob(c, 'image/jpeg', small ? 0.6 : 0.85)).arrayBuffer());
       if (!combine || !docs.length) docs.push({ doc: await PDFDocument.create(), name: stem(f.name) + '.pdf' });
       const d = docs.at(-1).doc, im = await d.embedJpg(jpg), w = c.width * 0.75, h = c.height * 0.75; // 96 dpi in points
       d.addPage([w, h]).drawImage(im, { x: 0, y: 0, width: w, height: h });
@@ -74,7 +76,7 @@ async function lcPictures(j, files, to, small, combine) {
   }
   const type = to === 'png' ? 'image/png' : 'image/jpeg', out = [];
   for (const [i, f] of files.entries()) {
-    out.push(fileOf(await canvasBlob(await lcPicture(f), type, small ? 0.6 : 0.9), stem(f.name) + '.' + to, type));
+    out.push(fileOf(await canvasBlob(await lcPicture(f, to !== 'png'), type, small ? 0.6 : 0.9), stem(f.name) + '.' + to, type));
     ljProg(j, (i + 1) / files.length * 100);
   }
   return out;

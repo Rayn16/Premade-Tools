@@ -33,10 +33,12 @@ async function cvFetch(j) {
   cvBlobs[j.id] = 'loading';
   try {
     cvBlobs[j.id] = await Promise.all(j.files.map(async (f, n) => {
-      const b = await (await fetch(cvFileURL(j, n))).blob();
+      const r = await fetch(cvFileURL(j, n));
+      if (!r.ok) throw new Error(await r.text()); // never save the PC's error as the file
+      const b = await r.blob();
       return new File([b], f.name.split(/[\\/]/).pop(), { type: b.type });
     }));
-  } catch (e) { delete cvBlobs[j.id]; }
+  } catch (e) { cvBlobs[j.id] = 'failed'; } // Save then falls back to the link, and Get tries again
   render();
 }
 
@@ -139,6 +141,7 @@ function cvSettingsView(off) {
       <li><b>Get Contents of URL</b> with the address below, NAME as before and TO replaced by <b>Chosen Item</b>. Method <b>POST</b>, Request Body <b>File</b>, pick <b>Repeat Item</b>. <b>Set Variable</b> <b>Job</b> to it, and stop with a notification if it <b>begins with</b> <b>ERR</b>.${field('Start', `${base}/api/phone/cv/ios/start?t=${t}&name=NAME&to=TO`)}</li>
       <li>Add a <b>Text</b> “no” and <b>Set Variable</b> <b>Done</b> to it. Then <b>Repeat</b> <b>90</b> times, and inside it <b>If</b> <b>Done</b> <b>is</b> “no”:</li>
       <li>…<b>Get Contents of URL</b> of the address below, with <b>Job</b> put where it says JOB. <b>If</b> it <b>begins with</b> <b>WAIT</b>: <b>Wait</b> 2 seconds. <b>Otherwise</b>, <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with it. <b>Otherwise</b>: <b>Save to Photo Album</b> (for PDFs and documents use <b>Save File</b> instead). In both of these, <b>Set Variable</b> <b>Done</b> to a Text “yes”.${field('Get', `${base}/api/phone/cv/ios/get/JOB?t=${t}`)}</li>
+      <li>After the Repeat: <b>If</b> <b>Done</b> <b>is</b> “no”: <b>Show Notification</b> “Still converting on the PC. Open Premade Tools to save it when it's done.”</li>
       <li>Try it: in Photos pick a photo, tap <b>Share</b> › <b>${SHORTCUT_CV}</b> › <b>JPG</b>. Allow access to devices on your network and to Photos when asked.</li>
     </ol></details></section>` : '';
   return `${dlTitle('Settings', 'Where converted files go.')}<div class="headrule"></div>

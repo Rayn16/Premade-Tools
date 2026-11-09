@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -78,23 +79,28 @@ func (a *App) cvRoutes(m *http.ServeMux) {
 		}
 		fmt.Fprint(w, j.ID)
 	})
-	// Step 3: poll until it's ready: "WAIT 42" while it runs, then the file, or "ERR: why".
+	// Step 3: poll until it's ready: "WAIT 42" while it runs (each call waits up to 20 s), then the file, or "ERR: why".
 	ph("GET /api/phone/cv/ios/get/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
-		j := a.cv.Get(r.PathValue("id"))
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		j := a.cv.waitDone(r, r.PathValue("id"))
+		say := func(s string) { w.Header().Set("Content-Type", "text/plain; charset=utf-8"); fmt.Fprint(w, s) }
 		switch {
 		case j == nil:
-			fmt.Fprint(w, "ERR: That conversion is gone from the PC.")
+			say("ERR: That conversion is gone from the PC.")
 		case j.State == "failed":
-			fmt.Fprint(w, "ERR: "+j.Note)
+			say("ERR: " + j.Note)
 		case j.State != "done":
-			fmt.Fprintf(w, "WAIT %d", int(j.Pct))
-		case len(j.Files) == 1:
-			a.cv.update(j.ID, func(j *CvJob) { j.Fetched = true })
-			a.queueFile(w, r, a.cv, true)
+			say(fmt.Sprintf("WAIT %d", int(j.Pct)))
+		case !a.cv.onDisk(j):
+			say("ERR: The file is gone from the save folder on the PC.")
 		default:
-			a.cv.update(j.ID, func(j *CvJob) { j.Fetched = true })
-			queueZip(w, a.cv, j, "converted-")
+			if len(j.Files) == 1 {
+				a.queueFile(w, r, a.cv, true)
+			} else {
+				queueZip(w, a.cv, j, "converted-")
+			}
+			if r.Context().Err() == nil { // the phone took all of it
+				a.cv.update(j.ID, func(j *CvJob) { j.Fetched = true })
+			}
 		}
 	})
 }
@@ -179,10 +185,8 @@ func recvUpload(r *http.Request, dir string) ([]string, map[string]string, error
 			sent = part.FileName()
 		}
 		name := cleanName(sent, len(names))
-		for _, n := range names { // two files with one name
-			if strings.EqualFold(n, name) {
-				name = fmt.Sprintf("%s (%d)%s", baseName(name), len(names)+1, filepath.Ext(name))
-			}
+		for k, first := 2, name; slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) }); k++ { // two files with one name
+			name = fmt.Sprintf("%s (%d)%s", baseName(first), k, filepath.Ext(first))
 		}
 		if file != "" {
 			err = takePieces(u, dir, name)

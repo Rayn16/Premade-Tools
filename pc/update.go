@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -148,7 +149,7 @@ func swapExe(url string) error {
 
 // getExe downloads the release exe and makes sure it is one, so a cut-off file never replaces a working program.
 func getExe(url, dst string) error {
-	if err := download(&http.Client{Timeout: 10 * time.Minute}, url, dst, func(float64) {}); err != nil {
+	if err := download(context.Background(), &http.Client{Timeout: 10 * time.Minute}, url, dst, func(float64) {}); err != nil {
 		return err
 	}
 	b := make([]byte, 2)

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -393,7 +394,10 @@ func TestFriendsSlowFile(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 		if r.URL.Path == "/file/stuck" {
-			time.Sleep(2 * time.Second)
+			select {
+			case <-r.Context().Done(): // the PC gave up on it
+			case <-time.After(5 * time.Second):
+			}
 		}
 	}))
 	defer srv.Close()
@@ -406,5 +410,98 @@ func TestFriendsSlowFile(t *testing.T) {
 	at := time.Now()
 	if err := f.call("GET", "/file/stuck", nil, &bytes.Buffer{}); err == nil || time.Since(at) > 1500*time.Millisecond {
 		t.Fatalf("stuck: %v after %v", err, time.Since(at))
+	}
+}
+
+// Files sent together with the same name all arrive, each under its own name.
+func TestUploadSameNames(t *testing.T) {
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	for i, n := range []string{"x (3).jpg", "x.jpg", "x.jpg", "X.JPG"} {
+		f, _ := mw.CreateFormFile("f", n)
+		fmt.Fprint(f, i)
+	}
+	mw.Close()
+	r := httptest.NewRequest("POST", "/", &b)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	dir := t.TempDir()
+	names, _, err := recvUpload(r, dir)
+	if err != nil || len(names) != 4 {
+		t.Fatalf("%v %v", names, err)
+	}
+	for i, n := range names {
+		if got, _ := os.ReadFile(filepath.Join(dir, n)); string(got) != fmt.Sprint(i) {
+			t.Errorf("%s holds %q, want %d (names %v)", n, got, i, names)
+		}
+	}
+}
+
+// A cancelled job leaves nothing behind: not the files sent, not what it had made so far.
+func TestCancelLeavesNothing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	out := t.TempDir()
+	c := newQueue("test-jobs.json", "test-in", func(string) string { return "" }, func() string { return out })
+	made := make(chan string, 1)
+	c.work = func(ctx context.Context, j *CvJob, in, out string, prog func(float64)) ([]string, []string) {
+		f := freeName(out, "half done.txt")
+		made <- f
+		<-ctx.Done()
+		return []string{f}, nil
+	}
+	go c.worker()
+	os.MkdirAll(c.InputDir("j1"), 0o755)
+	os.WriteFile(filepath.Join(c.InputDir("j1"), "in.txt"), []byte("x"), 0o644)
+	c.add(&CvJob{ID: "j1", Inputs: []string{"in.txt"}})
+	f := <-made
+	c.Cancel("j1")
+	for i := 0; ; i++ {
+		_, e1 := os.Stat(f)
+		_, e2 := os.Stat(c.InputDir("j1"))
+		if os.IsNotExist(e1) && os.IsNotExist(e2) {
+			break
+		} else if i > 100 {
+			t.Fatalf("left behind: %v %v", e1, e2)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The speech engine's download stops when the job that needed it is cancelled.
+func TestDownloadStops(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100000000")
+		for i := 0; i < 100 && r.Context().Err() == nil; i++ {
+			w.Write(make([]byte, 1000))
+			w.(http.Flusher).Flush()
+			time.Sleep(50 * time.Millisecond)
+		}
+	}))
+	defer srv.Close()
+	ctx, stop := context.WithCancel(context.Background())
+	time.AfterFunc(200*time.Millisecond, stop)
+	at := time.Now()
+	if err := download(ctx, &http.Client{}, srv.URL, filepath.Join(t.TempDir(), "model.bin"), func(float64) {}); err == nil || time.Since(at) > 2*time.Second {
+		t.Fatalf("%v after %v", err, time.Since(at))
+	}
+}
+
+// A Shortcut asking about a conversion waits on the PC while it runs, and then gets the file with its own type.
+func TestShortcutWaitsForConversion(t *testing.T) {
+	a, h := testApp(t)
+	out := t.TempDir()
+	a.cv = newQueue("cv-test.json", "cv-test-in", func(string) string { return "" }, func() string { return out })
+	a.cv.add(&CvJob{ID: "c1"})
+	time.AfterFunc(700*time.Millisecond, func() {
+		os.WriteFile(filepath.Join(out, "photo.png"), []byte("\x89PNG\r\n\x1a\n"), 0o644)
+		a.cv.update("c1", func(j *CvJob) { j.State, j.Files, j.Dir = "done", []DLFile{{Name: "photo.png"}}, out })
+	})
+	w := call(h, "GET", "/api/phone/cv/ios/get/c1", nil)
+	if w.Body.String() != "\x89PNG\r\n\x1a\n" || w.Header().Get("Content-Type") != "image/png" || !a.cv.Get("c1").Fetched {
+		t.Fatalf("%q %q", w.Body.String(), w.Header().Get("Content-Type"))
+	}
+	os.Remove(filepath.Join(out, "photo.png"))
+	if w := call(h, "GET", "/api/phone/cv/ios/get/c1", nil); !strings.HasPrefix(w.Body.String(), "ERR: ") {
+		t.Fatalf("file gone: %q", w.Body.String())
 	}
 }

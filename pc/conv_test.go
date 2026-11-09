@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +147,13 @@ func TestConvertEndToEnd(t *testing.T) {
 				t.Errorf("%s: empty", to)
 			}
 		}
+		up := filepath.Join(src, "upright.mov") // "up to 1080p" is the short side, so a phone's upright video keeps 1080x1920
+		exec.Command(a.cvBin("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", "testsrc=s=1080x1920:d=1", "-c:v", "mpeg4", up).Run()
+		j := run("mp4", "&small=1", up)
+		info, _ := exec.Command(a.cvBin("ffmpeg"), "-i", filepath.Join(out, j.Files[0].Name)).CombinedOutput()
+		if !strings.Contains(string(info), "1080x1920") {
+			t.Errorf("smaller upright video: %s", regexp.MustCompile(`\d+x\d+`).FindAllString(string(info), -1))
+		}
 	}
 	if need("soffice") && os.Getenv("CI") == "" {
 		txt := filepath.Join(src, "notes.txt")
@@ -154,6 +162,11 @@ func TestConvertEndToEnd(t *testing.T) {
 			if j := run(to, "", txt); !strings.HasSuffix(j.Files[0].Name, "."+to) {
 				t.Errorf("%s: %+v", to, j.Files)
 			}
+		}
+		page := filepath.Join(src, "page.html") // LibreOffice opens a web page as one, which can't be saved as Word
+		os.WriteFile(page, []byte("<html><body><h1>Hello</h1><p>مرحبا</p></body></html>"), 0o644)
+		if j := run("docx", "", page); j.Files[0].Name != "page.docx" {
+			t.Errorf("html to docx: %+v", j.Files)
 		}
 	}
 	// A broken file fails in plain words instead of hanging.
