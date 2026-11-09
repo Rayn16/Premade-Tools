@@ -1,5 +1,5 @@
 // The PDF tools' main box, shared by the PC window (pdf-ui.js) and the phones (mpdf.js), which set PDFAPI:
-// { base, auth(xhr), touch, after(), acts(job), where(job) }. Page pictures are drawn here on the device by
+// { base, hdr, touch, after(), acts(job), where(job) }. Page pictures are drawn here on the device by
 // PDF.js; only the finished choice goes to the PC, which does the real work.
 'use strict';
 
@@ -205,22 +205,16 @@ function pdfAfterFiles() {
   render();
 }
 
-function pdfSend() {
+async function pdfSend() {
   if (PDFST?.local) return localPdf(); // the phone does it (local.js)
-  const fd = new FormData();
-  if (P.op === 'lock' || P.op === 'unlock') fd.append('pw', P.pw);
-  for (const f of P.files) fd.append('f', f, f.name);
-  const x = new XMLHttpRequest();
-  x.open('POST', `${PDFAPI.base}/start?op=${P.op}&pages=${pdfSpec()}&level=${P.level}`);
-  PDFAPI.auth(x);
-  x.upload.onprogress = (e) => { if (e.lengthComputable) { P.up = Math.floor(e.loaded / e.total * 100); render(); } };
-  x.onload = async () => {
-    P.up = -1;
-    if (x.status === 200) { P.gen++; Object.assign(P, { files: [], pages: [], thumbs: {}, pagesOf: null, pw: '', err: '' }); } else P.err = x.responseText.trim() || "That didn't work.";
-    await pdfRefresh(); render(); PDFAPI.after();
-  };
-  x.onerror = () => { P.up = -1; P.err = PDFAPI.touch ? "Couldn't reach your PC." : "Couldn't send the files."; render(); };
-  P.up = 0; P.err = ''; render(); x.send(fd);
+  P.up = 0; P.err = ''; render();
+  let x;
+  try {
+    x = await sendForm(`${PDFAPI.base}/start?op=${P.op}&pages=${pdfSpec()}&level=${P.level}`, PDFAPI.hdr, P.files, P.op === 'lock' || P.op === 'unlock' ? { pw: P.pw } : {}, (p) => { P.up = Math.floor(p * 100); render(); });
+  } catch (e) { P.up = -1; P.err = PDFAPI.touch ? e.message : "Couldn't send the files."; render(); return; }
+  P.up = -1;
+  if (x.status === 200) { P.gen++; Object.assign(P, { files: [], pages: [], thumbs: {}, pagesOf: null, pw: '', err: '' }); } else P.err = x.responseText.trim() || "That didn't work.";
+  await pdfRefresh(); render(); PDFAPI.after();
 }
 
 function pdfMove(arr, i, to) {

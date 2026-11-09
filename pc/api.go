@@ -211,6 +211,7 @@ func (a *App) routes() http.Handler {
 		writeJ(w, map[string]int{"version": n})
 	})
 	pt("GET /api/phone/deleted", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.deletedNow()) })
+	pt("PUT /api/phone/piece", a.piece)
 	ph("GET /api/phone/view/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		serveItem(w, r, st, r.PathValue("id"), r.URL.Query().Has("dl"))
 	})

@@ -4,7 +4,7 @@
 
 const PDFAPI = {
   base: '/api/ui/pdf',
-  auth: (x) => x.setRequestHeader('X-Vault', '1'),
+  hdr: { 'X-Vault': '1' },
   touch: false,
   after: () => soon(),
   from: (j) => fromName(j),

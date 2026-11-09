@@ -163,7 +163,9 @@ final class Drops {
                     for (int r; (r = i.read(buf)) > 0; ) o.write(buf, 0, r);
                 }
             }
-            String r = h.getResponseCode() == 200 ? Vault.read(h.getInputStream()).trim() : "ERR: The PC said " + h.getResponseCode() + ".";
+            int code = h.getResponseCode(); // 413: away from home, through the relay, which takes nothing over 100 MB
+            String r = code == 200 ? Vault.read(h.getInputStream()).trim() : code == 413 ? "ERR: That's over 100 MB, more than goes through the internet. Send it on home Wi-Fi."
+                    : "ERR: The PC said " + code + ".";
             return body != null ? r.replaceFirst("^(OK|ERR): ", "") : r;
         } finally { h.disconnect(); }
     }

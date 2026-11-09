@@ -8,8 +8,8 @@ const pdfBlobs = {};         // iPhone: job id → File[] fetched ahead, so Save
 const pdfURL = (j, n, dl) => `${PCURL}/api/phone/pdf/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
 
 const PDFAPI = {
-  base: PCURL + '/api/phone/pdf',
-  auth: (x) => x.setRequestHeader('Authorization', 'Bearer ' + TOKEN),
+  get base() { return PCURL + '/api/phone/pdf'; }, // PCURL changes when the other address answers
+  hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => pdfPoll(),
   from: (j) => dlFrom(j),

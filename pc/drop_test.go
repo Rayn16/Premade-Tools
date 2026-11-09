@@ -118,3 +118,46 @@ func TestLongDropText(t *testing.T) {
 		t.Fatalf("a push would carry %d letters", len([]rune(n)))
 	}
 }
+
+// A phone's big file comes in pieces (the relay takes nothing over 100 MB in one call): a piece sent again replaces
+// itself, one out of order or with a bad id is refused, and the upload then takes the whole file by its id.
+func TestPiecesUpload(t *testing.T) {
+	a, h := testApp(t)
+	a.drops = NewDrops(func() string { return t.TempDir() })
+	u := strings.Repeat("ab", 16)
+	put := func(id, at, body string) int {
+		return call(h, "PUT", "/api/phone/piece?u="+id+"&at="+at, strings.NewReader(body)).Code
+	}
+	for _, p := range [][2]string{{"0", "hello "}, {"6", "wor"}, {"6", "world"}} { // the second try of a piece that broke
+		if c := put(u, p[0], p[1]); c != 200 {
+			t.Fatalf("piece at %s: %d", p[0], c)
+		}
+	}
+	if put(u, "99", "x") != 400 || put("../../x", "0", "x") != 400 || put(u, "-1", "x") != 400 {
+		t.Fatal("a piece out of order or with a bad id was taken")
+	}
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	mw.WriteField("p", u+"/clip.mov")
+	mw.Close()
+	if w := call(h, "POST", "/api/phone/drop/send?to=pc", &b, "Content-Type", mw.FormDataContentType()); w.Code != 200 {
+		t.Fatalf("send by pieces: %d %s", w.Code, w.Body)
+	}
+	it := a.drops.List("pc")[0]
+	if p, ok := a.drops.Path(&it, 0); !ok || it.Files[0].Name != "clip.mov" {
+		t.Fatalf("the drop: %+v", it)
+	} else if got, _ := os.ReadFile(p); string(got) != "hello world" {
+		t.Fatalf("the file arrived as %q", got)
+	}
+	if _, err := os.Stat(piecePath(u)); err == nil {
+		t.Fatal("the pieces stayed behind")
+	}
+
+	b.Reset()
+	mw = multipart.NewWriter(&b)
+	mw.WriteField("p", u+"/clip.mov") // already taken
+	mw.Close()
+	if w := call(h, "POST", "/api/phone/drop/send?to=pc", &b, "Content-Type", mw.FormDataContentType()); w.Code != 400 {
+		t.Fatalf("a file whose pieces never came: %d", w.Code)
+	}
+}

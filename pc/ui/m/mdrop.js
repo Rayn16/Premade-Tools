@@ -3,7 +3,7 @@
 'use strict';
 
 const DROPAPI = {
-  base: PCURL + '/api/phone/drop',
+  get base() { return PCURL + '/api/phone/drop'; }, // PCURL changes when the other address answers
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => {},

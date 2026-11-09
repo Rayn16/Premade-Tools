@@ -81,22 +81,16 @@ function dropList(items, empty) {
     : `<div class="empty">${icon('drop')}<h2>Nothing here yet</h2><p>${empty}</p></div>`;
 }
 
-function dropSend() {
+async function dropSend() {
   if (DROPST?.local) return localDrop(); // the PC is off: through the relay (local.js)
-  const fd = new FormData();
-  for (const f of FD.files) fd.append('f', f, f.name);
-  if (FD.text.trim()) fd.append('text', FD.text);
-  const x = new XMLHttpRequest();
-  x.open('POST', `${DROPAPI.base}/send?to=${encodeURIComponent(FD.to)}`);
-  for (const [k, v] of Object.entries(DROPAPI.hdr)) x.setRequestHeader(k, v);
-  x.upload.onprogress = (e) => { if (e.lengthComputable) { FD.up = Math.floor(e.loaded / e.total * 100); render(); } };
-  x.onload = async () => {
-    FD.up = -1;
-    if (x.status === 200) { FD.files = []; FD.text = ''; FD.err = ''; } else FD.err = x.responseText.trim() || "That didn't send.";
-    await dropRefresh(); render(); DROPAPI.after();
-  };
-  x.onerror = () => { FD.up = -1; FD.err = "Couldn't reach your PC."; render(); };
-  FD.up = 0; FD.err = ''; render(); x.send(fd);
+  FD.up = 0; FD.err = ''; render();
+  let x;
+  try {
+    x = await sendForm(`${DROPAPI.base}/send?to=${encodeURIComponent(FD.to)}`, DROPAPI.hdr, FD.files, FD.text.trim() ? { text: FD.text } : {}, (p) => { FD.up = Math.floor(p * 100); render(); });
+  } catch (e) { FD.up = -1; FD.err = e.message; render(); return; }
+  FD.up = -1;
+  if (x.status === 200) { FD.files = []; FD.text = ''; FD.err = ''; } else FD.err = x.responseText.trim() || "That didn't send.";
+  await dropRefresh(); render(); DROPAPI.after();
 }
 
 const dropCopied = (key) => { FD.copied = key; render(); setTimeout(() => { FD.copied = ''; render(); }, 1800); };

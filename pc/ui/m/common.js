@@ -133,3 +133,41 @@ document.addEventListener('loadedmetadata', (e) => {
   DUR[v.dataset.id] = Math.floor(s / 60) + ':' + pad(s % 60);
   document.querySelectorAll(`[data-dur="${v.dataset.id}"]`).forEach((n) => { n.textContent = DUR[v.dataset.id]; });
 }, true);
+
+// One call with upload progress (onp gets the bytes sent); resolves with the XHR whatever its status.
+function xhr(method, url, hdr, body, onp) {
+  return new Promise((ok, no) => {
+    const x = new XMLHttpRequest();
+    x.open(method, url);
+    for (const [k, v] of Object.entries(hdr)) x.setRequestHeader(k, v);
+    x.upload.onprogress = (e) => e.lengthComputable && onp(e.loaded);
+    x.onload = () => ok(x);
+    x.onerror = () => no(new Error("Couldn't reach your PC."));
+    x.send(body);
+  });
+}
+// Phones reach their PC through the relay's link away from home (the iPhone app always does), and the relay takes
+// nothing over 100 MB in one call. So a phone's bigger file goes to /api/phone/piece first, 50 MB at a time (each
+// tried 3 times), and the upload then names it by the id this gives back.
+async function sendPieces(url, hdr, f, onp) {
+  const piece = url.slice(0, url.indexOf('/api/phone/')) + '/api/phone/piece', P = 50 << 20;
+  const u = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  for (let at = 0; at < f.size || !at; at += P) {
+    for (let tries = 1; ; tries++) {
+      const x = await xhr('PUT', `${piece}?u=${u}&at=${at}`, hdr, f.slice(at, at + P), (n) => onp(at + n)).catch((e) => { if (tries === 3) throw e; });
+      if (x?.status === 200) break;
+      if (x && (x.status < 500 || tries === 3)) throw new Error(x.responseText.trim() || "That didn't send.");
+    }
+  }
+  return u;
+}
+// Files ("f") and fields as one form, with progress from 0 to 1. A phone's files over 90 MB together go in pieces.
+async function sendForm(url, hdr, files, fields, onp) {
+  const fd = new FormData(), total = files.reduce((n, f) => n + f.size, 0) || 1;
+  let done = 0;
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  if (url.includes('/api/phone/') && total > 90 << 20) {
+    for (const f of files) { fd.append('p', `${await sendPieces(url, hdr, f, (n) => onp((done + n) / total))}/${f.name}`); done += f.size; }
+  } else for (const f of files) fd.append('f', f, f.name);
+  return xhr('POST', url, hdr, fd, (n) => onp(Math.min(1, (done + n) / total)));
+}

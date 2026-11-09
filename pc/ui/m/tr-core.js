@@ -95,21 +95,16 @@ function trRow(j, full) {
     ${open ? trTextView(j) : ''}</div>`;
 }
 
-function trSend() {
+async function trSend() {
   if (TRST?.local) { localTranscribe(T.files, T.to, T.lang); T.files = []; T.err = ''; render(); return; } // the phone listens (local.js)
-  const fd = new FormData();
-  for (const f of T.files) fd.append('f', f, f.name);
-  const x = new XMLHttpRequest();
-  x.open('POST', `${TRAPI.base}/start?to=${T.to}`);
-  for (const [k, v] of Object.entries(TRAPI.hdr)) x.setRequestHeader(k, v);
-  x.upload.onprogress = (e) => { if (e.lengthComputable) { T.up = Math.floor(e.loaded / e.total * 100); render(); } };
-  x.onload = async () => {
-    T.up = -1;
-    if (x.status === 200) { T.files = []; T.err = ''; } else T.err = x.responseText.trim() || "That didn't work.";
-    await trRefresh(); render(); TRAPI.after();
-  };
-  x.onerror = () => { T.up = -1; T.err = TRAPI.touch ? "Couldn't reach your PC." : "Couldn't send the files."; render(); };
-  T.up = 0; T.err = ''; render(); x.send(fd);
+  T.up = 0; T.err = ''; render();
+  let x;
+  try {
+    x = await sendForm(`${TRAPI.base}/start?to=${T.to}`, TRAPI.hdr, T.files, {}, (p) => { T.up = Math.floor(p * 100); render(); });
+  } catch (e) { T.up = -1; T.err = TRAPI.touch ? e.message : "Couldn't send the files."; render(); return; }
+  T.up = -1;
+  if (x.status === 200) { T.files = []; T.err = ''; } else T.err = x.responseText.trim() || "That didn't work.";
+  await trRefresh(); render(); TRAPI.after();
 }
 
 // ---------- recording (the PC window only: phones reach the PC over http, where browsers keep the mic off) ----------

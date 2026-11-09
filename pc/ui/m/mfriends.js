@@ -3,7 +3,7 @@
 'use strict';
 
 const FRAPI = {
-  base: PCURL + '/api/phone/friends',
+  get base() { return PCURL + '/api/phone/friends'; }, // PCURL changes when the other address answers
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   sheet: (label, body) => `<div class="msheet" data-frclose><div class="msheet-card" role="dialog" aria-modal="true" aria-label="${label}"><div class="grab"><span></span></div>

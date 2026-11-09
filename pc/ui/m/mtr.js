@@ -3,7 +3,7 @@
 'use strict';
 
 const TRAPI = {
-  base: PCURL + '/api/phone/tr',
+  get base() { return PCURL + '/api/phone/tr'; }, // PCURL changes when the other address answers
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => trPoll(),
