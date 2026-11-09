@@ -139,6 +139,12 @@ function edSvg(it) {
 }
 const edTextCss = (it, s = it.size) => `font-size:calc(${s}px * var(--s));font-family:${ED_FONT[it.family || 'sans']};${it.bold ? 'font-weight:700;' : ''}${it.italic ? 'font-style:italic;' : ''}color:${it.color}`;
 const edPos = (b) => `left:calc(${b.x}px * var(--s));top:calc(${b.y}px * var(--s));width:calc(${b.w}px * var(--s));height:calc(${b.h}px * var(--s))`;
+// Where a changed line shows inside its box: from the line's start, or (right to left) back from its far end, turned as the line is.
+function edLine(b) {
+  const t = b.angle * Math.PI / 180, d = b.rtl ? b.len : 0, x = b.ox + d * Math.cos(t) - b.x, y = b.oy + d * Math.sin(t) - b.y - b.size;
+  return `top:calc(${y}px * var(--s));${b.rtl ? `left:auto;right:calc(${b.w - x}px * var(--s))` : `left:calc(${x}px * var(--s))`}`
+    + (b.angle ? `;transform-origin:${b.rtl ? 100 : 0}% 100%;transform:rotate(${b.angle}deg)` : '');
+}
 
 // Redraws page i's added things, its changed lines and, with Edit, the lines you can tap.
 function edPaint(i) {
@@ -153,7 +159,7 @@ function edPaint(i) {
     if (now !== undefined) svg = `<rect x="${b.x - 1}" y="${b.y - 1}" width="${b.w + 2}" height="${b.h + 2}" fill="#fff"/>` + svg;
     if (typing) continue;
     html += `<div class="edblk${now !== undefined ? ' is-changed' : ''}" data-b="${key}" style="${edPos(b)}">${now !== undefined
-      ? `<span dir="auto" style="${edTextCss(b)};top:calc(${b.oy - b.y - b.size}px * var(--s))${b.rtl ? ';left:auto;right:0' : ''}">${esc(now)}</span>` : ''}</div>`;
+      ? `<span dir="auto" style="${edTextCss(b)};${edLine(b)}">${esc(now)}</span>` : ''}</div>`;
   }
   for (const it of items.filter((x) => x.type === 'text' && ED.typing?.id !== x.id)) html += `<div class="edtxt" dir="auto" data-it="${it.id}" style="left:calc(${it.x}px * var(--s));top:calc(${it.y}px * var(--s));${edTextCss(it)}">${esc(it.text)}</div>`;
   if (sel?.page === i) {
@@ -246,7 +252,7 @@ function edType(on, what) {
     const [i, id] = what.key.split(':'), b = ED.reads[i].blocks[id];
     el.value = ED.edits[what.key] ?? b.text;
     const side = b.rtl ? `right:calc(${ED.pages[i].W - b.x - b.w - 2}px * var(--s))` : `left:calc(${b.x - 2}px * var(--s))`; // Arabic grows to the left
-    el.style.cssText = `${edTextCss(b)};${side};top:calc(${b.y - 2}px * var(--s));min-width:calc(${b.w + 30}px * var(--s));height:calc(${b.h + 4}px * var(--s))`;
+    el.style.cssText = `${edTextCss(b)};${side};top:calc(${b.y - 2}px * var(--s));min-width:calc(${b.w + 30}px * var(--s));height:calc(${b.h + 4}px * var(--s))`; // over all the line, even a turned one (typed level): a phone's tap lands after the box opens, and off it would close it
     ED.typing = { key: what.key, el };
     ED.root.querySelector(`.edpage[data-p="${i}"] .edhtml`).append(el);
     edPaint(+i);
@@ -268,13 +274,14 @@ function edType(on, what) {
   if (what.fresh) el.select();
 }
 
-// Pictures and signatures come in as PNG (keeps see-through parts) or JPEG, at most 2000 pixels across.
+// Pictures and signatures come in as PNG (keeps see-through parts) or JPEG, at most 2000 pixels across. A JPEG is
+// always drawn again: the canvas turns it the way its EXIF says, which a PDF wouldn't do with the bytes as stored.
 async function edPicture(blob, sig) {
   const url = URL.createObjectURL(blob), im = new Image();
   im.src = url;
   try { await im.decode(); } catch (e) { URL.revokeObjectURL(url); ED.note = "That picture couldn't be opened."; return edBar(); }
   let w = im.naturalWidth, h = im.naturalHeight, bytes, png = blob.type === 'image/png';
-  if (Math.max(w, h) > 2000 || !/^image\/(png|jpeg)$/.test(blob.type)) {
+  if (Math.max(w, h) > 2000 || blob.type !== 'image/png') {
     const k = Math.min(1, 2000 / Math.max(w, h)), c = document.createElement('canvas');
     c.width = Math.round(w * k); c.height = Math.round(h * k);
     c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
@@ -464,7 +471,7 @@ async function edSave() {
     const bytes = await doc.save({ useObjectStreams: true });
     const file = new File([bytes], ED.file.name, { type: 'application/pdf' });
     edClose();
-    P.files = [file];
+    P.files = [file]; P.edited = file; // if the send fails, the button sends this again instead of reopening the editor
     pdfSend(); // the PDF tools save it as "name (edited).pdf", like their other results
   } catch (e) {
     ED.busy = false;

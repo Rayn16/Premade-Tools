@@ -94,4 +94,21 @@ assert.ok(Math.abs(t.angle) < 1 && t.x > 9 && t.x < 11, 'added text reads uprigh
   assert.equal(r4.blocks[0].text, 'BAZ');
   assert.deepEqual(editText(doc4, p4, r4, { 0: 'CAB' }).map((x) => x.text), ['CAB'], 'C would have come out as Z');
 }
+// A changed line on a turned page, drawn again because its font lacks a letter, is saved turned, where it was.
+{
+  const d7 = await PDFDocument.create(), pg = d7.addPage([300, 400]), ctx = d7.context;
+  const font = ctx.register(ctx.obj({ Type: 'Font', Subtype: 'TrueType', BaseFont: 'Arial', FirstChar: 65, LastChar: 67, Widths: [600, 600, 600],
+    FontDescriptor: ctx.register(ctx.obj({ Type: 'FontDescriptor', FontName: 'Arial', Flags: 32 })) }));
+  pg.node.setFontDictionary(PDFName.of('F1'), font);
+  pg.node.set(PDFName.of('Contents'), ctx.register(ctx.stream('BT /F1 20 Tf 1 0 0 1 40 340 Tm (ABC) Tj ET')));
+  pg.setRotation(degrees(90));
+  const doc7 = await PDFDocument.load(await d7.save()), p7 = doc7.getPage(0), r7 = readText(doc7, p7), b = r7.blocks[0];
+  assert.ok(Math.round(b.angle) === 90 && Math.abs(b.len - b.h) < 0.01, 'the line runs down the screen');
+  const extra = editText(doc7, p7, r7, { 0: 'ABD' });
+  assert.equal(extra.length, 1, 'D is drawn again');
+  await drawItems(doc7, p7, extra, {});
+  const o7 = await PDFDocument.load(await doc7.save()), t7 = readText(o7, o7.getPage(0)).blocks;
+  assert.deepEqual(t7.map((x) => x.text), ['ABD']);
+  assert.ok(Math.round(t7[0].angle) === 90 && Math.hypot(t7[0].ox - b.ox, t7[0].oy - b.oy) < 0.5, 'saved turned, where it was');
+}
 console.log('pdf-edit ok');

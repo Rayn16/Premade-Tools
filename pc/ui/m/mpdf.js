@@ -66,7 +66,7 @@ function pdfHistoryView(off) {
     if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
     days.at(-1).rows.push(pdfRow(j, true));
   }
-  return `${dlTitle('History', 'Everything the PDF tools did, on the PC and your phones.')}
+  return `${dlTitle('History', 'What this phone did with the PDF tools, newest first.')}
     <div class="feed scroller">${off}${days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
       : `<div class="empty">${icon('pdf')}<h2>Nothing done yet</h2><p>Pick a tool in Tools.</p></div>`}</div>`;
 }

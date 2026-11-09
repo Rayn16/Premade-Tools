@@ -20,7 +20,7 @@ function trToolsView(off) {
   return `${title}<div class="feed scroller">${off}
     ${T.err ? `<div class="notebox">${icon('alert')}<div>${esc(T.err)}</div></div>` : ''}
     <div class="dlbox cvbox">${trBox()}
-      <div class="route"><i class="dotlight"></i><span>${TRST.local ? 'Your PC is out of reach, so this phone listens. It\'s slower than the PC, and the first time it gets the speech engine (about 80 MB).' : IOS && !trCanRecord() ? `To talk now, run the <b>${SHORTCUT_TR}</b> Shortcut (Settings tab shows how). Voice Memos can share straight to it.` : 'Voice Recorder files are in Recordings, in My Files.'}</span></div></div>
+      <div class="route"><i class="dotlight"></i><span>${TRST.local ? 'Your PC is out of reach, so this phone listens. It\'s slower than the PC, and the first time it gets the speech engine (about 80 MB).' : IOS && !trCanRecord() ? `To talk now, run the <b>${SHORTCUT_TR}</b> Shortcut (Settings tab shows how). Voice Memos can share straight to it.` : IOS ? 'Record here, or pick a voice memo you saved to Files.' : 'Voice Recorder files are in Recordings, in My Files.'}</span></div></div>
     ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => trRow(j)).join('')}</div></section>` : ''}
   </div>`;
 }
@@ -32,7 +32,7 @@ function trHistoryView(off) {
     if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
     days.at(-1).rows.push(trRow(j, true));
   }
-  return `${dlTitle('History', 'Everything transcribed, on the PC and your phones.')}
+  return `${dlTitle('History', 'What this phone transcribed, newest first.')}
     <div class="feed scroller">${off}${days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
       : `<div class="empty">${icon('transcribe')}<h2>Nothing transcribed yet</h2><p>Pick a voice memo in Transcribe, or tap Transcribe on a download.</p></div>`}</div>`;
 }

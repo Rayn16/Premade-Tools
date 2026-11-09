@@ -122,7 +122,7 @@ function cvHistoryView(off) {
     if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
     days.at(-1).rows.push(cvRow(j, true));
   }
-  return `${dlTitle('History', 'Everything converted on the PC and your phones, newest first.')}
+  return `${dlTitle('History', 'What this phone converted, newest first.')}
     <div class="feed scroller">${off}${days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
       : `<div class="empty">${icon('convert')}<h2>Nothing converted yet</h2><p>Pick files in Convert.</p></div>`}</div>`;
 }

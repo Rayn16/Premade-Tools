@@ -290,9 +290,11 @@ export function readText(doc, page) {
   if (b) blocks.push(b);
   return { src, list, blocks: blocks.filter((x) => x.text.trim()).map((x, i) => {
     const xs = x.pts.map((p) => p[0]), ys = x.pts.map((p) => p[1]), r = x.runs[0], f = r.f, text = logical(x.text.trim());
-    const vm = mul(x.frame, V.m), [ox, oy] = at(vm, 0, r.rise);
+    const vm = mul(x.frame, V.m), [x0, y0] = at(vm, 0, r.rise), a = Math.atan2(vm[1], vm[0]), c = Math.cos(a), s = Math.sin(a);
+    const along = x.pts.map((q) => (q[0] - x0) * c + (q[1] - y0) * s), lo = Math.min(...along);
     return { id: i, text, rtl: rtlFirst(text), unseen: x.runs.every((q) => q.unseen), runs: x.runs, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
-      ox, oy, size: x.vsize, angle: Math.atan2(vm[1], vm[0]) * 180 / Math.PI, color: '#' + r.color.map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, '0')).join(''),
+      ox: x0 + lo * c, oy: y0 + lo * s, len: Math.max(...along) - lo, // where the line starts on its baseline, and how far it runs (along its angle)
+      size: x.vsize, angle: a * 180 / Math.PI, color: '#' + r.color.map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, '0')).join(''),
       family: /times|serif|roman|georgia|garamond|cambria|book/i.test(f.base) && !/sans/i.test(f.base) ? 'serif' : /courier|mono|consol/i.test(f.base) ? 'mono' : 'sans',
       bold: /bold|black|heavy|semibold|demi/i.test(f.base), italic: /italic|oblique/i.test(f.base) };
   }) };
@@ -348,7 +350,7 @@ export function editText(doc, page, read, edits, hide = []) {
     b.runs.forEach((r, i) => reps.push({ s: r.op.start, e: r.op.end, to: swap(r, i === 0 && codes && text ? codes : null) }));
     if (b.unseen) extra.push({ type: 'white', x: b.x - 1, y: b.y - 1, w: b.w + 2, h: b.h + 2 }); // on a scan the words are in the picture: covered, as the screen shows
     if (!codes && text) extra.push({ type: 'text', text, x: b.ox, y: b.oy - b.size, size: b.size, color: b.color, family: b.family, bold: b.bold, italic: b.italic, angle: b.angle,
-      ...(b.rtl && { end: b.x + b.w }) }); // a right-to-left line keeps its right edge
+      ...(b.rtl && { end: b.ox + b.len }) }); // a right-to-left line keeps its far end
   }
   if (hide.length) for (const b of read.blocks) {
     if (b.id in edits) continue;
@@ -375,8 +377,8 @@ const STD = { sans: ['Helvetica', 'HelveticaBold', 'HelveticaOblique', 'Helvetic
 
 // Draws the added things on a page. items are in view points; pictures: { [id]: { bytes, png } }. textPng(item, line)
 // draws a line the built-in fonts can't (Arabic, emoji…) as a picture: { bytes, w, h, pad } in points, pad being the
-// room left on each side of the letters. Text with an end
-// (a changed right-to-left line) ends there instead of starting at x.
+// room left on each side of the letters. Text with an end (a changed right-to-left line) ends there instead of
+// starting at x; text with an angle (a changed line on a turned page) turns around the start of its first line.
 export async function drawItems(doc, page, items, pics, textPng) {
   if (!items.length) return;
   const ctx = doc.context, { H, m } = view(page);
@@ -389,7 +391,8 @@ export async function drawItems(doc, page, items, pics, textPng) {
   for (const it of items) {
     const color = it.color ? colorOf(it.color) : undefined, bw = it.width || 2;
     if (it.type === 'text') {
-      const f = await font(it), lines = it.text.split('\n');
+      const f = await font(it), lines = it.text.split('\n'), t = -it.angle * Math.PI / 180, c = Math.cos(t), s = Math.sin(t), px = it.x, py = Y(it.y + it.size);
+      if (it.angle) page.pushOperators(pushGraphicsState(), concatTransformationMatrix(c, s, -s, c, px - px * c + py * s, py - px * s - py * c));
       for (let i = 0; i < lines.length; i++) {
         const base = it.y + it.size * (1 + 1.2 * i);
         f._set ??= new Set(f.getCharacterSet());
@@ -400,6 +403,7 @@ export async function drawItems(doc, page, items, pics, textPng) {
           page.drawImage(img, { x: it.end === undefined ? it.x - pad : it.end - p.w + pad, y: Y(it.y + it.size * 1.2 * (i + 1)), width: p.w, height: p.h });
         }
       }
+      if (it.angle) page.pushOperators(popGraphicsState());
     } else if (it.type === 'pic') page.drawImage(await pic(it.pic), { x: it.x, y: Y(it.y + it.h), width: it.w, height: it.h });
     else if (it.type === 'white') page.drawRectangle({ x: it.x, y: Y(it.y + it.h), width: it.w, height: it.h, color: rgb(1, 1, 1) });
     else if (it.type === 'mark') page.drawRectangle({ x: it.x, y: Y(it.y + it.h), width: it.w, height: it.h, color, opacity: 0.4, blendMode: BlendMode.Multiply });
