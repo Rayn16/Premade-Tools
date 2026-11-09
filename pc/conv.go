@@ -414,20 +414,33 @@ func plural(n int, one, many string) string {
 }
 
 // freeName takes a name in dir that isn't used yet: "IMG_1.jpg", then "IMG_1 (2).jpg", … Every tool saves into
-// one folder, so it claims the name by making it as an empty file, which the caller then writes over.
-func freeName(dir, name string) string {
+// one folder, so it claims the name by making it as an empty file, which the caller then writes over. Each of
+// also (".srt") is claimed with the same name, for files that go together.
+func freeName(dir, name string, also ...string) string {
 	ext := filepath.Ext(name)
-	p := filepath.Join(dir, name)
-	for n := 2; ; n++ {
-		f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
-		if err == nil {
+	stem := strings.TrimSuffix(name, ext)
+	for n := 1; ; n++ {
+		if n > 1 {
+			stem = fmt.Sprintf("%s (%d)", strings.TrimSuffix(name, ext), n)
+		}
+		var got []string
+		for _, e := range append([]string{ext}, also...) {
+			f, err := os.OpenFile(filepath.Join(dir, stem+e), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+			if err != nil {
+				if !os.IsExist(err) {
+					return filepath.Join(dir, stem+ext) // no folder, say: the writer reports it
+				}
+				break
+			}
 			f.Close()
-			return p
+			got = append(got, f.Name())
 		}
-		if !os.IsExist(err) {
-			return p // no folder, say: the writer reports it
+		if len(got) == 1+len(also) {
+			return got[0]
 		}
-		p = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(name, ext), n, ext))
+		for _, p := range got {
+			os.Remove(p)
+		}
 	}
 }
 

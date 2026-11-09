@@ -52,4 +52,24 @@ printf '1\n00:00:00,000 --> 00:00:01,000\nمرحبا\n' > "$base.srt"
 	if _, lang, _ := c.transcribe(context.Background(), "text", filepath.Join(in, "memo.m4a"), in, out, "memo", func(float64) {}); lang != "Arabic" {
 		t.Fatalf("lang = %q", lang)
 	}
+
+	// A recording called sound.wav (the name used for the sound pulled out of each file), and subtitles already in
+	// the folder under the name the next one would get: both go through, and nothing there is written over.
+	for _, n := range []string{"sound.wav", "talk.m4a"} {
+		if b, err := exec.Command("ffmpeg", "-f", "lavfi", "-i", "sine=d=1", "-y", filepath.Join(in, n)).CombinedOutput(); err != nil {
+			t.Fatal(err, string(b))
+		}
+	}
+	os.WriteFile(filepath.Join(out, "talk.srt"), []byte("mine"), 0o644)
+	made, fails = c.trWork(context.Background(), &CvJob{ID: "j2", Inputs: []string{"sound.wav", "talk.m4a"}, Target: "en"}, in, out, func(float64) {})
+	var names []string
+	for _, m := range made {
+		names = append(names, filepath.Base(m))
+	}
+	if len(fails) > 0 || strings.Join(names, "|") != "sound.txt|sound.srt|talk (2).txt|talk (2).srt" {
+		t.Fatalf("made %q, fails %v", names, fails)
+	}
+	if b, _ := os.ReadFile(filepath.Join(out, "talk.srt")); string(b) != "mine" {
+		t.Fatalf("talk.srt was written over: %q", b)
+	}
 }
