@@ -1,5 +1,5 @@
 // The PDF tools' main box, shared by the PC window (pdf-ui.js) and the phones (mpdf.js), which set PDFAPI:
-// { base, auth(xhr), touch, after(), acts(job), where(job) }. Page pictures are drawn here on the device by
+// { base, hdr, touch, after(), acts(job), where(job) }. Page pictures are drawn here on the device by
 // PDF.js; only the finished choice goes to the PC, which does the real work.
 'use strict';
 
@@ -37,6 +37,9 @@ async function pdfRefresh() {
 
 // ---------- page pictures ----------
 let pdfjs = null;
+// Scanned PDFs keep their pages as JBIG2 or JPEG 2000 pictures, which PDF.js decodes with these (blank pages
+// without them); the fonts stand in for ones a PDF names but doesn't carry.
+const PDFJS_OPT = { isEvalSupported: false, wasmUrl: '/m/pdfjs/wasm/', standardFontDataUrl: '/m/pdfjs/standard_fonts/' };
 async function pdfLib() {
   if (!pdfjs) {
     pdfjs = await import('/m/pdfjs/pdf.min.mjs');
@@ -53,7 +56,7 @@ async function pdfLoad() {
   let doc;
   try {
     const lib = await pdfLib();
-    doc = await lib.getDocument({ data: new Uint8Array(await f.arrayBuffer()), isEvalSupported: false }).promise;
+    doc = await lib.getDocument({ data: new Uint8Array(await f.arrayBuffer()), ...PDFJS_OPT }).promise;
     if (gen !== P.gen) return;
     P.pages = Array.from({ length: doc.numPages }, (_, i) => ({ n: i + 1, rot: 0, sel: false }));
     render();
@@ -100,8 +103,8 @@ function pdfWhy() {
 
 const pdfReady = () => !!(P.op && P.files.length && !pdfWhy() && !P.loading && P.up < 0 && (P.pw || (P.op !== 'lock' && P.op !== 'unlock')));
 
-const pdfSpec = () => P.op === 'pages' ? P.pages.map((p) => p.n + (p.rot ? 'r' + p.rot : '')).join(',')
-  : P.op === 'extract' ? P.pages.filter((p) => p.sel).map((p) => p.n).join(',') : '';
+// The pages as they show, in order and turned (turns made in Pages still show in Pick pages, so they count there too).
+const pdfSpec = () => P.op === 'pages' || P.op === 'extract' ? P.pages.filter((p) => P.op === 'pages' || p.sel).map((p) => p.n + (p.rot ? 'r' + p.rot : '')).join(',') : '';
 
 function pdfPagesGrid() {
   if (P.loading && !P.pages.length) return `<div class="pdfwait">${icon('spin', 'spin')}Opening the PDF…</div>`;
@@ -167,7 +170,7 @@ function pdfBox() {
   const note = PDFAPI.touch && pdfOp(P.op)?.note;
   return `<div class="pdfops">${ops}</div>${note ? `<p class="row-hint pdfopnote">${esc(note)}</p>` : ''}
     ${pdfFiles()}${P.files.length ? pdfOptions() : ''}
-    ${P.files.length ? `<div class="cvopts"><span class="grow"></span><button type="button" class="btn primary" data-pdf="go" ${ready ? '' : 'disabled'}>${P.up >= 0 ? `${icon('spin', 'spin')}Sending ${P.up}%` : `${icon(PDF_ICON[P.op] || 'pdf')}${PDF_GO[P.op] || 'Go'}`}</button></div>` : ''}`;
+    ${P.files.length ? `<div class="cvopts"><span class="grow"></span><button type="button" class="btn primary" data-pdf="go" ${ready ? '' : 'disabled'}>${P.up >= 0 ? `${icon('spin', 'spin')}Sending ${P.up}%` : `${icon(PDF_ICON[P.op] || 'pdf')}${P.op === 'edit' && P.files[0] === P.edited ? 'Send again' : PDF_GO[P.op] || 'Go'}`}</button></div>` : ''}`;
 }
 
 // One job in a list; the frame adds where it went and its buttons.
@@ -202,22 +205,16 @@ function pdfAfterFiles() {
   render();
 }
 
-function pdfSend() {
+async function pdfSend() {
   if (PDFST?.local) return localPdf(); // the phone does it (local.js)
-  const fd = new FormData();
-  if (P.op === 'lock' || P.op === 'unlock') fd.append('pw', P.pw);
-  for (const f of P.files) fd.append('f', f, f.name);
-  const x = new XMLHttpRequest();
-  x.open('POST', `${PDFAPI.base}/start?op=${P.op}&pages=${pdfSpec()}&level=${P.level}`);
-  PDFAPI.auth(x);
-  x.upload.onprogress = (e) => { if (e.lengthComputable) { P.up = Math.floor(e.loaded / e.total * 100); render(); } };
-  x.onload = async () => {
-    P.up = -1;
-    if (x.status === 200) { P.gen++; Object.assign(P, { files: [], pages: [], thumbs: {}, pagesOf: null, pw: '', err: '' }); } else P.err = x.responseText.trim() || "That didn't work.";
-    await pdfRefresh(); render(); PDFAPI.after();
-  };
-  x.onerror = () => { P.up = -1; P.err = PDFAPI.touch ? "Couldn't reach your PC." : "Couldn't send the files."; render(); };
-  P.up = 0; P.err = ''; render(); x.send(fd);
+  P.up = 0; P.err = ''; render();
+  let x;
+  try {
+    x = await sendForm(`${PDFAPI.base}/start?op=${P.op}&pages=${pdfSpec()}&level=${P.level}`, PDFAPI.hdr, P.files, P.op === 'lock' || P.op === 'unlock' ? { pw: P.pw } : {}, (p) => { P.up = Math.floor(p * 100); render(); });
+  } catch (e) { P.up = -1; P.err = PDFAPI.touch ? e.message : "Couldn't send the files."; render(); return; }
+  P.up = -1;
+  if (x.status === 200) { P.gen++; Object.assign(P, { files: [], pages: [], thumbs: {}, pagesOf: null, pw: '', err: '' }); } else P.err = x.responseText.trim() || "That didn't work.";
+  await pdfRefresh(); render(); PDFAPI.after();
 }
 
 function pdfMove(arr, i, to) {
@@ -232,7 +229,7 @@ document.getElementById('app').addEventListener('click', async (e) => {
   try {
     if (a === 'pick') { P.addMode = !!b.dataset.add; pdfInput.multiple = !PDF_ONE.includes(P.op); return; } // the label opens the picker
     if (a === 'op') { P.op = b.dataset.op; if (PDF_ONE.includes(P.op) && P.files.length > 1) P.files = P.files.slice(0, 1); pdfAfterFiles(); }
-    else if (a === 'go') P.op === 'edit' ? await pdfEditOpen(P.files[0]) : pdfSend(); // the editor sends it when you tap Save (pdf-edit.js)
+    else if (a === 'go') P.op === 'edit' && P.files[0] !== P.edited ? await pdfEditOpen(P.files[0]) : pdfSend(); // the editor sends it when you tap Save (pdf-edit.js); a send that failed goes again from here
     else if (a === 'clear') { P.files = []; P.err = ''; pdfAfterFiles(); }
     else if (a === 'drop') { P.files.splice(i, 1); pdfAfterFiles(); }
     else if (a === 'fmove') { pdfMove(P.files, i, i + +b.dataset.by); render(); }

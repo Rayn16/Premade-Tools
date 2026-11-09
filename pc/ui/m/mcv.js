@@ -33,10 +33,12 @@ async function cvFetch(j) {
   cvBlobs[j.id] = 'loading';
   try {
     cvBlobs[j.id] = await Promise.all(j.files.map(async (f, n) => {
-      const b = await (await fetch(cvFileURL(j, n))).blob();
+      const r = await fetch(cvFileURL(j, n));
+      if (!r.ok) throw new Error(await r.text()); // never save the PC's error as the file
+      const b = await r.blob();
       return new File([b], f.name.split(/[\\/]/).pop(), { type: b.type });
     }));
-  } catch (e) { delete cvBlobs[j.id]; }
+  } catch (e) { cvBlobs[j.id] = 'failed'; } // Save then falls back to the link, and Get tries again
   render();
 }
 
@@ -120,7 +122,7 @@ function cvHistoryView(off) {
     if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
     days.at(-1).rows.push(cvRow(j, true));
   }
-  return `${dlTitle('History', 'Everything converted on the PC and your phones, newest first.')}
+  return `${dlTitle('History', 'What this phone converted, newest first.')}
     <div class="feed scroller">${off}${days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
       : `<div class="empty">${icon('convert')}<h2>Nothing converted yet</h2><p>Pick files in Convert.</p></div>`}</div>`;
 }
@@ -139,6 +141,7 @@ function cvSettingsView(off) {
       <li><b>Get Contents of URL</b> with the address below, NAME as before and TO replaced by <b>Chosen Item</b>. Method <b>POST</b>, Request Body <b>File</b>, pick <b>Repeat Item</b>. <b>Set Variable</b> <b>Job</b> to it, and stop with a notification if it <b>begins with</b> <b>ERR</b>.${field('Start', `${base}/api/phone/cv/ios/start?t=${t}&name=NAME&to=TO`)}</li>
       <li>Add a <b>Text</b> “no” and <b>Set Variable</b> <b>Done</b> to it. Then <b>Repeat</b> <b>90</b> times, and inside it <b>If</b> <b>Done</b> <b>is</b> “no”:</li>
       <li>…<b>Get Contents of URL</b> of the address below, with <b>Job</b> put where it says JOB. <b>If</b> it <b>begins with</b> <b>WAIT</b>: <b>Wait</b> 2 seconds. <b>Otherwise</b>, <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with it. <b>Otherwise</b>: <b>Save to Photo Album</b> (for PDFs and documents use <b>Save File</b> instead). In both of these, <b>Set Variable</b> <b>Done</b> to a Text “yes”.${field('Get', `${base}/api/phone/cv/ios/get/JOB?t=${t}`)}</li>
+      <li>After the Repeat: <b>If</b> <b>Done</b> <b>is</b> “no”: <b>Show Notification</b> “Still converting on the PC. Open Premade Tools to save it when it's done.”</li>
       <li>Try it: in Photos pick a photo, tap <b>Share</b> › <b>${SHORTCUT_CV}</b> › <b>JPG</b>. Allow access to devices on your network and to Photos when asked.</li>
     </ol></details></section>` : '';
   return `${dlTitle('Settings', 'Where converted files go.')}<div class="headrule"></div>
@@ -151,22 +154,18 @@ function cvSettingsView(off) {
     <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>`;
 }
 
-function cvSend() {
+async function cvSend() {
   const { kind } = cvPicked();
   if (CVS.local) { localConvert(kind, CS.files, CS.to, CS.small, kind.id === 'image' && CS.to === 'pdf' && CS.combine); CS.files = []; CS.err = ''; render(); return; }
-  const fd = new FormData();
-  for (const f of CS.files) fd.append('f', f, f.name);
-  const x = new XMLHttpRequest();
-  x.open('POST', `${PCURL}/api/phone/cv/start?to=${CS.to}&small=${CS.small ? 1 : 0}&combine=${kind.id === 'image' && CS.to === 'pdf' && CS.combine ? 1 : 0}`);
-  x.setRequestHeader('Authorization', 'Bearer ' + TOKEN);
-  x.upload.onprogress = (e) => { if (e.lengthComputable) { CS.up = Math.floor(e.loaded / e.total * 100); render(); } };
-  x.onload = async () => {
-    CS.up = -1;
-    if (x.status === 200) { CS.files = []; CS.err = ''; } else CS.err = x.responseText.trim() || "That didn't work.";
-    await cvRefresh(); render(); cvPoll();
-  };
-  x.onerror = () => { CS.up = -1; CS.err = "Couldn't reach your PC."; render(); };
-  CS.up = 0; CS.err = ''; render(); x.send(fd);
+  CS.up = 0; CS.err = ''; render();
+  let x;
+  try {
+    x = await sendForm(`${PCURL}/api/phone/cv/start?to=${CS.to}&small=${CS.small ? 1 : 0}&combine=${kind.id === 'image' && CS.to === 'pdf' && CS.combine ? 1 : 0}`,
+      { Authorization: 'Bearer ' + TOKEN }, CS.files, {}, (p) => { CS.up = Math.floor(p * 100); render(); });
+  } catch (e) { CS.up = -1; CS.err = e.message; render(); return; }
+  CS.up = -1;
+  if (x.status === 200) { CS.files = []; CS.err = ''; } else CS.err = x.responseText.trim() || "That didn't work.";
+  await cvRefresh(); render(); cvPoll();
 }
 
 // Quick polls while the PC works on this phone's files.

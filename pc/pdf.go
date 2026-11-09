@@ -21,6 +21,7 @@ import (
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/xdg-go/stringprep"
 )
 
 // PdfOps lists what the PDF tools do, in the order the screens show them.
@@ -95,6 +96,10 @@ func PdfCheck(names []string, op, pages, pw string) string {
 		if pw == "" {
 			return "Type the password."
 		}
+		if _, err := stringprep.SASLprep.Prepare(pw); op == "lock" && err != nil {
+			why := pwRule(err)
+			return strings.ToUpper(why[:1]) + why[1:] + "."
+		}
 	case "compress":
 	default:
 		return "Pick what to do with the PDF."
@@ -117,11 +122,25 @@ func pdfConf() *model.Configuration {
 	return conf
 }
 
+// pwRule says why a password can't be a PDF's (a PDF's password follows SASLprep, RFC 4013), or "".
+func pwRule(err error) string {
+	var pe stringprep.Error
+	switch {
+	case !errors.As(err, &pe):
+		return ""
+	case strings.HasPrefix(pe.Msg, "BiDi"):
+		return "a PDF password with Arabic letters has to start and end with one, with no English letters"
+	}
+	return fmt.Sprintf("a PDF password can't have %c in it", pe.Rune)
+}
+
 // pdfErr turns pdfcpu's error into something a person can act on.
 func pdfErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case pwRule(err) != "":
+		return errors.New(pwRule(err))
 	case errors.Is(err, pdfcpu.ErrWrongPassword):
 		return fmt.Errorf("that password didn't open it")
 	case errors.Is(err, pdfcpu.ErrNotEncrypted):
@@ -150,6 +169,9 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 
 	switch j.Target {
 	case "merge":
+		for i := range src {
+			src[i] = opened(ctx, src[i])
+		}
 		dst := freeName(out, base+" merged.pdf")
 		if err := api.MergeCreateFile(ctx, src, dst, false, pdfConf()); err != nil {
 			os.Remove(dst)
@@ -195,14 +217,14 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 				err = c.compress(ctx, s, dst, j.Small)
 			case "lock":
 				dst = freeName(out, baseName(s)+" locked.pdf")
-				err = withPassword(ctx, s, dst, j.pw, true)
+				err = withPassword(ctx, opened(ctx, s), dst, j.pw, true)
 			case "unlock":
 				dst = freeName(out, baseName(s)+" unlocked.pdf")
 				err = withPassword(ctx, s, dst, j.pw, false)
 			}
 			if ctx.Err() != nil {
 				os.Remove(dst)
-				return nil, nil
+				return made, nil
 			}
 			if err != nil {
 				os.Remove(dst)
@@ -213,6 +235,17 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 		}
 	}
 	return
+}
+
+// opened gives a PDF that opens without a password but carries restrictions (a bank statement) as a copy without
+// them, next to it, since pdfcpu won't merge or lock one; any other PDF comes back as it is.
+func opened(ctx context.Context, src string) string {
+	conf := model.NewAESConfiguration("", "", 256)
+	conf.ValidationMode = model.ValidationRelaxed
+	if dst := src + ".open.pdf"; api.DecryptFile(ctx, src, dst, conf) == nil {
+		return dst
+	}
+	return src
 }
 
 // withPassword adds pw (to open, and to change it) or opens the file with pw and saves it without one.

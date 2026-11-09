@@ -70,7 +70,8 @@ public class MainActivity extends Activity {
         });
         web.setDownloadListener((url, ua, disposition, mime, len) -> {
             DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, disposition, mime));
+            Downloads.dir(); // Download/Premade, the one folder everything Premade makes lands in
+            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Premade/" + URLUtil.guessFileName(url, disposition, mime));
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             getSystemService(DownloadManager.class).enqueue(req);
         });
@@ -300,6 +301,13 @@ public class MainActivity extends Activity {
                         res = h.getResponseCode() == 200 ? Vault.read(h.getInputStream()) : "ERR: The PC said " + h.getResponseCode() + ".";
                     } finally { h.disconnect(); }
                 } catch (Exception e) { res = "ERR: Couldn't reach your PC."; }
+                if (got && res.startsWith("ERR")) try { // never lose it: into Download › Premade, to send or transcribe later
+                    java.io.File d = Downloads.dir(), out = new java.io.File(d, name);
+                    for (int k = 2; out.exists(); k++) out = new java.io.File(d, name.replace(".m4a", " (" + k + ").m4a"));
+                    java.nio.file.Files.copy(recFile.toPath(), out.toPath());
+                    android.media.MediaScannerConnection.scanFile(MainActivity.this, new String[]{out.getPath()}, null, null);
+                    res += " The recording is saved in Download › Premade.";
+                } catch (Exception ignored) {}
                 recFile.delete();
                 final String js = "window.trRecorded && trRecorded(" + JSONObject.quote(res) + ")";
                 runOnUiThread(() -> web.evaluateJavascript(js, null));

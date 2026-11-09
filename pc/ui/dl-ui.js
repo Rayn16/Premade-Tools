@@ -187,7 +187,7 @@ $app.addEventListener('click', async (e) => {
   const a = b.dataset.dl, id = b.dataset.id;
   try {
     if (a === 'go') dlStart();
-    else if (a === 'force') dlStart('', true);
+    else if (a === 'force') dlStart(D.note?.repeat?.mode, true); // a playlist again: the same choice, all or one
     else if (a === 'mode') { const m = b.dataset.mode; D.ask = null; dlStart(m); }
     else if (a === 'askno') { D.ask = null; render(); }
     else if (a === 'paste') {

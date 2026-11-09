@@ -96,8 +96,9 @@ func (w *whisperEng) set(busy string, pct float64) {
 	w.mu.Unlock()
 }
 
-// Install fetches whatever target still needs, passing on how far along it is (0-100).
-func (w *whisperEng) Install(target string, prog func(float64)) error {
+// Install fetches whatever target still needs, passing on how far along it is (0-100). It stops when ctx ends
+// (the job that needed it was cancelled).
+func (w *whisperEng) Install(ctx context.Context, target string, prog func(float64)) error {
 	w.run.Lock()
 	defer w.run.Unlock()
 	if w.has(target) {
@@ -115,7 +116,7 @@ func (w *whisperEng) Install(target string, prog func(float64)) error {
 		if w.Bin() == "" {
 			engShare = 30
 			w.set("engine", 0)
-			if err := w.fetchEngine(cl, func(p float64) { w.set("engine", p*engShare/100); prog(p * engShare / 100) }); err != nil {
+			if err := w.fetchEngine(ctx, cl, func(p float64) { w.set("engine", p*engShare/100); prog(p * engShare / 100) }); err != nil {
 				return err
 			}
 		}
@@ -126,7 +127,7 @@ func (w *whisperEng) Install(target string, prog func(float64)) error {
 		url := "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + trModels[target]
 		dst := w.Model(target)
 		os.MkdirAll(filepath.Dir(dst), 0o755)
-		return download(cl, url, dst, func(p float64) { v := engShare + p*(100-engShare)/100; w.set("model", v); prog(v) })
+		return download(ctx, cl, url, dst, func(p float64) { v := engShare + p*(100-engShare)/100; w.set("model", v); prog(v) })
 	}()
 	w.mu.Lock()
 	w.busy, w.pct, w.err = "", 0, ""
@@ -149,8 +150,9 @@ func whisperAsset() *regexp.Regexp {
 // fetchEngine unpacks the newest whisper.cpp Windows build into engines\whisper. The numbered releases
 // (v1.9.5) carry no files; the nightly ones (b5454) do, so it takes the newest release that has the build.
 // ponytail: fetched once and never refreshed; add it to engineList's 30-day refresh if a fix is ever needed.
-func (w *whisperEng) fetchEngine(cl *http.Client, prog func(float64)) error {
-	resp, err := cl.Get("https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=15")
+func (w *whisperEng) fetchEngine(ctx context.Context, cl *http.Client, prog func(float64)) error {
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=15", nil)
+	resp, err := cl.Do(req)
 	if err != nil {
 		return fmt.Errorf("couldn't reach GitHub")
 	}
@@ -168,7 +170,7 @@ func (w *whisperEng) fetchEngine(cl *http.Client, prog func(float64)) error {
 			}
 			tmp := w.dir() + ".zip"
 			defer os.Remove(tmp)
-			if err := download(cl, as.URL, tmp, prog); err != nil {
+			if err := download(ctx, cl, as.URL, tmp, prog); err != nil {
 				return err
 			}
 			log.Printf("whisper.cpp %s (%s)", rel.Tag, as.Name)
@@ -179,8 +181,12 @@ func (w *whisperEng) fetchEngine(cl *http.Client, prog func(float64)) error {
 }
 
 // download saves url to dst through a .part file, passing on how far along it is.
-func download(cl *http.Client, url, dst string, prog func(float64)) error {
-	resp, err := cl.Get(url)
+func download(ctx context.Context, cl *http.Client, url, dst string, prog func(float64)) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := cl.Do(req)
 	if err != nil {
 		return fmt.Errorf("couldn't download it, check the internet")
 	}
@@ -308,7 +314,10 @@ func (c *Converter) StartTr(id string, names []string, target, from string) (*Cv
 func (c *Converter) trWork(ctx context.Context, j *CvJob, in, out string, prog0 func(float64)) (made, fails []string) {
 	if !whisper.has(j.Target) {
 		c.update(j.ID, func(j *CvJob) { j.Note = "Getting the speech engine first. It's a big download, only this once." })
-		if err := whisper.Install(j.Target, prog0); err != nil {
+		if err := whisper.Install(ctx, j.Target, prog0); err != nil {
+			if ctx.Err() != nil {
+				return nil, nil
+			}
 			return nil, []string{"The speech engine couldn't be fetched: " + err.Error() + "."}
 		}
 		c.update(j.ID, func(j *CvJob) { j.Note, j.Pct = "", 0 })
@@ -318,7 +327,7 @@ func (c *Converter) trWork(ctx context.Context, j *CvJob, in, out string, prog0 
 		prog := func(p float64) { prog0((float64(i) + p) * 100 / float64(len(j.Inputs))) }
 		files, lang, err := c.transcribe(ctx, j.Target, filepath.Join(in, n), in, out, baseName(n), prog)
 		if ctx.Err() != nil {
-			return nil, nil
+			return append(made, files...), nil
 		}
 		if err != nil {
 			log.Printf("transcribe %s: %v", n, err)

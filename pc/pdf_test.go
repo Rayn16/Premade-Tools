@@ -7,9 +7,11 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
 // testPDF makes a PDF with n pages (one picture each) and returns its path.
@@ -60,6 +62,9 @@ func TestPdfCheck(t *testing.T) {
 		{[]string{"a.pdf"}, "edit", "", "", false},
 		{[]string{"a.pdf", "b.pdf"}, "edit", "", "", true},
 		{[]string{"a.pdf"}, "lock", "", "", true},
+		{[]string{"a.pdf"}, "lock", "", "كلمة123سر", false},
+		{[]string{"a.pdf"}, "lock", "", "كلمة123", true}, // Arabic has to end the password, under the PDF rules
+		{[]string{"a.pdf"}, "lock", "", "pass😀", true},
 		{[]string{"a.pdf"}, "wipe", "", "", true},
 	} {
 		if why := PdfCheck(tc.names, tc.op, tc.pages, tc.pw); (why != "") != tc.bad {
@@ -109,6 +114,10 @@ func TestPdfWork(t *testing.T) {
 	if _, err := api.PageCountFile(ctx, locked); err == nil {
 		t.Fatal("locked PDF opened without the password")
 	}
+	conf := model.NewAESConfiguration("كلمة123", "كلمة123", 256) // past the start checks, the job says the same as they would
+	if err := pdfErr(api.EncryptFile(ctx, a, filepath.Join(in, "x.pdf"), conf)); err == nil || !strings.Contains(err.Error(), "Arabic") {
+		t.Fatalf("Arabic then digits: %v", err)
+	}
 	os.Rename(locked, filepath.Join(in, "l.pdf"))
 	if _, fails := c.pdfWork(ctx, &CvJob{Target: "unlock", Inputs: []string{"l.pdf"}, pw: "nope"}, in, out, func(float64) {}); len(fails) != 1 {
 		t.Fatal("wrong password unlocked it")
@@ -120,6 +129,18 @@ func TestPdfWork(t *testing.T) {
 		t.Fatal("merged a locked PDF")
 	} else {
 		t.Log(fails[0])
+	}
+	// A PDF that opens without a password but carries restrictions (a bank statement) merges and locks like any other.
+	conf = model.NewAESConfiguration("", "the bank's", 256)
+	conf.Permissions = model.PermissionsNone
+	if err := api.EncryptFile(ctx, b, filepath.Join(in, "r.pdf"), conf); err != nil {
+		t.Fatal(err)
+	}
+	if m := run(&CvJob{Target: "merge", Inputs: []string{"a.pdf", "r.pdf"}}); pageCount(t, m[0]) != 5 {
+		t.Fatal("merge with a restricted PDF")
+	}
+	if m := run(&CvJob{Target: "lock", Inputs: []string{"r.pdf"}, pw: "mine"}); len(m) != 1 {
+		t.Fatal("lock a restricted PDF")
 	}
 	// A job that failed leaves no empty file behind in the folder.
 	ents, _ := os.ReadDir(out)

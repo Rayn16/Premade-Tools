@@ -10,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The Converter's calls: /api/ui/cv/… for the PC window, /api/phone/cv/… for paired phones, and plain-text
@@ -77,23 +79,28 @@ func (a *App) cvRoutes(m *http.ServeMux) {
 		}
 		fmt.Fprint(w, j.ID)
 	})
-	// Step 3: poll until it's ready: "WAIT 42" while it runs, then the file, or "ERR: why".
+	// Step 3: poll until it's ready: "WAIT 42" while it runs (each call waits up to 20 s), then the file, or "ERR: why".
 	ph("GET /api/phone/cv/ios/get/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) {
-		j := a.cv.Get(r.PathValue("id"))
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		j := a.cv.waitDone(r, r.PathValue("id"))
+		say := func(s string) { w.Header().Set("Content-Type", "text/plain; charset=utf-8"); fmt.Fprint(w, s) }
 		switch {
 		case j == nil:
-			fmt.Fprint(w, "ERR: That conversion is gone from the PC.")
+			say("ERR: That conversion is gone from the PC.")
 		case j.State == "failed":
-			fmt.Fprint(w, "ERR: "+j.Note)
+			say("ERR: " + j.Note)
 		case j.State != "done":
-			fmt.Fprintf(w, "WAIT %d", int(j.Pct))
-		case len(j.Files) == 1:
-			a.cv.update(j.ID, func(j *CvJob) { j.Fetched = true })
-			a.queueFile(w, r, a.cv, true)
+			say(fmt.Sprintf("WAIT %d", int(j.Pct)))
+		case !a.cv.onDisk(j):
+			say("ERR: The file is gone from the save folder on the PC.")
 		default:
-			a.cv.update(j.ID, func(j *CvJob) { j.Fetched = true })
-			queueZip(w, a.cv, j, "converted-")
+			if len(j.Files) == 1 {
+				a.queueFile(w, r, a.cv, true)
+			} else {
+				queueZip(w, a.cv, j, "converted-")
+			}
+			if r.Context().Err() == nil { // the phone took all of it
+				a.cv.update(j.ID, func(j *CvJob) { j.Fetched = true })
+			}
 		}
 	})
 }
@@ -154,27 +161,107 @@ func recvUpload(r *http.Request, dir string) ([]string, map[string]string, error
 			os.RemoveAll(dir)
 			return nil, nil, fmt.Errorf("The files didn't arrive whole. Try again.")
 		}
+		var file string
 		if part.FileName() == "" {
-			b, _ := io.ReadAll(io.LimitReader(part, 4<<10))
-			fields[part.FormName()] = string(b)
-			continue
-		}
-		if part.FormName() != "f" {
-			continue
-		}
-		name := cleanName(part.FileName(), len(names))
-		for _, n := range names { // two files with one name
-			if strings.EqualFold(n, name) {
-				name = fmt.Sprintf("%s (%d)%s", baseName(name), len(names)+1, filepath.Ext(name))
+			max := int64(4 << 10)
+			if part.FormName() == "text" {
+				max = 256 << 10 // File drop's text, as long as the clipboard takes
 			}
+			b, _ := io.ReadAll(io.LimitReader(part, max+1))
+			if int64(len(b)) > max {
+				os.RemoveAll(dir)
+				return nil, nil, fmt.Errorf("That text is too long to send. Save it in a file and send the file.")
+			}
+			if part.FormName() != "p" {
+				fields[part.FormName()] = string(b)
+				continue
+			}
+			file = string(b) // a file that came in pieces, as "<id>/<name>"
+		} else if part.FormName() != "f" {
+			continue
 		}
-		if err := saveBody(part, dir, name); err != nil {
+		u, sent, _ := strings.Cut(file, "/")
+		if file == "" {
+			sent = part.FileName()
+		}
+		name := cleanName(sent, len(names))
+		for k, first := 2, name; slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) }); k++ { // two files with one name
+			name = fmt.Sprintf("%s (%d)%s", baseName(first), k, filepath.Ext(first))
+		}
+		if file != "" {
+			err = takePieces(u, dir, name)
+		} else {
+			err = saveBody(part, dir, name)
+		}
+		if err != nil {
 			os.RemoveAll(dir)
 			return nil, nil, fmt.Errorf("The files didn't arrive whole. Try again.")
 		}
 		names = append(names, name)
 	}
 	return names, fields, nil
+}
+
+// Phones away from home reach the PC through the relay's link (the iPhone app always does), and the relay takes
+// nothing over 100 MB in one call. So a bigger file comes first in pieces, PUT /api/phone/piece?u=<id>&at=<offset>
+// in order, and the upload then names it: a "p" field "<id>/<name>" in place of the file, or ?piece=<id> for Friends.
+var pieceID = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+func piecePath(u string) string {
+	if !pieceID.MatchString(u) {
+		return ""
+	}
+	return filepath.Join(appDir(), "pieces", u)
+}
+
+func (a *App) piece(w http.ResponseWriter, r *http.Request, p *Phone) {
+	q := r.URL.Query()
+	path := piecePath(q.Get("u"))
+	at, err := strconv.ParseInt(q.Get("at"), 10, 64)
+	if path == "" || err != nil || at < 0 || at > 20<<30 {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	if at == 0 { // a new file: pieces of one given up on more than a day ago go
+		es, _ := os.ReadDir(filepath.Dir(path))
+		for _, e := range es {
+			if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > 24*time.Hour {
+				os.Remove(filepath.Join(filepath.Dir(path), e.Name()))
+			}
+		}
+	}
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		http.Error(w, "The PC couldn't keep that file. Try again.", 500)
+		return
+	}
+	n := int64(0)
+	if fi, serr := f.Stat(); serr != nil || at > fi.Size() {
+		err = fmt.Errorf("a piece is missing")
+	} else if _, err = f.Seek(at, io.SeekStart); err == nil { // a piece sent again writes over what came of it before
+		n, err = io.Copy(f, io.LimitReader(r.Body, 100<<20+1))
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil || n > 100<<20 {
+		http.Error(w, "The file didn't arrive whole. Try again.", 400)
+		return
+	}
+	writeJ(w, "ok")
+}
+
+// takePieces moves a file that came in pieces into dir.
+func takePieces(u, dir, name string) error {
+	src := piecePath(u)
+	if src == "" {
+		return fmt.Errorf("bad piece id")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.Rename(src, filepath.Join(dir, name))
 }
 
 // cleanName keeps a sent file name safe to use on disk.
@@ -238,7 +325,7 @@ func (a *App) queueRoutes(m *http.ServeMux, p string, q *Converter, setDir func(
 	})
 	ui("GET /api/ui/"+p+"/file/{id}/{n}", func(w http.ResponseWriter, r *http.Request) { a.queueFile(w, r, q, false) })
 	ui("POST /api/ui/"+p+"/folder", func(w http.ResponseWriter, r *http.Request) {
-		if dir := pickFolder(); dir != "" {
+		if dir := pickFolder(saveAsk); dir != "" {
 			a.set.With(func(c *Config) bool { setDir(c, dir); return true })
 		}
 		writeJ(w, map[string]string{"dir": q.dir()})

@@ -76,7 +76,7 @@ type Friends struct {
 }
 
 func NewFriends(a *App) *Friends {
-	f := &Friends{a: a, hc: &http.Client{Timeout: 30 * time.Minute}, busy: map[string]bool{}, wake: make(chan struct{}, 1)}
+	f := &Friends{a: a, hc: &http.Client{}, busy: map[string]bool{}, wake: make(chan struct{}, 1)}
 	if u := os.Getenv("PREMADE_RELAY"); u != "" { // tests and trying a relay running on this PC
 		relayURL = u
 	}
@@ -101,13 +101,26 @@ func (f *Friends) call(method, path string, body any, out any) error {
 		b, _ := json.Marshal(body)
 		rd, isJSON = bytes.NewReader(b), true
 	}
-	ctx, cancel := context.Background(), context.CancelFunc(func() {})
-	if _, file := out.(io.Writer); rd == nil || isJSON {
-		if !file { // check-ins and other small calls: never let one stuck call hold up the loop
-			ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	// A small call (a check-in) gets 30 s in all, so a stuck one never holds up the loop. A file takes as long as it
+	// takes on a slow line, and stops only when nothing has moved for frStall.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, file := out.(io.Writer)
+	file = file || rd != nil && !isJSON
+	wait := 30 * time.Second
+	if file {
+		wait = frStall
+	}
+	stall := time.AfterFunc(wait, cancel)
+	defer stall.Stop()
+	moved := func() {
+		if file {
+			stall.Reset(wait)
 		}
 	}
-	defer cancel()
+	if rd != nil && !isJSON {
+		rd = onRead{rd, moved}
+	}
 	req, err := http.NewRequestWithContext(ctx, method, relayURL+path, rd)
 	if err != nil {
 		return err
@@ -142,13 +155,27 @@ func (f *Friends) call(method, path string, body any, out any) error {
 		return fmt.Errorf("%s", e.Error)
 	}
 	if w, ok := out.(io.Writer); ok {
-		_, err = io.Copy(w, res.Body)
+		_, err = io.Copy(w, onRead{res.Body, moved})
 		return err
 	}
 	if out != nil {
 		return json.NewDecoder(res.Body).Decode(out)
 	}
 	return nil
+}
+
+var frStall = 2 * time.Minute
+
+// onRead calls f after each read: Friends uses it to see a file is still moving.
+type onRead struct {
+	io.Reader
+	f func()
+}
+
+func (r onRead) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.f()
+	return n, err
 }
 
 func (f *Friends) devices() []dropDevice {
@@ -195,6 +222,13 @@ func (f *Friends) loop() {
 }
 
 func (f *Friends) checkIn() {
+	if f.refresh() {
+		f.fetchInbox()
+	}
+}
+
+// refresh tells the relay about my devices and gets everyone else. True when I'm approved.
+func (f *Friends) refresh() bool {
 	c := f.a.set.Get()
 	var p frPeople
 	err := f.call("PUT", "/me", map[string]any{"name": c.FrName, "devices": f.devices()}, nil)
@@ -209,9 +243,7 @@ func (f *Friends) checkIn() {
 		f.last = &p
 	}
 	f.mu.Unlock()
-	if err == nil && p.Approved {
-		f.fetchInbox()
-	}
+	return err == nil && p.Approved
 }
 
 type frItem struct {
@@ -437,7 +469,7 @@ func (f *Friends) Admin(what, id string) error {
 	if err := f.call("POST", "/"+what+"/"+url.PathEscape(id), nil, nil); err != nil {
 		return err
 	}
-	f.checkIn()
+	f.refresh() // the list the screens show; not the inbox, which can take minutes and would hold up the answer
 	return nil
 }
 

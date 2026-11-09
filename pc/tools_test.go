@@ -1,9 +1,13 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -290,5 +294,214 @@ func TestMoveVault(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(old, "objects")); !os.IsNotExist(err) {
 		t.Fatal("the old folder still holds the files")
+	}
+}
+
+// Links and previews in the PC window can't send the X-Vault header: a tool's files open from them (the Subtitles
+// link), while anything else still needs it.
+func TestToolFileLinksOpen(t *testing.T) {
+	h := localOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	for path, want := range map[string]int{"GET /api/ui/tr/file/j1/0": 204, "GET /api/ui/file/i1": 204, "GET /api/ui/state": 403, "POST /api/ui/tr/file/j1/0": 403, "GET /api/ui/tr/files": 403} {
+		m, p, _ := strings.Cut(path, " ")
+		r := httptest.NewRequest(m, p, nil)
+		r.RemoteAddr, r.Host = "127.0.0.1:5000", "127.0.0.1:47110"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != want {
+			t.Errorf("%s without X-Vault: %d, want %d", path, w.Code, want)
+		}
+	}
+}
+
+// The Download Shortcut gets words starting with ERR when the file is gone, the file with its own type, and the
+// download counts as saved on the iPhone only once the phone took all of it.
+func TestIphoneDownloadGet(t *testing.T) {
+	a, h := testApp(t)
+	dir := t.TempDir()
+	a.dl = &Downloader{path: filepath.Join(dir, "downloads.json"), dir: func() string { return dir }}
+	a.dl.jobs = []*Job{{ID: "j1", State: "done", Files: []DLFile{{Name: "clip.xyz"}}}}
+	w := call(h, "GET", "/api/phone/dl/ios/get/j1", nil)
+	if !strings.HasPrefix(w.Body.String(), "ERR: ") || a.dl.Get("j1").Fetched {
+		t.Fatalf("file gone: %q, saved %v", w.Body.String(), a.dl.Get("j1").Fetched)
+	}
+	video := "\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00isommp42 a video"
+	os.WriteFile(filepath.Join(dir, "clip.xyz"), []byte(video), 0o644)
+	r := httptest.NewRequest("GET", "/api/phone/dl/ios/get/j1", nil)
+	r.Header.Set("Authorization", "Bearer tok")
+	ctx, stop := context.WithCancel(r.Context())
+	stop() // the phone went away
+	h.ServeHTTP(httptest.NewRecorder(), r.WithContext(ctx))
+	if a.dl.Get("j1").Fetched {
+		t.Fatal("counted as saved, but the phone went away")
+	}
+	w = call(h, "GET", "/api/phone/dl/ios/get/j1", nil)
+	if w.Body.String() != video || w.Header().Get("Content-Type") != "video/mp4" || !a.dl.Get("j1").Fetched {
+		t.Fatalf("file: %q %q, saved %v", w.Body.String(), w.Header().Get("Content-Type"), a.dl.Get("j1").Fetched)
+	}
+	a.dl.jobs = append(a.dl.jobs, &Job{ID: "j2", State: "done", Audio: true, Files: []DLFile{{Name: "1.mp3"}, {Name: "2.mp3"}}})
+	os.WriteFile(filepath.Join(dir, "1.mp3"), []byte("one"), 0o644)
+	os.WriteFile(filepath.Join(dir, "2.mp3"), []byte("two"), 0o644)
+	w = call(h, "GET", "/api/phone/dl/zip/j2", nil) // an audio playlist, for the iPhone's Files
+	if zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len())); err != nil || len(zr.File) != 2 {
+		t.Fatalf("playlist as a zip: %d %v", w.Code, err)
+	}
+}
+
+// A download, conversion or drop made before the save folder changed is still found in the folder it went to.
+func TestSaveFolderChanged(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	old, now := t.TempDir(), t.TempDir()
+	d := &Downloader{dir: func() string { return now }}
+	if p, _ := d.Path(&Job{Files: []DLFile{{Name: "a.mp4"}}, Dir: old}, 0); p != filepath.Join(old, "a.mp4") {
+		t.Errorf("download: %s", p)
+	}
+	c := &Converter{dir: func() string { return now }}
+	if p, _ := c.Path(&CvJob{Files: []DLFile{{Name: "a.pdf"}}, Dir: old}, 0); p != filepath.Join(old, "a.pdf") {
+		t.Errorf("conversion: %s", p)
+	}
+	tmp := t.TempDir()
+	os.WriteFile(filepath.Join(tmp, "note.txt"), []byte("hi"), 0o644)
+	if _, err := NewDrops(func() string { return old }).Add("p1", "pc", "", tmp, []string{"note.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	it := NewDrops(func() string { return now }).List("")[0] // after a restart, with the new folder
+	if p, ok := NewDrops(func() string { return now }).Path(&it, 0); !ok || p != filepath.Join(old, "note.txt") {
+		t.Errorf("drop: %s %v", p, ok)
+	}
+}
+
+// "Log in to …" is only offered for the sites Premade has a login window for.
+func TestLoginHint(t *testing.T) {
+	if p := explain("ERROR: [vimeo] 123: This video requires login", "Vimeo"); p.Login != "" || !strings.Contains(p.Err, "can't log in") {
+		t.Errorf("Vimeo: %+v", p)
+	}
+	if p := explain("ERROR: [Instagram] abc: login required", "Instagram"); p.Login != "Instagram" {
+		t.Errorf("Instagram: %+v", p)
+	}
+}
+
+// A friend's file on a slow line keeps coming as long as it moves, and one that stalls stops.
+func TestFriendsSlowFile(t *testing.T) {
+	a, _ := testApp(t)
+	old, oldStall := relayURL, frStall
+	defer func() { relayURL, frStall = old, oldStall }()
+	frStall = 200 * time.Millisecond
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for i := 0; i < 8; i++ { // 800 ms in all, longer than frStall
+			fmt.Fprint(w, "ab")
+			w.(http.Flusher).Flush()
+			time.Sleep(100 * time.Millisecond)
+		}
+		if r.URL.Path == "/file/stuck" {
+			select {
+			case <-r.Context().Done(): // the PC gave up on it
+			case <-time.After(5 * time.Second):
+			}
+		}
+	}))
+	defer srv.Close()
+	relayURL = srv.URL
+	f := &Friends{a: a, hc: &http.Client{}}
+	var b bytes.Buffer
+	if err := f.call("GET", "/file/slow", nil, &b); err != nil || b.String() != strings.Repeat("ab", 8) {
+		t.Fatalf("slow: %v %q", err, b.String())
+	}
+	at := time.Now()
+	if err := f.call("GET", "/file/stuck", nil, &bytes.Buffer{}); err == nil || time.Since(at) > 1500*time.Millisecond {
+		t.Fatalf("stuck: %v after %v", err, time.Since(at))
+	}
+}
+
+// Files sent together with the same name all arrive, each under its own name.
+func TestUploadSameNames(t *testing.T) {
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	for i, n := range []string{"x (3).jpg", "x.jpg", "x.jpg", "X.JPG"} {
+		f, _ := mw.CreateFormFile("f", n)
+		fmt.Fprint(f, i)
+	}
+	mw.Close()
+	r := httptest.NewRequest("POST", "/", &b)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	dir := t.TempDir()
+	names, _, err := recvUpload(r, dir)
+	if err != nil || len(names) != 4 {
+		t.Fatalf("%v %v", names, err)
+	}
+	for i, n := range names {
+		if got, _ := os.ReadFile(filepath.Join(dir, n)); string(got) != fmt.Sprint(i) {
+			t.Errorf("%s holds %q, want %d (names %v)", n, got, i, names)
+		}
+	}
+}
+
+// A cancelled job leaves nothing behind: not the files sent, not what it had made so far.
+func TestCancelLeavesNothing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	out := t.TempDir()
+	c := newQueue("test-jobs.json", "test-in", func(string) string { return "" }, func() string { return out })
+	made := make(chan string, 1)
+	c.work = func(ctx context.Context, j *CvJob, in, out string, prog func(float64)) ([]string, []string) {
+		f := freeName(out, "half done.txt")
+		made <- f
+		<-ctx.Done()
+		return []string{f}, nil
+	}
+	go c.worker()
+	os.MkdirAll(c.InputDir("j1"), 0o755)
+	os.WriteFile(filepath.Join(c.InputDir("j1"), "in.txt"), []byte("x"), 0o644)
+	c.add(&CvJob{ID: "j1", Inputs: []string{"in.txt"}})
+	f := <-made
+	c.Cancel("j1")
+	for i := 0; ; i++ {
+		_, e1 := os.Stat(f)
+		_, e2 := os.Stat(c.InputDir("j1"))
+		if os.IsNotExist(e1) && os.IsNotExist(e2) {
+			break
+		} else if i > 100 {
+			t.Fatalf("left behind: %v %v", e1, e2)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The speech engine's download stops when the job that needed it is cancelled.
+func TestDownloadStops(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100000000")
+		for i := 0; i < 100 && r.Context().Err() == nil; i++ {
+			w.Write(make([]byte, 1000))
+			w.(http.Flusher).Flush()
+			time.Sleep(50 * time.Millisecond)
+		}
+	}))
+	defer srv.Close()
+	ctx, stop := context.WithCancel(context.Background())
+	time.AfterFunc(200*time.Millisecond, stop)
+	at := time.Now()
+	if err := download(ctx, &http.Client{}, srv.URL, filepath.Join(t.TempDir(), "model.bin"), func(float64) {}); err == nil || time.Since(at) > 2*time.Second {
+		t.Fatalf("%v after %v", err, time.Since(at))
+	}
+}
+
+// A Shortcut asking about a conversion waits on the PC while it runs, and then gets the file with its own type.
+func TestShortcutWaitsForConversion(t *testing.T) {
+	a, h := testApp(t)
+	out := t.TempDir()
+	a.cv = newQueue("cv-test.json", "cv-test-in", func(string) string { return "" }, func() string { return out })
+	a.cv.add(&CvJob{ID: "c1"})
+	time.AfterFunc(700*time.Millisecond, func() {
+		os.WriteFile(filepath.Join(out, "photo.png"), []byte("\x89PNG\r\n\x1a\n"), 0o644)
+		a.cv.update("c1", func(j *CvJob) { j.State, j.Files, j.Dir = "done", []DLFile{{Name: "photo.png"}}, out })
+	})
+	w := call(h, "GET", "/api/phone/cv/ios/get/c1", nil)
+	if w.Body.String() != "\x89PNG\r\n\x1a\n" || w.Header().Get("Content-Type") != "image/png" || !a.cv.Get("c1").Fetched {
+		t.Fatalf("%q %q", w.Body.String(), w.Header().Get("Content-Type"))
+	}
+	os.Remove(filepath.Join(out, "photo.png"))
+	if w := call(h, "GET", "/api/phone/cv/ios/get/c1", nil); !strings.HasPrefix(w.Body.String(), "ERR: ") {
+		t.Fatalf("file gone: %q", w.Body.String())
 	}
 }

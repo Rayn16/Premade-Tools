@@ -22,6 +22,8 @@ const dlFrom = (j) => (j.local ? 'this phone' : !j.from ? 'the PC' : j.from === 
 const dlThumb = (j) => `<span class="thumb" style="--h:${dlHue(j.id)}">${icon(j.audio ? 'music' : (j.files || []).some((f) => f.kind === 'video') || !j.files?.length ? 'video' : 'photo')}</span>`;
 const dlTag = (s) => `<span class="sitetag">${esc(s || 'Link')}</span>`;
 const fileURL = (j, n, dl) => `${PCURL}/api/phone/dl/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
+// The link in what was pasted ("Look at this https://…"), as the PC finds it (cleanURL); the phone's own download needs it bare.
+const dlLink = (s) => s.match(/https?:\/\/[^\s"'<>]+/i)?.[0].replace(/[.,;!?)]+$/, '') || (/^\S+\.\S+$/.test(s.trim()) ? 'https://' + s.trim() : s.trim());
 const runDl = (text) => 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTCUT_DL) + '&input=text&text=' + encodeURIComponent(text);
 const dlTitle = (name, lede) => `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">${name}</h1><p class="pagelede">${lede}</p></div></div>`;
 
@@ -36,10 +38,12 @@ function dlAfterRefresh() {
 function dlSaveButton(j) {
   if (j.state !== 'done') return '';
   if (NATIVE?.saveDownload) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn small" data-dlsave="${j.id}">${icon('save')}Save</button>`;
-  if (j.audio || (j.files || []).every((f) => f.kind === 'audio' || f.kind === 'file')) return `<a class="btn small" href="${fileURL(j, 0, true)}">${icon('save')}To Files</a>`;
+  if (j.audio || (j.files || []).every((f) => f.kind === 'audio' || f.kind === 'file')) { // several (a playlist's songs) come as one ZIP, which Files opens
+    return `<a class="btn small" href="${j.files?.length > 1 ? `${PCURL}/api/phone/dl/zip/${j.id}?t=${encodeURIComponent(TOKEN)}` : fileURL(j, 0, true)}" data-dlgot="${j.id}">${icon('save')}To Files</a>`;
+  }
   // Opens the video in Safari; its Share button has Save Video / Save Image (to Photos). No Shortcut needed.
   const fs = j.files || [];
-  return fs.map((f, n) => `<a class="btn small" href="${fileURL(j, n, false)}" target="_blank" data-dlopen>${icon('save')}${fs.length > 1 ? 'Item ' + (n + 1) : 'To Photos'}</a>`).join('');
+  return fs.map((f, n) => `<a class="btn small" href="${fileURL(j, n, false)}" target="_blank" data-dlgot="${j.id}">${icon('save')}${fs.length > 1 ? 'Item ' + (n + 1) : 'To Photos'}</a>`).join('');
 }
 
 function dlRow(j, full) {
@@ -50,7 +54,7 @@ function dlRow(j, full) {
     ${state ? `<span class="jobstate">${state}</span>` : ''}${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
     ${j.state === 'running' || j.state === 'queued' ? `<div class="prog"><i style="width:${Math.max(2, j.pct)}%"></i></div>` : ''}
     ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${dlSaveButton(j)}${frShareBtn('dl', j)}${full && j.state === 'done' && (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') ? `<button type="button" class="btn small" data-trdl="${j.id}">${icon('transcribe')}Text</button>` : ''}${j.state === 'running' || j.state === 'queued' ? `<button type="button" class="btn small" data-dlcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
+    <div class="hacts">${dlSaveButton(j)}${frShareBtn('dl', j)}${full && j.state === 'done' && (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') ? `<button type="button" class="btn small" data-trdl="${j.id}">${icon('transcribe')}Text</button>` : ''}${(j.state === 'running' || j.state === 'queued') && j.from === ST?.me ? `<button type="button" class="btn small" data-dlcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
 }
 
 function dlLine() {
@@ -132,19 +136,18 @@ function dlSettingsView(off) {
     <section class="group"><div class="sectionhead"><b>Share button</b><i></i></div>
     <details class="iosguide"><summary>Set up "${SHORTCUT_DL}"</summary><ol>
       <li>Open <b>Shortcuts</b>, tap <b>+</b> and name it <b>${SHORTCUT_DL}</b>. Tap <b>ⓘ</b> and turn on <b>Show in Share Sheet</b>. Under <b>Receive</b>, keep only <b>URLs</b>, <b>Safari web pages</b> and <b>Text</b>, and set <b>If there's no input</b> to <b>Get Clipboard</b>.</li>
-      <li>Add <b>Get Network Details</b> (Wi-Fi, <b>Network Name</b>), then <b>If</b> <b>Network Details</b> <b>is</b> your home Wi-Fi name. Everything up to <b>Otherwise</b> runs at home through your PC.</li>
-      <li>Inside the If: <b>Get Contents of URL</b> with the address below, Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Shortcut Input</b>.${field('Start', `${base}/api/phone/dl/ios/start?t=${t}`)}</li>
-      <li><b>Set Variable</b> named <b>Job</b> to <b>Contents of URL</b>. Then <b>If</b> <b>Job</b> <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with <b>Job</b>, then <b>Stop This Shortcut</b>. <b>End If</b>.</li>
+      <li>Add <b>Get Contents of URL</b> with the address below, Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Shortcut Input</b>.${field('Start', `${base}/api/phone/dl/ios/start?t=${t}`)}</li>
+      <li><b>Set Variable</b> named <b>Job</b> to <b>Contents of URL</b>. Then <b>If</b> <b>Job</b> <b>begins with</b> <b>ERR OFF</b> (your PC is off or offline): do the steps in <b>When your PC is off</b> below, then <b>Stop This Shortcut</b>. <b>End If</b>.</li>
+      <li>Then <b>If</b> <b>Job</b> <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with <b>Job</b>, then <b>Stop This Shortcut</b>. <b>End If</b>.</li>
       <li><b>Repeat</b> <b>40</b> times. Inside it: a <b>Text</b> with the address below, with <b>Job</b> put where it says JOB, then <b>Get Contents of URL</b> of that Text.${field('Get', `${base}/api/phone/dl/ios/get/JOB?t=${t}`)}</li>
       <li>Still inside the Repeat: <b>If</b> <b>Contents of URL</b> <b>begins with</b> <b>WAIT</b>, do nothing (the PC waits up to 20 seconds each time). <b>Otherwise</b>: <b>If</b> it <b>begins with</b> <b>ERR</b>, <b>Show Notification</b> and <b>Stop This Shortcut</b>. <b>Otherwise</b>: <b>If</b> <b>File Extension</b> <b>is</b> <b>zip</b>, <b>Extract Archive</b> then <b>Save to Photo Album</b>; <b>Otherwise</b> <b>Save to Photo Album</b> on <b>Contents of URL</b>. Then <b>Show Notification</b> “Saved to Photos” and <b>Stop This Shortcut</b>.</li>
-      <li>After the Repeat ends, still at home: <b>Show Notification</b> “Still downloading on the PC. Open Premade Tools to save it later.”</li>
-      <li><b>Otherwise</b> (away from home Wi-Fi): see <b>When your PC is off</b> below.</li>
+      <li>After the Repeat ends: <b>Show Notification</b> “Still downloading on the PC. Open Premade Tools to save it later.”</li>
       <li>Try it: in TikTok tap <b>Share</b> › <b>More</b> › <b>${SHORTCUT_DL}</b>. Allow access to devices on your network and to Photos when asked.</li>
     </ol></details></section>
     <section class="group"><div class="sectionhead"><b>When your PC is off</b><i></i></div>
     <details class="iosguide"><summary>Download on the iPhone with a-Shell</summary><ol>
       <li>Install <b>a-Shell</b> (free, App Store). Open it and run this once (it takes a minute):${field('Setup', 'pip install -U yt-dlp gallery-dl')}</li>
-      <li>In the Shortcut's <b>Otherwise</b> part: add a-Shell's <b>Execute Command</b> with this command, and put <b>Shortcut Input</b> where it says LINK (keep the quotes).${field('Command', 'mkdir -p ~/Documents/premade && cd ~/Documents/premade && rm -f * && (yt-dlp -f "b[ext=mp4]/b" -o "%(title).80B.%(ext)s" "LINK" || gallery-dl -D . "LINK")')}</li>
+      <li>In the Shortcut, inside <b>If Job begins with ERR OFF</b>: add a-Shell's <b>Execute Command</b> with this command, and put <b>Shortcut Input</b> where it says LINK (keep the quotes).${field('Command', 'mkdir -p ~/Documents/premade && cd ~/Documents/premade && rm -f * && (yt-dlp -f "b[ext=mp4]/b" -o "%(title).80B.%(ext)s" "LINK" || gallery-dl -D . "LINK")')}</li>
       <li>Then a-Shell's <b>Get File</b> (or <b>Get Contents of Folder</b> on a-Shell › <b>premade</b>) and <b>Save to Photo Album</b>.</li>
       <li>Keep the screen on while it runs. YouTube may not work without the PC, so YouTube links are best shared at home.</li>
     </ol></details></section>` : `
@@ -192,12 +195,12 @@ $app.addEventListener('click', async (e) => {
   const d = b.dataset;
   try {
     if (d.dlgo !== undefined) dlGo();
-    else if (d.dlforce !== undefined) dlGo('', true);
+    else if (d.dlforce !== undefined) dlGo(DS.note?.repeat?.mode, true); // a playlist again: the same choice, all or one
     else if (d.dlmode) dlGo(d.dlmode);
     else if (d.dlaskno !== undefined) { S.dlAsk = false; render(); }
     else if (d.dlpaste !== undefined) { DS.url = NATIVE.clipboard() || ''; DS.err = ''; dlProbeNow(); }
     else if (d.dlcancel) { await api('/api/phone/dl/cancel/' + d.dlcancel, {}); refresh(); }
-    else if (d.dlphone !== undefined) { if (DS.url.trim()) { DS.phone = { busy: true, pct: 0 }; render(); NATIVE.phoneDownload(DS.url.trim(), DS.audio); } }
+    else if (d.dlphone !== undefined) { if (DS.url.trim()) { DS.phone = { busy: true, pct: 0 }; render(); NATIVE.phoneDownload(dlLink(DS.url), DS.audio); } }
     else if (d.dlpaste2 !== undefined) { DS.url = NATIVE.clipboard() || ''; render(); }
     else if (d.dlhere !== undefined) {
       if (!DS.url.trim()) return;
@@ -206,12 +209,14 @@ $app.addEventListener('click', async (e) => {
       try { ok = localStorage.getItem('dlShortcutOK') === '1'; } catch {}
       if (!ok && !DS.hereWarned) { DS.hereWarned = true; render(); return; }
       try { localStorage.setItem('dlShortcutOK', '1'); } catch {}
-      location.href = runDl(DS.url.trim());
+      location.href = runDl(dlLink(DS.url));
     }
     else if (d.dlherepaste !== undefined) { DS.url = (await navigator.clipboard.readText()).trim(); render(); }
     else if (d.dlsave) { saving.add(d.dlsave); NATIVE.saveDownload(d.dlsave); b.textContent = 'Saving…'; }
   } catch (err) { DS.err = err.message; render(); }
 });
+// iPhone: opening a download to save it counts as picked up, so the PC stops saying it's waiting for this phone.
+$app.addEventListener('click', (e) => { const a = e.target.closest('a[data-dlgot]'); if (a) api('/api/phone/dl/fetched/' + a.dataset.dlgot, {}).catch(() => {}); });
 $app.addEventListener('input', (e) => {
   if (e.target.id === 'dlhere') DS.url = e.target.value;
   if (e.target.id !== 'dlurl') return;

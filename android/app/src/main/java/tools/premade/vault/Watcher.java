@@ -245,6 +245,7 @@ final class Watcher {
 
     private void sync() {
         if (!Vault.canReachHome(c)) return;
+        Drops.check(c); // first: File drop works while the vault can't take files
         try {
             File[] metas = pending.listFiles((d, n) -> n.endsWith(".json"));
             if (metas != null) {
@@ -256,7 +257,6 @@ final class Watcher {
                     .put("app", Updater.myVersion(c));
             Vault.call(c, "POST", "/api/phone/checkin", s);
             restores();
-            Drops.check(c);
         } catch (Exception e) {
             Log.w(TAG, "sync", e);
             if (e.getMessage() != null && e.getMessage().startsWith("401"))

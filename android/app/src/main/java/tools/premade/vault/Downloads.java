@@ -37,7 +37,14 @@ final class Downloads {
             return false;
         }
         toast(c, r.startsWith("ERR") ? r.substring(4).trim() : "Downloading on your PC. It'll land in Gallery.");
+        if (!r.startsWith("ERR")) want(c, r);
         return !r.startsWith("ERR");
+    }
+
+    /** A download this phone asked for by its id: saved when it's done, even one the PC had already (from the PC or
+     *  another phone, or fetched before), which the PC hands back instead of downloading again. */
+    private static void want(Context c, String id) {
+        synchronized (LOCK) { Vault.prefs(c).edit().putString("dlWant", Vault.prefs(c).getString("dlWant", "") + id + "\n").apply(); }
     }
 
     /** Sends links kept from earlier, then saves finished downloads. True while any of this phone's are still going. */
@@ -46,20 +53,29 @@ final class Downloads {
             try {
                 String q = Vault.prefs(c).getString("dlQueue", "");
                 if (!q.isEmpty()) {
-                    for (String l : q.split("\n")) if (!l.isEmpty()) post(c, l); // throws while the PC is away, keeping the queue
+                    for (String l : q.split("\n")) if (!l.isEmpty()) { String r = post(c, l).trim(); if (!r.startsWith("ERR")) want(c, r); } // throws while the PC is away, keeping the queue
                     Vault.prefs(c).edit().remove("dlQueue").apply();
                 }
+                java.util.Set<String> want = new java.util.HashSet<>(java.util.Arrays.asList(Vault.prefs(c).getString("dlWant", "").split("\n"))), still = new java.util.HashSet<>();
                 JSONObject s = new JSONObject(Vault.call(c, "GET", "/api/phone/dl", null));
                 String me = s.optString("me");
                 JSONArray jobs = s.getJSONArray("jobs");
                 boolean busy = false;
                 for (int i = 0; i < jobs.length(); i++) {
                     JSONObject j = jobs.getJSONObject(i);
-                    if (!me.equals(j.optString("from"))) continue;
-                    String st = j.optString("state");
-                    if (st.equals("queued") || st.equals("running")) busy = true;
-                    else if (st.equals("done") && !j.optBoolean("fetched")) { save(c, j, "/api/phone/dl"); toast(c, "Saved: " + j.optString("title")); }
+                    String st = j.optString("state"), id = j.optString("id");
+                    boolean asked = want.contains(id);
+                    if (!asked && !me.equals(j.optString("from"))) continue;
+                    if (st.equals("queued") || st.equals("running")) { busy = true; if (asked) still.add(id); }
+                    else if (st.equals("done") && (asked || !j.optBoolean("fetched"))) {
+                        try { save(c, j, "/api/phone/dl"); toast(c, "Saved: " + j.optString("title")); }
+                        catch (Exception e) { // one that can't be saved doesn't hold up the rest; one whose file is gone from the PC is let go
+                            Log.w(Watcher.TAG, "download " + id, e);
+                            if (asked && !(e instanceof java.io.FileNotFoundException)) still.add(id);
+                        }
+                    }
                 }
+                Vault.prefs(c).edit().putString("dlWant", String.join("\n", still) + (still.isEmpty() ? "" : "\n")).apply();
                 return busy;
             } catch (Exception e) { Log.w(Watcher.TAG, "downloads", e); return false; }
         }

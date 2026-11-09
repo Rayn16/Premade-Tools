@@ -24,16 +24,23 @@ let EDM = null; // the engine module
 const edUid = () => Math.random().toString(36).slice(2, 10);
 const edEl = (sel) => ED.root.querySelector(sel);
 
+// One at a time: a second tap while the first opens would leave a dead editor over the app.
+let edOpening = false;
 async function pdfEditOpen(file) {
+  if (ED.on || edOpening) return;
+  edOpening = true;
+  try { await edOpen(file); } finally { edOpening = false; }
+}
+async function edOpen(file) {
   EDM ??= await import('/m/lib/pdf-edit.mjs');
-  const { PDFDocument } = await import('/m/lib/pdf-lib.min.mjs');
+  const { openPdf } = await import('/m/lib/pdf-local.mjs');
   const bytes = new Uint8Array(await file.arrayBuffer());
   let doc, view;
-  try { doc = await PDFDocument.load(bytes); } catch (e) {
-    P.err = /encrypt/i.test(e.message) ? 'This PDF has a password. Remove it first with Remove password, then edit it.' : "This PDF couldn't be opened. It may be damaged.";
+  try { doc = await openPdf(bytes); } catch (e) {
+    P.err = /encrypt|password/i.test(e.message) ? 'This PDF has a password. Remove it first with Remove password, then edit it.' : "This PDF couldn't be opened. It may be damaged.";
     return render();
   }
-  try { view = await (await pdfLib()).getDocument({ data: bytes.slice(), isEvalSupported: false }).promise; } catch (e) { P.err = "This PDF couldn't be opened. It may be damaged."; return render(); }
+  try { view = await (await pdfLib()).getDocument({ data: bytes.slice(), ...PDFJS_OPT }).promise; } catch (e) { P.err = "This PDF couldn't be opened. It may be damaged."; return render(); }
   Object.assign(ED, { on: true, file, bytes, doc, view, tool: 'edit', shape: 'box', ink: ED_INK[0], hi: ED_HI[0], thick: 2, tsize: 14, items: [], edits: {}, pics: {}, sel: null,
     undo: [], z: 1, busy: false, note: '', reads: {}, drawn: {}, typing: null });
   ED.pages = doc.getPages().map((p) => EDM.view(p));
@@ -57,7 +64,7 @@ async function pdfEditOpen(file) {
   ED.vp = vm?.content;
   if (vm && PDFAPI.touch) vm.content = ED.vp + ',maximum-scale=1';
   edFit();
-  ED.io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) edShow(+e.target.dataset.p); }), { root: edEl('.edscroll'), rootMargin: '600px 0px' });
+  ED.io = new IntersectionObserver((es) => es.forEach((e) => (e.isIntersecting ? edShow : edHide)(+e.target.dataset.p)), { root: edEl('.edscroll'), rootMargin: '600px 0px' });
   ED.root.querySelectorAll('.edpage').forEach((n) => ED.io.observe(n));
   edBar();
 }
@@ -78,6 +85,13 @@ function edFit() {
   edEl('.edpages').style.setProperty('--s', ED.s);
   ED.drawn = {};
   ED.root.querySelectorAll('.edpage').forEach((n) => { const r = n.getBoundingClientRect(), sc = edEl('.edscroll').getBoundingClientRect(); if (r.bottom > sc.top - 600 && r.top < sc.bottom + 600) edShow(+n.dataset.p); });
+}
+
+// A page well out of sight gives back its picture, so a long PDF doesn't fill an iPhone's memory (it reloads the app).
+function edHide(i) {
+  const cv = ED.root?.querySelector(`.edpage[data-p="${i}"] canvas`);
+  if (cv) cv.width = cv.height = 0;
+  delete ED.drawn[i];
 }
 
 // A page came into sight: draw it (sharp for this zoom) and read its text.
@@ -125,6 +139,12 @@ function edSvg(it) {
 }
 const edTextCss = (it, s = it.size) => `font-size:calc(${s}px * var(--s));font-family:${ED_FONT[it.family || 'sans']};${it.bold ? 'font-weight:700;' : ''}${it.italic ? 'font-style:italic;' : ''}color:${it.color}`;
 const edPos = (b) => `left:calc(${b.x}px * var(--s));top:calc(${b.y}px * var(--s));width:calc(${b.w}px * var(--s));height:calc(${b.h}px * var(--s))`;
+// Where a changed line shows inside its box: from the line's start, or (right to left) back from its far end, turned as the line is.
+function edLine(b) {
+  const t = b.angle * Math.PI / 180, d = b.rtl ? b.len : 0, x = b.ox + d * Math.cos(t) - b.x, y = b.oy + d * Math.sin(t) - b.y - b.size;
+  return `top:calc(${y}px * var(--s));${b.rtl ? `left:auto;right:calc(${b.w - x}px * var(--s))` : `left:calc(${x}px * var(--s))`}`
+    + (b.angle ? `;transform-origin:${b.rtl ? 100 : 0}% 100%;transform:rotate(${b.angle}deg)` : '');
+}
 
 // Redraws page i's added things, its changed lines and, with Edit, the lines you can tap.
 function edPaint(i) {
@@ -139,9 +159,9 @@ function edPaint(i) {
     if (now !== undefined) svg = `<rect x="${b.x - 1}" y="${b.y - 1}" width="${b.w + 2}" height="${b.h + 2}" fill="#fff"/>` + svg;
     if (typing) continue;
     html += `<div class="edblk${now !== undefined ? ' is-changed' : ''}" data-b="${key}" style="${edPos(b)}">${now !== undefined
-      ? `<span style="${edTextCss(b)};top:calc(${b.oy - b.y - b.size}px * var(--s))">${esc(now)}</span>` : ''}</div>`;
+      ? `<span dir="auto" style="${edTextCss(b)};${edLine(b)}">${esc(now)}</span>` : ''}</div>`;
   }
-  for (const it of items.filter((x) => x.type === 'text' && ED.typing?.id !== x.id)) html += `<div class="edtxt" data-it="${it.id}" style="left:calc(${it.x}px * var(--s));top:calc(${it.y}px * var(--s));${edTextCss(it)}">${esc(it.text)}</div>`;
+  for (const it of items.filter((x) => x.type === 'text' && ED.typing?.id !== x.id)) html += `<div class="edtxt" dir="auto" data-it="${it.id}" style="left:calc(${it.x}px * var(--s));top:calc(${it.y}px * var(--s));${edTextCss(it)}">${esc(it.text)}</div>`;
   if (sel?.page === i) {
     const b = edBox(sel);
     html += `<div class="edsel" data-grab="${sel.id}" style="${edPos(b)}">${['pic', 'white', 'mark', 'box', 'oval'].includes(sel.type) ? `<i class="edhandle" data-size="${sel.id}"></i>` : ''}</div>`;
@@ -211,7 +231,8 @@ function edType(on, what) {
       if (v !== was) {
         edSnap();
         if (v === b.text) delete ED.edits[t.key]; else ED.edits[t.key] = v;
-        ED.note = v && v !== b.text && !EDM.fits(b, v) ? "That line's font doesn't have every letter you typed, so it'll be saved in the closest font." : '';
+        ED.note = !v || v === b.text || EDM.fits(b, v) ? '' : b.rtl || EDM.rtlFirst(v) ? "A changed Arabic line is saved in the closest font, so its letters join up right."
+          : "That line's font doesn't have every letter you typed, so it'll be saved in the closest font.";
       }
       edPaint(+i);
     } else {
@@ -226,10 +247,12 @@ function edType(on, what) {
   const el = document.createElement(what.key ? 'input' : 'textarea');
   el.className = 'edtype';
   el.spellcheck = false;
+  el.dir = 'auto'; // Arabic types right to left
   if (what.key) {
     const [i, id] = what.key.split(':'), b = ED.reads[i].blocks[id];
     el.value = ED.edits[what.key] ?? b.text;
-    el.style.cssText = `${edTextCss(b)};left:calc(${b.x - 2}px * var(--s));top:calc(${b.y - 2}px * var(--s));min-width:calc(${b.w + 30}px * var(--s));height:calc(${b.h + 4}px * var(--s))`;
+    const side = b.rtl ? `right:calc(${ED.pages[i].W - b.x - b.w - 2}px * var(--s))` : `left:calc(${b.x - 2}px * var(--s))`; // Arabic grows to the left
+    el.style.cssText = `${edTextCss(b)};${side};top:calc(${b.y - 2}px * var(--s));min-width:calc(${b.w + 30}px * var(--s));height:calc(${b.h + 4}px * var(--s))`; // over all the line, even a turned one (typed level): a phone's tap lands after the box opens, and off it would close it
     ED.typing = { key: what.key, el };
     ED.root.querySelector(`.edpage[data-p="${i}"] .edhtml`).append(el);
     edPaint(+i);
@@ -251,13 +274,14 @@ function edType(on, what) {
   if (what.fresh) el.select();
 }
 
-// Pictures and signatures come in as PNG (keeps see-through parts) or JPEG, at most 2000 pixels across.
+// Pictures and signatures come in as PNG (keeps see-through parts) or JPEG, at most 2000 pixels across. A JPEG is
+// always drawn again: the canvas turns it the way its EXIF says, which a PDF wouldn't do with the bytes as stored.
 async function edPicture(blob, sig) {
   const url = URL.createObjectURL(blob), im = new Image();
   im.src = url;
   try { await im.decode(); } catch (e) { URL.revokeObjectURL(url); ED.note = "That picture couldn't be opened."; return edBar(); }
   let w = im.naturalWidth, h = im.naturalHeight, bytes, png = blob.type === 'image/png';
-  if (Math.max(w, h) > 2000 || !/^image\/(png|jpeg)$/.test(blob.type)) {
+  if (Math.max(w, h) > 2000 || blob.type !== 'image/png') {
     const k = Math.min(1, 2000 / Math.max(w, h)), c = document.createElement('canvas');
     c.width = Math.round(w * k); c.height = Math.round(h * k);
     c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
@@ -386,12 +410,12 @@ function edUp(e) {
   if (edFingers.size || !g) { if (!edFingers.size) edGest = null; return; }
   edGest = null;
   if (g.pan) return;
-  if (g.from) { if (!g.moved) ED.undo.pop(); edPaint(g.i); return; }
+  if (g.from) { if (!g.moved) ED.undo.pop(); edPaint(g.i); return edBar(); } // edBar: Undo lights up
   if (g.fresh) {
     const it = g.it, b = edBox(it);
     if (it.type !== 'draw' && Math.max(b.w, b.h) < (it.pts ? 14 : 4)) { ED.items = ED.items.filter((x) => x !== it); ED.undo.pop(); }
     edPaint(g.i);
-    return;
+    return edBar();
   }
   if (!g.tap) return;
   // A tap: pick what you added, change a line, or put new text there.
@@ -417,13 +441,14 @@ function edUp(e) {
 // ---------- saving ----------
 // Draws a line the built-in fonts can't (Arabic, emoji…) as a sharp picture.
 async function edTextPng(it, line) {
-  const k = 6, c = document.createElement('canvas'), w = Math.ceil(edMeasure(line, it) + it.size * 0.2), h = Math.ceil(it.size * 1.2);
+  const k = 6, pad = it.size * 0.1, c = document.createElement('canvas'), w = Math.ceil(edMeasure(line, it) + pad * 2), h = Math.ceil(it.size * 1.2);
   c.width = w * k; c.height = h * k;
   const g = c.getContext('2d');
   g.font = `${it.italic ? 'italic ' : ''}${it.bold ? 'bold ' : ''}${it.size * k}px ${ED_FONT[it.family || 'sans']}`;
   g.fillStyle = it.color; g.textBaseline = 'alphabetic';
-  g.fillText(line, 0, it.size * k);
-  return { bytes: new Uint8Array(await (await new Promise((ok) => c.toBlob(ok, 'image/png'))).arrayBuffer()), w, h };
+  g.direction = EDM.rtlFirst(line) ? 'rtl' : 'ltr'; g.textAlign = 'left'; // as the line showed while typing (dir="auto")
+  g.fillText(line, pad * k, it.size * k);
+  return { bytes: new Uint8Array(await (await new Promise((ok) => c.toBlob(ok, 'image/png'))).arrayBuffer()), w, h, pad };
 }
 
 async function edSave() {
@@ -434,18 +459,19 @@ async function edSave() {
   const btn = edEl('[data-ed="save"]');
   btn.innerHTML = `${icon('spin', 'spin')}Saving`;
   try {
-    const { PDFDocument } = await import('/m/lib/pdf-lib.min.mjs');
-    const doc = await PDFDocument.load(ED.bytes); // a fresh copy, so a failed save leaves nothing half done
+    const { openPdf } = await import('/m/lib/pdf-local.mjs');
+    const doc = await openPdf(ED.bytes); // a fresh copy, so a failed save leaves nothing half done
     for (let i = 0; i < ED.pages.length; i++) {
       const page = doc.getPage(i), edits = {};
       for (const [k, v] of Object.entries(ED.edits)) { const [p, id] = k.split(':'); if (+p === i) edits[id] = v; }
-      const extra = Object.keys(edits).length ? EDM.editText(doc, page, EDM.readText(doc, page), edits) : [];
+      const hide = ED.items.filter((it) => it.page === i && it.type === 'white');
+      const extra = Object.keys(edits).length || hide.length ? EDM.editText(doc, page, EDM.readText(doc, page), edits, hide) : [];
       await EDM.drawItems(doc, page, [...extra, ...ED.items.filter((it) => it.page === i)], ED.pics, edTextPng);
     }
     const bytes = await doc.save({ useObjectStreams: true });
     const file = new File([bytes], ED.file.name, { type: 'application/pdf' });
     edClose();
-    P.files = [file];
+    P.files = [file]; P.edited = file; // if the send fails, the button sends this again instead of reopening the editor
     pdfSend(); // the PDF tools save it as "name (edited).pdf", like their other results
   } catch (e) {
     ED.busy = false;

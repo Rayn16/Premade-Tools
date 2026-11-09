@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -64,16 +65,11 @@ func (a *App) routes() http.Handler {
 
 	ui2 := func(p string, h http.HandlerFunc) { m.Handle(p, localOnly(h)) }
 	ui2("GET /api/ui/state", a.state)
-	ui2("GET /api/ui/deleted", func(w http.ResponseWriter, r *http.Request) {
-		if st := a.getStore(); st != nil {
-			writeJ(w, st.Deleted())
-		} else {
-			writeJ(w, []Item{})
-		}
-	})
+	ui2("GET /api/ui/deleted", func(w http.ResponseWriter, r *http.Request) { writeJ(w, a.deletedNow()) })
 	ui2("GET /api/ui/file/{id}", a.uiFile)
 	ui2("POST /api/ui/save/{id}", a.saveToPC)
 	ui2("POST /api/ui/restore/{id}", a.queueRestore)
+	ui2("POST /api/ui/unrestore/{id}", a.cancelRestore)
 	ui2("POST /api/ui/dismiss/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if st := a.getStore(); st != nil {
 			st.Dismiss(r.PathValue("id"))
@@ -81,7 +77,9 @@ func (a *App) routes() http.Handler {
 		writeJ(w, "ok")
 	})
 	ui2("GET /api/ui/drives", func(w http.ResponseWriter, r *http.Request) { writeJ(w, drives()) })
-	ui2("POST /api/ui/pickfolder", func(w http.ResponseWriter, r *http.Request) { writeJ(w, map[string]string{"dir": pickFolder()}) })
+	ui2("POST /api/ui/pickfolder", func(w http.ResponseWriter, r *http.Request) {
+		writeJ(w, map[string]string{"dir": pickFolder("Where should your vault live?")})
+	})
 	ui2("POST /api/ui/vault", a.setVault)
 	ui2("POST /api/ui/settings", a.saveSettings)
 	ui2("GET /api/ui/keep-preview", func(w http.ResponseWriter, r *http.Request) {
@@ -113,9 +111,6 @@ func (a *App) routes() http.Handler {
 		m.HandleFunc(p, a.phoneAuth(h))
 	}
 	ph("POST /api/phone/checkin", a.checkin)
-	ph("GET /api/phone/have", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
-		writeJ(w, map[string]bool{"have": st.Has(p.ID, r.URL.Query().Get("key"))})
-	})
 	ph("PUT /api/phone/upload", a.upload)
 	ph("POST /api/phone/missed", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		var in struct {
@@ -128,33 +123,6 @@ func (a *App) routes() http.Handler {
 		}
 		st.AddMissed(Item{Key: in.Folder + "/" + in.Name, Name: in.Name, Folder: in.Folder, Phone: p.ID, Note: in.Note, DeletedAt: msTime(in.At)})
 		writeJ(w, "ok")
-	})
-	ph("POST /api/phone/list", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
-		var in struct {
-			Keys     []string `json:"keys"`
-			Complete bool     `json:"complete"`
-		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil {
-			http.Error(w, "bad request", 400)
-			return
-		}
-		keys := in.Keys
-		if !in.Complete {
-			keys = nil // a partial list only asks what's missing; it never marks anything deleted
-		}
-		need, err := st.SyncPhoneList(p.ID, keys, time.Now())
-		if !in.Complete {
-			for _, k := range in.Keys {
-				if !st.Has(p.ID, k) {
-					need = append(need, k)
-				}
-			}
-		}
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		writeJ(w, map[string]any{"need": need})
 	})
 	// The iPhone's Shortcut speaks plain text: it sends the names of every photo and video on the phone,
 	// one per line, and gets back the ones the PC still needs as "|name|name|" so an If "contains" can test each.
@@ -170,14 +138,22 @@ func (a *App) routes() http.Handler {
 			http.Error(w, "The Shortcut sent no photo names. Check it can see your photos.", 400)
 			return
 		}
-		a.touch(p.ID)
-		need, err := st.SyncPhoneList(p.ID, keys, time.Now())
+		a.touch(p.ID, strings.HasPrefix(r.RemoteAddr, "relay:"))
+		need, _, err := st.SyncPhoneList(p.ID, keys, time.Now(), false)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprint(w, "|"+strings.Join(need, "|")+"|")
+	})
+	// The user says they did delete the photos a too-short list left out (SyncPhoneList).
+	ph("POST /api/phone/ios/held", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+		if err := st.Confirm(p.ID, time.Now()); err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		writeJ(w, "ok")
 	})
 	// Files the PC wants back in the iPhone's Photos, one id per line ("none" when there are none).
 	ph("GET /api/phone/ios/restores", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
@@ -220,22 +196,26 @@ func (a *App) routes() http.Handler {
 	// The phone screens (Android app and iPhone home-screen app), served from this PC so both stay in step.
 	m.Handle("GET /m/", static)
 	m.Handle("GET /icon.svg", static)
-	ph("GET /api/phone/state", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+	// These answer while the vault can't be opened or is moving, so the phone's other tools keep working.
+	pt := func(p string, h func(http.ResponseWriter, *http.Request, *Phone)) { m.HandleFunc(p, a.tokenOnly(h)) }
+	pt("GET /api/phone/state", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		c := a.set.Get()
 		free, _ := diskSpace(c.VaultDir)
 		remote, tsState := a.ts.Status()
 		writeJ(w, map[string]any{"me": p.ID, "phones": a.phoneViews(), "version": version, "remote": remote, "tailscale": tsState, "relay": relayURL, "link": a.linkURL(), "fr": c.FrTok, "tsHost": a.ts.IP(), "update": a.newVer(), "updErr": a.updFailed(), "free": human(int64(free)),
-			"config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
+			"vault": a.vaultNote(), "config": map[string]any{"keep": c.Keep, "theme": c.Theme, "custom": c.Custom, "vaultDir": c.VaultDir}})
 	})
-	ph("POST /api/phone/update", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+	pt("POST /api/phone/update", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		writeJ(w, map[string]string{"msg": a.checkUpdate()})
 	})
-	ph("GET /api/phone/app", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+	pt("GET /api/phone/app", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		v, _ := apkFile.ReadFile("apk/version.txt")
 		n, _ := strconv.Atoi(strings.TrimSpace(string(v)))
 		writeJ(w, map[string]int{"version": n})
 	})
-	ph("GET /api/phone/deleted", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) { writeJ(w, st.Deleted()) })
+	pt("GET /api/phone/deleted", func(w http.ResponseWriter, r *http.Request, p *Phone) { writeJ(w, a.deletedNow()) })
+	pt("PUT /api/phone/piece", a.piece)
+	pt("POST /api/phone/unrestore/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone) { a.cancelRestore(w, r) })
 	ph("GET /api/phone/view/{id}", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
 		serveItem(w, r, st, r.PathValue("id"), r.URL.Query().Has("dl"))
 	})
@@ -251,7 +231,7 @@ func (a *App) routes() http.Handler {
 		}
 		writeJ(w, map[string]any{"count": n, "size": human(b)})
 	})
-	ph("POST /api/phone/settings", func(w http.ResponseWriter, r *http.Request, p *Phone, st *Store) {
+	pt("POST /api/phone/settings", func(w http.ResponseWriter, r *http.Request, p *Phone) {
 		var in map[string]json.RawMessage
 		json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in)
 		out := map[string]json.RawMessage{}
@@ -275,6 +255,9 @@ func (a *App) routes() http.Handler {
 
 // localOnly lets only this PC's own window through. The Host check stops DNS-rebinding pages,
 // and the X-Vault header on API calls stops other web pages from posting to us.
+// fileRoute is a file the PC window shows or saves: the vault's, or a tool's (/api/ui/tr/file/…, the .srt link).
+var fileRoute = regexp.MustCompile(`^/api/ui/(\w+/)?file/`)
+
 func localOnly(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -283,8 +266,8 @@ func localOnly(h http.Handler) http.Handler {
 			http.Error(w, "This page only opens on the PC itself.", 403)
 			return
 		}
-		// Previews load through <img>/<video>, which can't send headers; reads can't change anything.
-		preview := r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/ui/file/")
+		// Previews and saves load through <img>/<video>/<a>, which can't send headers; reads can't change anything.
+		preview := r.Method == "GET" && fileRoute.MatchString(r.URL.Path)
 		if strings.HasPrefix(r.URL.Path, "/api/") && !preview && r.Header.Get("X-Vault") != "1" {
 			http.Error(w, "forbidden", 403)
 			return
@@ -352,12 +335,18 @@ type phoneView struct {
 	Paired, LastSeen time.Time
 	Status           json.RawMessage
 	Restores         int
+	Held             int  // iPhone: photos its last backup left out that don't show as deleted yet
+	Relay            bool // iPhone: its backup Shortcut has the relay's address
 }
 
 func (a *App) phoneViews() []phoneView {
-	phones := []phoneView{}
+	phones, st := []phoneView{}, a.getStore()
 	for _, p := range a.set.Get().Phones {
-		phones = append(phones, phoneView{append([]string{}, p.Restores...), p.ID, p.Name, p.Kind, p.Paired, p.LastSeen, p.Status, len(p.Restores)})
+		v := phoneView{append([]string{}, p.Restores...), p.ID, p.Name, p.Kind, p.Paired, p.LastSeen, p.Status, len(p.Restores), 0, p.Relay}
+		if st != nil {
+			v.Held = st.Held(p.ID)
+		}
+		phones = append(phones, v)
 	}
 	return phones
 }
@@ -374,12 +363,55 @@ func (a *App) state(w http.ResponseWriter, r *http.Request) {
 	c.Phones = nil
 	remote, tsState := a.ts.Status()
 	out := map[string]any{"config": c, "phones": phones, "version": version, "warnings": a.warnings(), "update": a.newVer(), "updErr": a.updFailed(), "moving": a.isMoving(), "remote": remote, "tailscale": tsState}
-	if st := a.getStore(); st != nil {
-		n, b := st.Stats()
+	a.mu.Lock()
+	st, mv := a.store, a.moving
+	a.mu.Unlock()
+	if st != nil {
+		var n int
+		var b int64
+		if mv != nil {
+			n, b = mv.n, mv.b
+		} else {
+			n, b = st.Stats()
+		}
 		free, _ := diskSpace(c.VaultDir)
 		out["count"], out["bytes"], out["free"] = n, human(b), human(int64(free))
 	}
 	writeJ(w, out)
+}
+
+// moveSnap is what the screens show while the vault moves, since the store is held for the whole copy.
+type moveSnap struct {
+	items []Item
+	n     int
+	b     int64
+}
+
+// deletedNow is the vault's list of deleted files: as it was before a move while one runs, empty while it can't be opened.
+func (a *App) deletedNow() []Item {
+	a.mu.Lock()
+	st, mv := a.store, a.moving
+	a.mu.Unlock()
+	switch {
+	case mv != nil:
+		return mv.items
+	case st == nil:
+		return []Item{}
+	}
+	return st.Deleted()
+}
+
+// vaultNote tells the phones why the vault can't take files right now ("" when it can).
+func (a *App) vaultNote() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case a.moving != nil:
+		return "The vault is moving to a new folder on your PC. It takes files again when that's done."
+	case a.store == nil && a.noVault != "":
+		return "Your PC can't open the vault folder. Check that its drive is plugged in."
+	}
+	return ""
 }
 
 func (a *App) setVault(w http.ResponseWriter, r *http.Request) {
@@ -391,14 +423,18 @@ func (a *App) setVault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old := a.set.Get().VaultDir
-	if old == "" || old == dir {
+	if old == "" || old == dir || a.getStore() == nil { // a vault that can't be opened has nothing to move: start here
+		if a.isMoving() {
+			http.Error(w, "The vault is still moving. Try again when it's done.", 409)
+			return
+		}
 		st, err := OpenStore(dir)
 		if err != nil {
 			http.Error(w, "Can't use that folder: "+err.Error(), 400)
 			return
 		}
 		a.mu.Lock()
-		a.store = st
+		a.store, a.noVault = st, ""
 		a.mu.Unlock()
 		a.set.With(func(c *Config) bool { c.VaultDir = dir; return true })
 		setAutostart(a.set.Get().StartWin)
@@ -415,9 +451,15 @@ func (a *App) setVault(w http.ResponseWriter, r *http.Request) {
 
 // moveVault copies everything to the new folder, switches over, then removes the old copy.
 func (a *App) moveVault(old, dir string) {
+	st := a.getStore()
+	n, b := st.Stats()
+	mv := &moveSnap{items: st.Deleted(), n: n, b: b}
 	a.mu.Lock()
-	a.moving = true
-	st := a.store
+	if a.moving != nil { // one move at a time
+		a.mu.Unlock()
+		return
+	}
+	a.moving = mv
 	a.mu.Unlock()
 	st.mu.Lock() // holds uploads until the move is done
 	err := filepath.Walk(old, func(p string, fi os.FileInfo, err error) error {
@@ -436,6 +478,7 @@ func (a *App) moveVault(old, dir string) {
 		a.set.With(func(c *Config) bool { c.VaultDir = dir; return true })
 		os.RemoveAll(filepath.Join(old, "objects"))
 		os.Remove(filepath.Join(old, "index.json"))
+		os.Remove(filepath.Join(old, "index.json.bak"))
 		os.RemoveAll(filepath.Join(old, "tmp"))
 		os.Remove(old)
 	} else {
@@ -443,7 +486,7 @@ func (a *App) moveVault(old, dir string) {
 	}
 	st.mu.Unlock()
 	a.mu.Lock()
-	a.moving = false
+	a.moving = nil
 	a.mu.Unlock()
 }
 
@@ -555,12 +598,12 @@ func (a *App) pair(w http.ResponseWriter, r *http.Request) {
 	writeJ(w, map[string]string{"token": p.Token, "id": p.ID, "remote": remote, "relay": relayURL, "link": a.linkURL()})
 }
 
-// touch marks a phone as just seen.
-func (a *App) touch(id string) {
+// touch marks an iPhone as just backed up, and whether its Shortcut has the relay's address.
+func (a *App) touch(id string, relay bool) {
 	a.set.With(func(c *Config) bool {
 		for _, q := range c.Phones {
 			if q.ID == id {
-				q.LastSeen = time.Now()
+				q.LastSeen, q.Relay = time.Now(), relay
 			}
 		}
 		return true
@@ -599,7 +642,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request, p *Phone, st *Store
 	body := bufio.NewReader(r.Body)
 	name = unq(name)
 	if filepath.Ext(name) == "" { // Shortcuts gives photo names without the extension
-		head, _ := body.Peek(16)
+		head, _ := body.Peek(4096) // a ProRAW photo says so a few hundred bytes in
 		name += sniffExt(head)
 	}
 	it := Item{Key: key, Name: name, Folder: unq(h.Get("X-Folder")), Phone: p.ID, DeletedAt: msTime(at)}
@@ -614,25 +657,54 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request, p *Phone, st *Store
 	writeJ(w, map[string]string{"id": saved.ID})
 }
 
-// sniffExt names a file type from its first bytes (the kinds an iPhone's Photos holds).
+// sniffExt names a file type from its first bytes, for what Shortcuts send without the extension: photos and videos,
+// voice memos, documents. Telling Word, Excel and PowerPoint files from other ZIPs needs the first few KB.
 func sniffExt(b []byte) string {
-	if len(b) >= 12 && string(b[4:8]) == "ftyp" {
-		switch t := string(b[8:12]); {
+	s := string(b)
+	if len(s) >= 12 && s[4:8] == "ftyp" {
+		switch t := s[8:12]; {
 		case t == "heic" || t == "heix" || t == "mif1" || t == "msf1" || t == "hevc":
 			return ".heic"
+		case t == "avif" || t == "avis":
+			return ".avif"
 		case t == "qt  ":
 			return ".mov"
+		case t == "M4A ":
+			return ".m4a"
 		default:
 			return ".mp4"
 		}
 	}
+	riff := len(s) >= 12 && s[:4] == "RIFF"
 	switch {
-	case len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8:
+	case strings.HasPrefix(s, "\xff\xd8"):
 		return ".jpg"
-	case len(b) >= 4 && string(b[1:4]) == "PNG":
+	case strings.HasPrefix(s, "\x89PNG"):
 		return ".png"
-	case len(b) >= 4 && string(b[:4]) == "GIF8":
+	case strings.HasPrefix(s, "GIF8"):
 		return ".gif"
+	case riff && s[8:12] == "WEBP":
+		return ".webp"
+	case riff && s[8:12] == "WAVE":
+		return ".wav"
+	case strings.HasPrefix(s, "ID3"), strings.HasPrefix(s, "\xff\xfb"), strings.HasPrefix(s, "\xff\xf3"):
+		return ".mp3"
+	case strings.HasPrefix(s, "%PDF-"):
+		return ".pdf"
+	case strings.HasPrefix(s, "{\\rtf"):
+		return ".rtf"
+	case strings.HasPrefix(s, "II*\x00"), strings.HasPrefix(s, "MM\x00*"):
+		if strings.Contains(s, "\x12\xc6\x01\x00\x04\x00\x00\x00") || strings.Contains(s, "\xc6\x12\x00\x01\x00\x00\x00\x04") {
+			return ".dng" // it has a DNGVersion: an iPhone ProRAW photo
+		}
+		return ".tif"
+	case strings.HasPrefix(s, "PK\x03\x04"):
+		for _, o := range [][2]string{{"\x00word/", ".docx"}, {"\x00xl/", ".xlsx"}, {"\x00ppt/", ".pptx"}} {
+			if strings.Contains(s, o[0]) {
+				return o[1]
+			}
+		}
+		return ".zip"
 	}
 	return ""
 }
@@ -715,6 +787,17 @@ func (a *App) queueRestore(w http.ResponseWriter, r *http.Request) {
 			if p.ID == it.Phone {
 				p.Restores = append(without(p.Restores, id), id)
 			}
+		}
+		return true
+	})
+	writeJ(w, "ok")
+}
+
+// cancelRestore takes a file off the waiting list of the phone it was going back to: an away phone may not ask for days.
+func (a *App) cancelRestore(w http.ResponseWriter, r *http.Request) {
+	a.set.With(func(c *Config) bool {
+		for _, p := range c.Phones {
+			p.Restores = without(p.Restores, r.PathValue("id"))
 		}
 		return true
 	})

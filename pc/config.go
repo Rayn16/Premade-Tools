@@ -17,8 +17,9 @@ type Phone struct {
 	LastSeen time.Time       `json:"lastSeen"`
 	Status   json.RawMessage `json:"status,omitempty"` // what the phone last reported (bin on, battery, …)
 	Restores []string        `json:"restores,omitempty"`
-	Push     json.RawMessage `json:"push,omitempty"` // the iPhone app's web push subscription, when notifications are on
-	FCM      string          `json:"fcm,omitempty"`  // the Android app's Firebase token, for pop-ups sent through the relay
+	Push     json.RawMessage `json:"push,omitempty"`  // the iPhone app's web push subscription, when notifications are on
+	FCM      string          `json:"fcm,omitempty"`   // the Android app's Firebase token, for pop-ups sent through the relay
+	Relay    bool            `json:"relay,omitempty"` // iPhone: its last backup came through the relay, which takes nothing over 100 MB
 }
 
 type Config struct {
@@ -97,6 +98,8 @@ func (s *Settings) Get() Config {
 }
 
 // DownloadDir is the one folder every tool saves into (Downloader, Converter, PDF tools, Transcribe, File drop, Friends).
+const saveAsk = "Where should Premade Tools save what it makes? Every tool saves here."
+
 func (c Config) DownloadDir() string {
 	if c.DlDir != "" {
 		return c.DlDir

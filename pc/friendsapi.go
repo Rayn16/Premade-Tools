@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -60,7 +61,8 @@ func (a *App) friendsRoutes(m *http.ServeMux) {
 		json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in)
 		ok(w, a.fr.Send(from, in.To, in.Dev, a.jobPaths(in.Tool, in.ID), false))
 	})
-	// Any other file: the page uploads it here, raw, with ?to=&dev=&name=, and the PC sends it on.
+	// Any other file: the page uploads it here, raw, with ?to=&dev=&name=, and the PC sends it on. A file that came
+	// in pieces (piece) is named by ?piece= instead.
 	both("/upload", func(w http.ResponseWriter, r *http.Request, from string) {
 		q := r.URL.Query()
 		name := cleanName(q.Get("name"), 0)
@@ -70,8 +72,13 @@ func (a *App) friendsRoutes(m *http.ServeMux) {
 			return
 		}
 		path := filepath.Join(dir, name)
-		fh, err := os.Create(path)
-		if err == nil {
+		if q.Has("piece") {
+			if err = takePieces(q.Get("piece"), dir, name); err != nil {
+				err = fmt.Errorf("The file didn't arrive whole. Try again.")
+			}
+		} else if fh, cerr := os.Create(path); cerr != nil {
+			err = cerr
+		} else {
 			_, err = io.Copy(fh, io.LimitReader(r.Body, 1<<30+1))
 			fh.Close()
 		}

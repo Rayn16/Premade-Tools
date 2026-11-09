@@ -7,10 +7,12 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -88,7 +90,8 @@ type CvJob struct {
 	State   string    `json:"state"`             // queued, running, done, failed
 	Pct     float64   `json:"pct"`
 	Note    string    `json:"note,omitempty"`
-	Files   []DLFile  `json:"files,omitempty"` // relative to the converted folder
+	Files   []DLFile  `json:"files,omitempty"` // relative to Dir
+	Dir     string    `json:"dir,omitempty"`   // the save folder they went to ("" before it was kept: today's)
 	Size    int64     `json:"size"`            // of the results
 	InSize  int64     `json:"inSize"`          // of what was sent
 	At      time.Time `json:"at"`
@@ -284,6 +287,33 @@ func (c *Converter) Remove(id string) {
 	os.RemoveAll(c.InputDir(id))
 }
 
+// waitDone waits up to 20 s while a job runs, so a Shortcut asking about it asks less often and its loop of a set
+// number of tries lasts long enough for long jobs.
+func (c *Converter) waitDone(r *http.Request, id string) *CvJob {
+	j := c.Get(id)
+	for i := 0; i < 40 && j != nil && (j.State == "queued" || j.State == "running"); i++ {
+		select {
+		case <-r.Context().Done():
+			return j
+		case <-time.After(500 * time.Millisecond):
+		}
+		j = c.Get(id)
+	}
+	return j
+}
+
+// onDisk says if any of a job's results is still in its folder.
+func (c *Converter) onDisk(j *CvJob) bool {
+	for i := range j.Files {
+		if p, ok := c.Path(j, i); ok {
+			if _, err := os.Stat(p); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Path gives a job's result on disk, refusing anything outside the converted folder.
 func (c *Converter) Path(j *CvJob, n int) (string, bool) {
 	if n < 0 || n >= len(j.Files) {
@@ -292,7 +322,7 @@ func (c *Converter) Path(j *CvJob, n int) (string, bool) {
 	if !filepath.IsLocal(j.Files[n].Name) {
 		return "", false
 	}
-	return filepath.Join(c.dir(), j.Files[n].Name), true
+	return filepath.Join(cmp.Or(j.Dir, c.dir()), j.Files[n].Name), true
 }
 
 func (c *Converter) worker() {
@@ -334,8 +364,12 @@ func (c *Converter) run(id string) {
 	}
 	in := c.InputDir(id)
 	made, fails := c.work(ctx, j, in, out, func(p float64) { c.update(id, func(j *CvJob) { j.Pct = p }) })
-	if ctx.Err() != nil {
-		return // cancelled; Cancel already marked it
+	if ctx.Err() != nil { // cancelled (Cancel already marked it): nothing of it stays
+		os.RemoveAll(in)
+		for _, f := range made {
+			os.Remove(f)
+		}
+		return
 	}
 	var res []DLFile
 	var size int64
@@ -350,7 +384,7 @@ func (c *Converter) run(id string) {
 	}
 	os.RemoveAll(in)
 	c.update(id, func(j *CvJob) {
-		j.Files, j.Size, j.Pct = res, size, 100
+		j.Files, j.Dir, j.Size, j.Pct = res, out, size, 100
 		switch {
 		case len(res) > 0 && len(fails) > 0:
 			j.State, j.Note = "done", "Some files couldn't be converted. "+strings.Join(fails, " ")
@@ -383,7 +417,7 @@ func (c *Converter) convertAll(ctx context.Context, j *CvJob, in, out string, pr
 			files, err = c.convert(ctx, j, in, j.Inputs[i:i+1], out, prog)
 		}
 		if ctx.Err() != nil {
-			return nil, nil
+			return append(made, files...), nil
 		}
 		made = append(made, files...)
 		if err != nil {
@@ -509,7 +543,7 @@ func ffmpegArgs(src, dst, target string, small bool) []string {
 	h264 := func(crf string) []string {
 		v := []string{"-c:v", "libx264", "-preset", "veryfast", "-crf", crf, "-pix_fmt", "yuv420p"}
 		if small {
-			v = append(v, "-vf", "scale=-2:'min(1080,ih)'")
+			v = append(v, "-vf", "scale='if(gt(iw,ih),-2,min(1080,iw))':'if(gt(iw,ih),min(1080,ih),-2)'") // the short side: upright videos too
 		}
 		return v
 	}
@@ -575,7 +609,11 @@ func (c *Converter) runOffice(ctx context.Context, src, dst, target string) erro
 	profile := (&url.URL{Scheme: "file", Path: "/" + strings.TrimPrefix(filepath.ToSlash(filepath.Join(appDir(), "lo-profile")), "/")}).String()
 	ctx, stop := context.WithTimeout(ctx, 5*time.Minute) // a stuck LibreOffice shouldn't block the queue
 	defer stop()
-	args := []string{"-env:UserInstallation=" + profile, "--headless", "--norestore", "--nolockcheck", "--convert-to", to, "--outdir", tmp, src}
+	args := []string{"-env:UserInstallation=" + profile, "--headless", "--norestore", "--nolockcheck"}
+	if e := strings.ToLower(filepath.Ext(src)); e == ".html" || e == ".htm" {
+		args = append(args, "--infilter=HTML (StarWriter)") // as a document: opened as a web page, it can't be saved as Word
+	}
+	args = append(args, "--convert-to", to, "--outdir", tmp, src)
 	if err := runEngine(ctx, c.bin("soffice"), args, nil); err != nil {
 		return err
 	}

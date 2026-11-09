@@ -66,8 +66,20 @@ final class Vault {
         try { return URLEncoder.encode(s, "UTF-8").replace("+", "%20"); } catch (Exception e) { return s; }
     }
 
+    private static volatile long checked; // when base() last looked for the home address
+    private static volatile boolean home;
+
+    /** Where calls go: the PC's home or Tailscale address when it answers there, else the relay's link to the PC (the
+     *  link= of the away page), so saving, clipboard sync and recording work away from home too. Not on the main thread. */
+    static String base(Context c) {
+        long now = System.currentTimeMillis();
+        if (now - checked > 30_000) { home = canReachHome(c); checked = now; }
+        String away = prefs(c).getString("away", null), link = home || away == null ? null : android.net.Uri.parse(away).getQueryParameter("link");
+        return link != null && link.startsWith("https://") ? link : "http://" + host(c);
+    }
+
     static HttpURLConnection open(Context c, String method, String path) throws Exception {
-        HttpURLConnection h = (HttpURLConnection) new URL("http://" + host(c) + path).openConnection();
+        HttpURLConnection h = (HttpURLConnection) new URL(base(c) + path).openConnection();
         h.setRequestMethod(method);
         h.setConnectTimeout(5000);
         h.setReadTimeout(60000);

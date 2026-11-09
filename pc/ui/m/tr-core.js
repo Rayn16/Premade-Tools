@@ -6,7 +6,8 @@ ICON.transcribe = '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 1
 ICON.copy = '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>';
 
 let TRST = null; // GET TRAPI.base
-const T = { files: [], to: 'text', up: -1, err: '', open: {}, text: {}, copied: '', rec: null, recAt: 0 };
+const T = { files: [], to: 'text', up: -1, err: '', open: {}, text: {}, copied: '', rec: null, recAt: 0,
+  lang: /^ar\b/i.test(navigator.language) ? 'ar' : 'en' }; // what's spoken, for the phone's own Whisper (it can't tell)
 const trCanRecord = () => !!(window.Vault?.recordStart || (navigator.mediaDevices?.getUserMedia && window.MediaRecorder && window.isSecureContext));
 
 const trJobs = () => [...(typeof ljOf === 'function' ? ljOf('tr') : []), ...(TRST?.jobs || [])]; // ljOf: jobs done on the phone itself (local.js)
@@ -51,7 +52,8 @@ function trBox() {
   return `${T.rec ? '' : files}${rec}
     <div class="cvopts"><label class="audiosw"><input type="checkbox" class="switch" role="switch" id="trto" ${T.to === 'en' ? 'checked' : ''}>Translate to English</label><span class="grow"></span>
       ${T.files.length ? `<button type="button" class="btn primary" data-tr="go" ${ready ? '' : 'disabled'}>${T.up >= 0 ? `${icon('spin', 'spin')}Sending ${T.up}%` : `${icon('transcribe')}Transcribe`}</button>` : ''}</div>
-    <p class="row-hint cvhint">${T.to === 'en' ? 'Any language in, English text out.' : 'It hears the language by itself, Arabic and English included.'}</p>
+    ${TRST?.local ? `<div class="cvto"><span class="group-label">Spoken in</span><div class="seg">${[['ar', 'Arabic'], ['en', 'English']].map(([k, l]) => `<button type="button" data-tr="lang" data-lang="${k}" aria-pressed="${T.lang === k}">${l}</button>`).join('')}</div></div>` : ''}
+    <p class="row-hint cvhint">${TRST?.local ? (T.to === 'en' ? `${T.lang === 'ar' ? 'Arabic' : 'English'} in, English text out.` : `This phone writes down ${T.lang === 'ar' ? 'Arabic' : 'English'} as it's spoken.`) : T.to === 'en' ? 'Any language in, English text out.' : 'It hears the language by itself, Arabic and English included.'}</p>
     ${note ? `<p class="row-hint pdfnote">${icon('info')}<span>${esc(note)}</span></p>` : ''}`;
 }
 
@@ -93,21 +95,16 @@ function trRow(j, full) {
     ${open ? trTextView(j) : ''}</div>`;
 }
 
-function trSend() {
-  if (TRST?.local) { localTranscribe(T.files, T.to); T.files = []; T.err = ''; render(); return; } // the phone listens (local.js)
-  const fd = new FormData();
-  for (const f of T.files) fd.append('f', f, f.name);
-  const x = new XMLHttpRequest();
-  x.open('POST', `${TRAPI.base}/start?to=${T.to}`);
-  for (const [k, v] of Object.entries(TRAPI.hdr)) x.setRequestHeader(k, v);
-  x.upload.onprogress = (e) => { if (e.lengthComputable) { T.up = Math.floor(e.loaded / e.total * 100); render(); } };
-  x.onload = async () => {
-    T.up = -1;
-    if (x.status === 200) { T.files = []; T.err = ''; } else T.err = x.responseText.trim() || "That didn't work.";
-    await trRefresh(); render(); TRAPI.after();
-  };
-  x.onerror = () => { T.up = -1; T.err = TRAPI.touch ? "Couldn't reach your PC." : "Couldn't send the files."; render(); };
-  T.up = 0; T.err = ''; render(); x.send(fd);
+async function trSend() {
+  if (TRST?.local) { localTranscribe(T.files, T.to, T.lang); T.files = []; T.err = ''; render(); return; } // the phone listens (local.js)
+  T.up = 0; T.err = ''; render();
+  let x;
+  try {
+    x = await sendForm(`${TRAPI.base}/start?to=${T.to}`, TRAPI.hdr, T.files, {}, (p) => { T.up = Math.floor(p * 100); render(); });
+  } catch (e) { T.up = -1; T.err = TRAPI.touch ? e.message : "Couldn't send the files."; render(); return; }
+  T.up = -1;
+  if (x.status === 200) { T.files = []; T.err = ''; } else T.err = x.responseText.trim() || "That didn't work.";
+  await trRefresh(); render(); TRAPI.after();
 }
 
 // ---------- recording (the PC window only: phones reach the PC over http, where browsers keep the mic off) ----------
@@ -181,6 +178,7 @@ document.getElementById('app').addEventListener('click', async (e) => {
     else if (a === 'rec') trRecord();
     else if (a === 'recstop' || a === 'reccancel') { if (T.rec) { T.rec.cancelled = a === 'reccancel'; T.rec.stop(); } }
     else if (a === 'clear') { T.files = []; T.err = ''; render(); }
+    else if (a === 'lang') { T.lang = b.dataset.lang; render(); }
     else if (a === 'drop') { T.files.splice(+b.dataset.i, 1); render(); }
     else if (a === 'open') { T.open[id] = !T.open[id]; if (T.open[id] && j && typeof T.text[id] !== 'string') trLoad(j); render(); }
     else if (a === 'copy') { trCopy(T.text[id] || ''); T.copied = id; render(); setTimeout(() => { T.copied = ''; render(); }, 1800); }

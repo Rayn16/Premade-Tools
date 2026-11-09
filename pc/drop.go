@@ -6,6 +6,7 @@ package main
 // The clipboard is one shared slot: whatever was copied last, on the PC or a phone, is what the others get.
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -34,7 +35,7 @@ type Drop struct {
 	Kind    string     `json:"kind"` // files, text or link
 	Text    string     `json:"text,omitempty"`
 	Files   []DropFile `json:"files"`
-	Dir     string     `json:"-"`
+	Dir     string     `json:"dir"`     // where its files are: the save folder it arrived in, or held for a phone
 	Fetched bool       `json:"fetched"` // the phone it went to has saved it
 	Seen    bool       `json:"seen"`    // the phone it went to has shown a notification for it
 	State   string     `json:"state"`   // always "done": lets the Android app's save code treat drops like jobs
@@ -67,7 +68,7 @@ func NewDrops(pcDir func() string) *Drops {
 		}
 	}
 	for _, it := range d.items {
-		it.Dir = d.dirOf(it)
+		it.Dir = cmp.Or(it.Dir, d.dirOf(it))
 	}
 	return d
 }
@@ -87,15 +88,15 @@ func (d *Drops) saveLocked() {
 }
 
 // Add makes a drop from text and/or files already saved in tmp (which it empties). Text that is a single web
-// address becomes a link.
+// address becomes a link; text sent with files is kept as their note.
 func (d *Drops) Add(from, to, text string, tmp string, names []string) (*Drop, error) {
 	text = strings.TrimSpace(text)
-	it := &Drop{ID: newID(), At: time.Now(), From: from, To: to, Kind: "files", Files: []DropFile{}, State: "done"}
+	it := &Drop{ID: newID(), At: time.Now(), From: from, To: to, Kind: "files", Text: text, Files: []DropFile{}, State: "done"}
 	if len(names) == 0 {
 		if text == "" {
 			return nil, fmt.Errorf("Nothing to send. Pick files or type something.")
 		}
-		it.Kind, it.Text = "text", text
+		it.Kind = "text"
 		if isLink(text) {
 			it.Kind = "link"
 		}
@@ -285,9 +286,42 @@ func (a *App) dropArrived(it *Drop) {
 	case "link":
 		say("File drop", from+" sent a link: "+it.Text, "drop")
 	default:
-		say("File drop", fmt.Sprintf("%s sent %d %s. It's in %s.", from, len(it.Files), plural(len(it.Files), "file", "files"), it.Dir), "drop")
+		a.sayFiles(from, it)
 	}
 }
+
+// burst counts files that arrive one by one: the S23 shares many files a file at a time.
+type burst struct {
+	n     int
+	first *Drop
+}
+
+// sayFiles shows one pop-up for files from a device that arrive within a few seconds of each other.
+func (a *App) sayFiles(from string, it *Drop) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if b := a.bursts[it.From]; b != nil {
+		b.n += len(it.Files)
+		return
+	}
+	if a.bursts == nil {
+		a.bursts = map[string]*burst{}
+	}
+	b := &burst{n: len(it.Files), first: it}
+	a.bursts[it.From] = b
+	time.AfterFunc(burstWait, func() {
+		a.mu.Lock()
+		delete(a.bursts, it.From)
+		a.mu.Unlock()
+		what := dropNote(b.first)
+		if b.n > len(b.first.Files) {
+			what = fmt.Sprintf("%d files", b.n)
+		}
+		say("File drop", fmt.Sprintf("%s sent %s. It's in %s.", from, what, b.first.Dir), "drop")
+	})
+}
+
+var burstWait = 3 * time.Second
 
 // putClip puts a phone's copy onto the PC's clipboard (without the watcher sending it straight back).
 func (a *App) putClip(from, text string) {

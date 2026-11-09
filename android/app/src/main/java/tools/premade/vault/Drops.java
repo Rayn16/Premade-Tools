@@ -76,7 +76,7 @@ final class Drops {
         JSONArray files = j.optJSONArray("files");
         if (kind.equals("files")) {
             int n = files == null ? 0 : files.length();
-            text = n == 1 ? files.optJSONObject(0).optString("name") : n + " files";
+            text = (n == 1 ? files.optJSONObject(0).optString("name") : n + " files") + (j.optString("text").isEmpty() ? "" : ": " + j.optString("text"));
         } else text = j.optString("text");
         show(c, j.optString("id").hashCode(), from + " sent " + (kind.equals("files") ? "you something" : kind.equals("link") ? "a link" : "text"), text);
     }
@@ -140,11 +140,16 @@ final class Drops {
             Uri u = in.getParcelableExtra(Intent.EXTRA_STREAM);
             if (u != null) uris.add(u);
         }
-        String text = in.getStringExtra(Intent.EXTRA_TEXT), last = "Nothing to send.";
+        String text = in.getStringExtra(Intent.EXTRA_TEXT), last = "Nothing to send.", err = null;
+        int sent = 0;
         try {
             if (uris.isEmpty() && text != null && !text.isBlank()) return post(c, "", text.getBytes(java.nio.charset.StandardCharsets.UTF_8), null);
-            for (Uri u : uris) last = post(c, displayName(c, u), null, u);
-            return uris.size() > 1 && last.startsWith("OK") ? "Sent " + uris.size() + " files to your PC." : last.replaceFirst("^(OK|ERR): ", "");
+            for (Uri u : uris) {
+                last = post(c, displayName(c, u), null, u);
+                if (last.startsWith("OK")) sent++; else if (err == null) err = last.replaceFirst("^ERR: ", "");
+            }
+            if (uris.size() < 2) return last.replaceFirst("^(OK|ERR): ", "");
+            return err == null ? "Sent " + uris.size() + " files to your PC." : sent + " of " + uris.size() + " files sent. " + err;
         } catch (Exception e) {
             return "Couldn't reach your PC. Is it on, and is this phone on home Wi-Fi?";
         }
@@ -163,7 +168,9 @@ final class Drops {
                     for (int r; (r = i.read(buf)) > 0; ) o.write(buf, 0, r);
                 }
             }
-            String r = h.getResponseCode() == 200 ? Vault.read(h.getInputStream()).trim() : "ERR: The PC said " + h.getResponseCode() + ".";
+            int code = h.getResponseCode(); // 413: away from home, through the relay, which takes nothing over 100 MB
+            String r = code == 200 ? Vault.read(h.getInputStream()).trim() : code == 413 ? "ERR: That's over 100 MB, more than goes through the internet. Send it on home Wi-Fi."
+                    : "ERR: The PC said " + code + ".";
             return body != null ? r.replaceFirst("^(OK|ERR): ", "") : r;
         } finally { h.disconnect(); }
     }

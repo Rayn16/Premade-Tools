@@ -61,11 +61,14 @@ export default {
       return r ? json({ link: `${url.origin}/pc/${r.pc}` }) : fail('not found', 404);
     }
 
-    // Anyone with the app can ask to join. The very first person becomes the one who approves everyone else.
+    // Anyone with the app can ask to join. The very first person becomes the one who approves everyone else. So that
+    // strangers can't fill the list, at most 20 wait at once, and an ask nobody answered goes after a week.
     if (req.method === 'POST' && path === '/join') {
       const b = await req.json().catch(() => ({}));
       const name = clean(b.name, 40);
       if (!name) return fail('Type your name.');
+      await env.DB.prepare('DELETE FROM people WHERE approved = 0 AND made < ?').bind(now - 7 * 864e5).run();
+      if ((await env.DB.prepare('SELECT COUNT(*) AS n FROM people WHERE approved = 0').first()).n >= 20) return fail('Too many people are asking to join right now. Try again in a few days.', 429);
       const tok = rid(32), id = rid(8);
       const first = !(await env.DB.prepare('SELECT 1 FROM people LIMIT 1').first());
       await env.DB.prepare('INSERT INTO people (id, name, tok, approved, admin, devices, seen, made) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
@@ -189,8 +192,13 @@ export default {
 // as "res", binary pieces (4-byte call number first) and "end". Calls only reach /api/phone/*, which still needs a
 // phone's key, so the relay only ever passes along what a paired phone could send anyway.
 // The socket uses hibernation, so an idle link costs nothing; "ping" is answered without waking it.
-// ponytail: an upload through here is one request, so over 100 MB fails (the free plan's limit); Tailscale has none.
+// ponytail: the free plan takes 100 MB per request, so the phone app sends bigger files in 50 MB pieces
+// (PUT /api/phone/piece); a Shortcut can't, so the backup Shortcut uses the home address.
 const NOBODY = [101, 204, 205, 304];
+const SAY = { 502: "Your PC couldn't answer.", 503: "Can't reach your PC.", 504: "Your PC didn't answer." };
+// The relay's own answers. A Shortcut (an /ios/ call) reads only the words, so for it they start with ERR, and with
+// ERR OFF when the PC isn't linked: the Downloader then downloads on the iPhone instead.
+const said = (s, ios) => new Response((ios ? (s === 503 ? 'ERR OFF: ' : 'ERR: ') : '') + SAY[s], { status: s, headers: s === 503 ? { 'X-Premade-Link': 'off' } : {} });
 export class Link {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -223,19 +231,20 @@ export class Link {
       const body = c?.body;
       if (!body) return fail('gone', 404);
       c.body = null;
+      clearTimeout(c.slow); // the PC has started on it: a big upload takes as long as it takes
       return new Response(body);
     }
-    const ws = this.ctx.getWebSockets()[0];
-    if (!ws) return new Response("Can't reach your PC.", { status: 503, headers: { 'X-Premade-Link': 'off' } });
+    const ws = this.ctx.getWebSockets()[0], ios = url.pathname.includes('/ios/');
+    if (!ws) return said(503, ios);
     const n = crypto.getRandomValues(new Uint32Array(1))[0];
     const h = {};
     for (const [k, v] of req.headers) if (!/^(cf-|x-forwarded|x-real-ip|host$|connection$|accept-encoding$)/i.test(k)) h[k] = v;
     const res = new Promise((done) => this.calls.set(n, { done, body: req.body, m: req.method }));
     ws.send(JSON.stringify({ t: 'req', n, m: req.method, p: url.pathname.replace(/^\/pc\/\w+/, '') + url.search, h, b: !!req.body }));
-    const slow = setTimeout(() => this.finish(n, new Response("Your PC didn't answer.", { status: 504 })), 60e3);
+    const slow = this.calls.get(n).slow = setTimeout(() => this.finish(n, 504), 60e3);
     const r = await res;
     clearTimeout(slow);
-    return r;
+    return typeof r === 'number' ? said(r, ios) : r;
   }
 
   finish(n, r) {
@@ -261,7 +270,7 @@ export class Link {
       this.finish(m.n, new Response(readable, { status: m.s, headers: m.h }));
     } else if (m.t === 'end' || m.t === 'err') {
       if (c.w) (m.t === 'end' ? c.w.close() : c.w.abort()).catch(() => {});
-      else this.finish(m.n, new Response("Your PC couldn't answer.", { status: 502 }));
+      else this.finish(m.n, 502);
       this.calls.delete(m.n);
     }
   }
@@ -271,7 +280,7 @@ export class Link {
   dropAll() {
     for (const [n, c] of this.calls) {
       if (c.w) c.w.abort().catch(() => {});
-      else this.finish(n, new Response("Can't reach your PC.", { status: 503, headers: { 'X-Premade-Link': 'off' } }));
+      else this.finish(n, 503);
     }
     this.calls.clear();
   }

@@ -101,22 +101,20 @@ frInput.addEventListener('change', () => {
   FR.share = { files: [...frInput.files] }; FR.err = ''; frInput.value = ''; render();
 });
 
-// Any file goes up to my PC first, which sends it on (so it keeps going if the phone locks).
-function frUpload(files, to, dev) {
-  return files.reduce((p, f, i) => p.then(() => new Promise((ok, bad) => {
-    const x = new XMLHttpRequest();
-    x.open('POST', `${FRAPI.base}/upload?to=${encodeURIComponent(to)}&dev=${encodeURIComponent(dev)}&name=${encodeURIComponent(f.name)}`);
-    for (const [k, v] of Object.entries(FRAPI.hdr)) x.setRequestHeader(k, v);
-    x.upload.onprogress = (e) => { if (e.lengthComputable) { FR.up = Math.floor((i + e.loaded / e.total) / files.length * 100); render(); } };
-    x.onload = () => {
-      if (x.status === 200) return ok();
+// Any file goes up to my PC first, which sends it on (so it keeps going if the phone locks). A phone's file over
+// 90 MB goes in pieces (sendPieces).
+async function frUpload(files, to, dev) {
+  for (const [i, f] of files.entries()) {
+    const url = `${FRAPI.base}/upload?to=${encodeURIComponent(to)}&dev=${encodeURIComponent(dev)}&name=${encodeURIComponent(f.name)}`;
+    const onp = (n) => { FR.up = Math.floor((i + Math.min(1, n / (f.size || 1))) / files.length * 100); render(); };
+    const big = url.includes('/api/phone/') && f.size > 90 << 20;
+    const x = await xhr('POST', big ? `${url}&piece=${await sendPieces(url, FRAPI.hdr, f, onp)}` : url, FRAPI.hdr, big ? null : f, big ? () => {} : onp);
+    if (x.status !== 200) {
       let msg = x.responseText.trim();
       try { msg = JSON.parse(msg).error || msg; } catch (e) {} // a relay answer is JSON
-      bad(new Error(x.status === 401 ? "Couldn't send it through your PC. Close Premade and open it again, then try once more." : msg || "That didn't send."));
-    };
-    x.onerror = () => bad(new Error("Couldn't reach your PC."));
-    x.send(f);
-  })), Promise.resolve());
+      throw new Error(x.status === 401 ? "Couldn't send it through your PC. Close Premade and open it again, then try once more." : msg || "That didn't send.");
+    }
+  }
 }
 
 async function frSend(dev) {

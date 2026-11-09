@@ -66,7 +66,7 @@ func NewEngines(nightly func() bool) *Engines {
 			e.st[en.Name] = s
 		}
 		s.State = "ok"
-		if !e.present(en) {
+		if !e.present(en.Name) {
 			s.State = "missing"
 		}
 	}
@@ -84,11 +84,11 @@ func (e *Engines) Bin(name string) string {
 	return filepath.Join(e.dir, name+".exe")
 }
 
-func (e *Engines) present(en engine) bool {
+func (e *Engines) present(name string) bool {
 	if runtime.GOOS != "windows" {
 		return true
 	}
-	_, err := os.Stat(e.Bin(en.Name))
+	_, err := os.Stat(e.Bin(name))
 	return err == nil
 }
 
@@ -102,12 +102,9 @@ func (e *Engines) List() []EngineState {
 	return out
 }
 
-// Ready says whether the two engines a download needs at all are there.
-func (e *Engines) Ready() bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.st["yt-dlp"].State != "missing" && e.st["ffmpeg"].State != "missing"
-}
+// Ready says whether the two engines a download needs at all are there: a first install still running, one that
+// failed, or a file something deleted (antivirus) doesn't count.
+func (e *Engines) Ready() bool { return e.present("yt-dlp") && e.present("ffmpeg") }
 
 func (e *Engines) set(name string, f func(s *EngineState)) {
 	e.mu.Lock()
@@ -127,14 +124,15 @@ func (e *Engines) Update(force bool) {
 		e.mu.Lock()
 		s := *e.st[en.Name]
 		e.mu.Unlock()
-		if s.State != "missing" && !force && time.Since(s.Checked) < en.Every {
+		miss := !e.present(en.Name) // not "missing" alone: a failed install or a deleted file needs it again too
+		if !miss && !force && time.Since(s.Checked) < en.Every {
 			continue
 		}
-		if err := e.fetch(en, s.Version, s.State == "missing"); err != nil {
+		if err := e.fetch(en, s.Version, miss); err != nil {
 			log.Printf("engine %s: %v", en.Name, err)
 			e.set(en.Name, func(s *EngineState) {
 				s.Err = err.Error()
-				if !e.present(en) {
+				if !e.present(en.Name) {
 					s.State = "error"
 				} else {
 					s.State = "ok"

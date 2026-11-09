@@ -136,8 +136,10 @@ function readFont(ctx, dict) {
       else { const v = num(ctx.lookup(w.get(i + 2))); for (let c = a; c <= num(b) && c - a < 65536; c++) f.widths.set(c, v); i += 3; }
     }
   } else {
-    const enc = get(dict, 'Encoding');
-    for (let c = 0; c < 256; c++) f.uni.set(c, winChar(c)); // ponytail: Mac and Standard encodings read as WinAnsi; they agree on plain letters
+    const enc = get(dict, 'Encoding'), flags = num(get(fd, 'Flags'));
+    // A font that says it has its own letters (symbolic), no encoding and a ToUnicode map uses codes of its own:
+    // guessing WinAnsi for the codes the map leaves out reads Arabic marks as $ & ' (LibreOffice).
+    if (enc || !f.tu || !(flags & 4) || flags & 32) for (let c = 0; c < 256; c++) f.uni.set(c, winChar(c)); // ponytail: Mac and Standard encodings read as WinAnsi; they agree on plain letters
     const diffs = enc instanceof PDFDict ? get(enc, 'Differences') : null;
     for (let i = 0, c = 0; diffs instanceof PDFArray && i < diffs.size(); i++) {
       const v = ctx.lookup(diffs.get(i));
@@ -159,9 +161,10 @@ function readFont(ctx, dict) {
 // Turns text into this font's codes, or null when a letter isn't in it (a font cut down to the letters the PDF
 // used has no others, so then the only codes trusted are the ones the page already shows).
 function encode(f, text) {
+  if (RTL.test(text)) return null; // its letters change shape with their neighbours, which only a picture of it gets right
   const back = new Map();
   if (f.tu) for (const [c, s] of f.tu) if (s.length === 1 && !back.has(s)) back.set(s, c);
-  if (!f.type0) for (const [c, s] of f.uni) if (s && !back.has(s) && f.widths.has(c)) back.set(s, c);
+  if (!f.type0) for (const [c, s] of f.uni) if (s && !back.has(s) && !f.tu?.has(c) && f.widths.has(c)) back.set(s, c); // never a code the map says is another letter
   const codes = [];
   for (const ch of text) {
     const c = back.get(ch);
@@ -176,8 +179,25 @@ function encode(f, text) {
 // ---------- the text on a page ----------
 const ASC = 0.8, DESC = -0.2;
 
-// Reads every line of text the page draws. Each block is one line: { id, text, x, y, w, h (view points), size,
-// color, family, bold, italic, angle }. The page's text inside embedded drawings (forms) isn't read.
+// PDFs keep right-to-left writing (Arabic, Hebrew) in the order it shows, left to right, often as the letters'
+// joined shapes. logical() gives a line back as it was typed: a line mostly in those letters turns round as a whole,
+// keeping its numbers and other words as they show; any other line only turns its right-to-left words round.
+// ponytail: mirrored brackets, and a number that belongs to the Arabic beside it in a mostly English line, read as
+// they show; the Unicode bidi algorithm in reverse if that matters.
+const R = '\u0590-\u065f\u066a-\u06ef\u06fa-\u08ff\ufb1d-\ufdff\ufe70-\ufefc'; // letters and marks, not digits
+const RTL = new RegExp(`[${R}]`), rev = (w) => [...w].reverse().join('');
+const flip = (s) => rev(s).replace(new RegExp(`[^\\s${R}](?:[^${R}]*[^\\s${R}])?`, 'g'), (w) => /\p{L}/u.test(w) ? rev(w) : w.replace(/\S+/g, rev));
+export function logical(s) {
+  const r = (s.match(new RegExp(`(?=\\p{L})[${R}]`, 'gu')) || []).length;
+  if (!r) return s;
+  const out = r >= (s.match(/\p{L}/gu) || []).length - r ? flip(s) : s.replace(new RegExp(`[${R}](?:[^\\p{L}${R}]*[${R}])*`, 'gu'), flip);
+  return out.replace(/[\ufb50-\ufdff\ufe70-\ufefc]/g, (c) => c.normalize('NFKC'));
+}
+const rtlFirst = (s) => new RegExp(`^[^\\p{L}${R}]*[${R}]`, 'u').test(s); // a line that reads right to left, as dir="auto" decides
+
+// Reads every line of text the page draws. Each block is one line: { id, text, rtl, unseen, x, y, w, h (view points),
+// size, color, family, bold, italic, angle }; unseen is a scan's text layer, letters that don't show over the picture.
+// The page's text inside embedded drawings (forms) isn't read.
 export function readText(doc, page) {
   const ctx = doc.context, V = view(page);
   const cs = page.node.Contents();
@@ -190,13 +210,13 @@ export function readText(doc, page) {
   const font = (key) => fonts[key] ??= (() => { const d = fontsDict?.lookup(PDFName.of(key)); return d instanceof PDFDict ? readFont(ctx, d) : null; })();
 
   const list = parseOps(src), runs = [], gstack = [];
-  let g = { ctm: ID, color: [0, 0, 0] }, t = null, tm = ID, tlm = ID;
+  let g = { ctm: ID, color: [0, 0, 0], tr: 0 }, t = null, tm = ID, tlm = ID;
   const ts = { fk: '', fs: 0, tc: 0, tw: 0, th: 1, tl: 0, rise: 0 };
   const nextLine = (tx, ty) => { tlm = mul([1, 0, 0, 1, tx, ty], tlm); tm = tlm; };
   const show = (o, items) => {
     const f = font(ts.fk);
     if (!f) return;
-    const r = { op: o, f, size: ts.fs, th: ts.th, rise: ts.rise, tm, ctm: g.ctm, color: g.color, text: '', adv: 0 };
+    const r = { op: o, f, size: ts.fs, th: ts.th, rise: ts.rise, tc: ts.tc, tw: ts.tw, tm, ctm: g.ctm, color: g.color, text: '', adv: 0, unseen: g.tr % 4 === 3 };
     for (const it of items) {
       if (typeof it === 'number') { const dx = -it / 1000 * ts.fs * ts.th; r.adv += dx; if (it < -180) r.text += ' '; continue; }
       if (!it?.s) continue;
@@ -204,7 +224,8 @@ export function readText(doc, page) {
       for (let i = 0; i + step <= b.length; i += step) {
         const code = codeOf(b.subarray(i, i + step));
         f.seen.add(code);
-        r.text += f.text(code);
+        const t = f.text(code); // one shape for several right-to-left letters (لا) is turned round with the rest of the line
+        r.text += t.length > 1 && RTL.test(t) ? rev(t) : t;
         r.adv += (f.width(code) / 1000 * ts.fs + ts.tc + (step === 1 && code === 32 ? ts.tw : 0)) * ts.th;
       }
     }
@@ -219,6 +240,7 @@ export function readText(doc, page) {
       case 'cm': g = { ...g, ctm: mul([n(0), n(1), n(2), n(3), n(4), n(5)], g.ctm) }; break;
       case 'g': g = { ...g, color: [n(0), n(0), n(0)] }; break;
       case 'rg': g = { ...g, color: [n(0), n(1), n(2)] }; break;
+      case 'Tr': g = { ...g, tr: n(0) }; break; // 3: letters that don't show, like a scan's text layer
       case 'k': g = { ...g, color: [0, 1, 2].map((i) => (1 - n(i)) * (1 - n(3))) }; break;
       case 'sc': case 'scn': if (a.length === 1) g = { ...g, color: [n(0), n(0), n(0)] }; else if (a.length === 3) g = { ...g, color: [n(0), n(1), n(2)] }; break;
       case 'BT': t = true; tm = tlm = ID; break;
@@ -240,30 +262,39 @@ export function readText(doc, page) {
     }
   }
 
-  // Runs that carry on along the same line make one block.
+  // Runs that carry on along the same line make one block, its text as it shows from left to right. Right-to-left
+  // words can come right to left (LibreOffice), and an Arabic mark, which has no width, comes raised or lowered
+  // before its letter (Chrome): it goes with the block its letter is in, which takes its line from the letter.
   const blocks = [];
-  let b = null;
+  let b = null, marks = [];
   for (const r of runs) {
     const m = mul(r.tm, r.ctm), sz = Math.hypot(m[2], m[3]) * r.size;
-    if (!r.text.trim() && !b) continue;
     if (b) {
       const [px, py] = at(inv(b.frame), ...at(m, 0, r.rise));
-      const gap = px - b.end, s0 = b.size;
-      if (Math.abs(py) < 0.3 * s0 && gap > -0.5 * s0 && gap < 1.6 * s0 && Math.abs(sz - b.vsize) < 0.35 * b.vsize) {
-        if (gap > 0.18 * s0 && !/\s$/.test(b.text) && !/^\s/.test(r.text)) b.text += ' ';
-        b.text += r.text; b.runs.push(r); b.end = px + r.adv; b.pts.push(...corners(m, r, V));
+      const s0 = b.size, gap = px - b.end, back = b.start - px - r.adv, near = (g) => g > -0.5 * s0 && g < s0; // further is a tab: "Label:   value" is two
+      if ((Math.abs(py) < 0.3 * s0 || !r.adv) && Math.abs(sz - b.vsize) < 0.35 * b.vsize && (near(gap) || near(back))) {
+        const sp = (g, a, z) => g > 0.18 * s0 && !/\s$/.test(a) && !/^\s/.test(z) ? ' ' : '';
+        if (near(gap)) { b.text += sp(gap, b.text, r.text) + r.text; b.end = Math.max(b.end, px + r.adv); }
+        else { b.text = r.text + sp(back, r.text, b.text) + b.text; b.start = px; }
+        b.runs.push(r); b.pts.push(...corners(m, r, V));
         continue;
       }
-      blocks.push(b);
+      blocks.push(b); b = null;
     }
-    b = r.text.trim() ? { runs: [r], text: r.text, frame: m, end: r.adv, size: r.size, vsize: sz, pts: corners(m, r, V) } : null;
+    if (!r.text.trim()) continue;
+    if (!r.adv) { marks.push([r, corners(m, r, V)]); continue; }
+    b = { runs: [r, ...marks.map((k) => k[0])], text: marks.map((k) => k[0].text).join('') + r.text, frame: m, start: 0, end: r.adv, size: r.size, vsize: sz,
+      pts: [...corners(m, r, V), ...marks.flatMap((k) => k[1])] };
+    marks = [];
   }
   if (b) blocks.push(b);
   return { src, list, blocks: blocks.filter((x) => x.text.trim()).map((x, i) => {
-    const xs = x.pts.map((p) => p[0]), ys = x.pts.map((p) => p[1]), r = x.runs[0], f = r.f;
-    const vm = mul(x.frame, V.m), [ox, oy] = at(vm, 0, r.rise);
-    return { id: i, text: x.text.trim(), runs: x.runs, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
-      ox, oy, size: x.vsize, angle: Math.atan2(vm[1], vm[0]) * 180 / Math.PI, color: '#' + r.color.map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, '0')).join(''),
+    const xs = x.pts.map((p) => p[0]), ys = x.pts.map((p) => p[1]), r = x.runs[0], f = r.f, text = logical(x.text.trim());
+    const vm = mul(x.frame, V.m), [x0, y0] = at(vm, 0, r.rise), a = Math.atan2(vm[1], vm[0]), c = Math.cos(a), s = Math.sin(a);
+    const along = x.pts.map((q) => (q[0] - x0) * c + (q[1] - y0) * s), lo = Math.min(...along);
+    return { id: i, text, rtl: rtlFirst(text), unseen: x.runs.every((q) => q.unseen), runs: x.runs, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys),
+      ox: x0 + lo * c, oy: y0 + lo * s, len: Math.max(...along) - lo, // where the line starts on its baseline, and how far it runs (along its angle)
+      size: x.vsize, angle: a * 180 / Math.PI, color: '#' + r.color.map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, '0')).join(''),
       family: /times|serif|roman|georgia|garamond|cambria|book/i.test(f.base) && !/sans/i.test(f.base) ? 'serif' : /courier|mono|consol/i.test(f.base) ? 'mono' : 'sans',
       bold: /bold|black|heavy|semibold|demi/i.test(f.base), italic: /italic|oblique/i.test(f.base) };
   }) };
@@ -282,17 +313,48 @@ function swap(r, codes) {
   return pre + (r.size * r.th ? `[${fmt(-r.adv * 1000 / (r.size * r.th))}] TJ` : '');
 }
 
+// A run's command with each letter whose middle is under one of rects (view points) swapped for the space it took,
+// so the words around it stay put; null when none is.
+function unshow(r, V, rects) {
+  const f = r.f, step = f.type0 ? 2 : 1, k = r.size * r.th, m = mul(r.tm, r.ctm), mid = r.rise + (ASC + DESC) / 2 * r.size;
+  const a = r.op.args, items = r.op.op === 'TJ' ? (Array.isArray(a[0]) ? a[0] : []) : [r.op.op === '"' ? a[2] : a[0]];
+  if (!k) return null;
+  const out = [];
+  let x = 0, hit = false, codes = [];
+  const flush = () => { if (codes.length) out.push(hexOf(f, codes)); codes = []; };
+  for (const it of items) {
+    if (typeof it === 'number') { flush(); out.push(fmt(it)); x -= it / 1000 * k; continue; }
+    if (!it?.s) continue;
+    for (let i = 0; i + step <= it.s.length; i += step) {
+      const code = codeOf(it.s.subarray(i, i + step)), w = (f.width(code) / 1000 * r.size + r.tc + (step === 1 && code === 32 ? r.tw : 0)) * r.th;
+      const [px, py] = at(V.m, ...at(m, x + w / 2, mid));
+      if (rects.some((q) => px >= q.x && px <= q.x + q.w && py >= q.y && py <= q.y + q.h)) { flush(); out.push(fmt(-w * 1000 / k)); hit = true; } else codes.push(code);
+      x += w;
+    }
+  }
+  flush();
+  const pre = r.op.op === "'" ? 'T* ' : r.op.op === '"' ? `${fmt(a[0])} Tw ${fmt(a[1])} Tc T* ` : '';
+  return hit ? pre + `[${out.join(' ')}] TJ` : null;
+}
+
 // Changes lines in the page's own text. edits: { blockId: newText }. A line whose font has every letter keeps
 // that font; any other line is taken out and comes back as added text in the closest built-in font: those are
-// returned, for drawItems to draw.
-export function editText(doc, page, read, edits) {
-  const reps = [], extra = [];
+// returned, for drawItems to draw. hide: the page's white-outs, whose letters leave the file, not just the view.
+// ponytail: pictures (a scan) under a white-out stay in the file under the white box.
+export function editText(doc, page, read, edits, hide = []) {
+  const reps = [], extra = [], V = view(page);
   for (const [id, text] of Object.entries(edits)) {
     const b = read.blocks[id];
     if (!b || text === b.text) continue;
-    const codes = text ? encode(b.runs[0].f, text) : [];
+    const codes = !text ? [] : b.unseen ? null : encode(b.runs[0].f, text);
     b.runs.forEach((r, i) => reps.push({ s: r.op.start, e: r.op.end, to: swap(r, i === 0 && codes && text ? codes : null) }));
-    if (!codes && text) extra.push({ type: 'text', text, x: b.ox, y: b.oy - b.size, size: b.size, color: b.color, family: b.family, bold: b.bold, italic: b.italic, angle: b.angle });
+    if (b.unseen) extra.push({ type: 'white', x: b.x - 1, y: b.y - 1, w: b.w + 2, h: b.h + 2 }); // on a scan the words are in the picture: covered, as the screen shows
+    if (!codes && text) extra.push({ type: 'text', text, x: b.ox, y: b.oy - b.size, size: b.size, color: b.color, family: b.family, bold: b.bold, italic: b.italic, angle: b.angle,
+      ...(b.rtl && { end: b.ox + b.len }) }); // a right-to-left line keeps its far end
+  }
+  if (hide.length) for (const b of read.blocks) {
+    if (b.id in edits) continue;
+    for (const r of b.runs) { const to = unshow(r, V, hide); if (to) reps.push({ s: r.op.start, e: r.op.end, to }); }
   }
   if (!reps.length) return extra;
   reps.sort((p, q) => p.s - q.s);
@@ -314,7 +376,9 @@ const STD = { sans: ['Helvetica', 'HelveticaBold', 'HelveticaOblique', 'Helvetic
   mono: ['Courier', 'CourierBold', 'CourierOblique', 'CourierBoldOblique'] };
 
 // Draws the added things on a page. items are in view points; pictures: { [id]: { bytes, png } }. textPng(item, line)
-// draws a line the built-in fonts can't (Arabic, emoji…) as a picture: { bytes, w, h } in points.
+// draws a line the built-in fonts can't (Arabic, emoji…) as a picture: { bytes, w, h, pad } in points, pad being the
+// room left on each side of the letters. Text with an end (a changed right-to-left line) ends there instead of
+// starting at x; text with an angle (a changed line on a turned page) turns around the start of its first line.
 export async function drawItems(doc, page, items, pics, textPng) {
   if (!items.length) return;
   const ctx = doc.context, { H, m } = view(page);
@@ -327,16 +391,19 @@ export async function drawItems(doc, page, items, pics, textPng) {
   for (const it of items) {
     const color = it.color ? colorOf(it.color) : undefined, bw = it.width || 2;
     if (it.type === 'text') {
-      const f = await font(it), lines = it.text.split('\n');
+      const f = await font(it), lines = it.text.split('\n'), t = -it.angle * Math.PI / 180, c = Math.cos(t), s = Math.sin(t), px = it.x, py = Y(it.y + it.size);
+      if (it.angle) page.pushOperators(pushGraphicsState(), concatTransformationMatrix(c, s, -s, c, px - px * c + py * s, py - px * s - py * c));
       for (let i = 0; i < lines.length; i++) {
         const base = it.y + it.size * (1 + 1.2 * i);
         f._set ??= new Set(f.getCharacterSet());
-        if ([...lines[i]].every((ch) => f._set.has(ch.codePointAt(0)))) page.drawText(lines[i], { x: it.x, y: Y(base), size: it.size, font: f, color });
-        else if (textPng && lines[i]) {
-          const p = await textPng(it, lines[i]), img = await doc.embedPng(p.bytes);
-          page.drawImage(img, { x: it.x, y: Y(it.y + it.size * 1.2 * (i + 1)), width: p.w, height: p.h });
+        if ([...lines[i]].every((ch) => f._set.has(ch.codePointAt(0)))) {
+          page.drawText(lines[i], { x: it.end === undefined ? it.x : it.end - f.widthOfTextAtSize(lines[i], it.size), y: Y(base), size: it.size, font: f, color });
+        } else if (textPng && lines[i]) {
+          const p = await textPng(it, lines[i]), img = await doc.embedPng(p.bytes), pad = p.pad || 0;
+          page.drawImage(img, { x: it.end === undefined ? it.x - pad : it.end - p.w + pad, y: Y(it.y + it.size * 1.2 * (i + 1)), width: p.w, height: p.h });
         }
       }
+      if (it.angle) page.pushOperators(popGraphicsState());
     } else if (it.type === 'pic') page.drawImage(await pic(it.pic), { x: it.x, y: Y(it.y + it.h), width: it.w, height: it.h });
     else if (it.type === 'white') page.drawRectangle({ x: it.x, y: Y(it.y + it.h), width: it.w, height: it.h, color: rgb(1, 1, 1) });
     else if (it.type === 'mark') page.drawRectangle({ x: it.x, y: Y(it.y + it.h), width: it.w, height: it.h, color, opacity: 0.4, blendMode: BlendMode.Multiply });
@@ -364,3 +431,4 @@ export function pathOf(it) {
 
 // Whether a changed line can keep its own font.
 export const fits = (b, text) => !!encode(b.runs[0].f, text);
+export { rtlFirst };

@@ -22,7 +22,7 @@ func lowPriority()                                   {}
 func openWindow(url string)                          { log.Println("window:", url) }
 func setAutostart(on bool) error                     { return nil }
 func installSelf(args []string, release func()) bool { return false }
-func pickFolder() string                             { return "" }
+func pickFolder(ask string) string                   { return "" }
 func driveHealth(dir string) string                  { return "Healthy" }
 func notify(title, msg string)                       { log.Println("notify:", msg) }
 func drives() []Drive {

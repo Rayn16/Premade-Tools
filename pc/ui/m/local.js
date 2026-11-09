@@ -44,7 +44,7 @@ document.getElementById('app').addEventListener('click', (e) => { const b = e.ta
 // ---------- pictures ----------
 // Drawn on a canvas, so HEIC works wherever the phone shows HEIC (every iPhone). iPhones cap a canvas near
 // 16 million pixels, so a 48 MP photo comes out at about 16 MP.
-async function lcPicture(f) {
+async function lcPicture(f, opaque) {
   const url = URL.createObjectURL(f);
   try {
     const img = new Image();
@@ -53,7 +53,9 @@ async function lcPicture(f) {
     const k = Math.min(1, Math.sqrt(16e6 / (img.naturalWidth * img.naturalHeight)));
     const c = document.createElement('canvas');
     c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const g = c.getContext('2d');
+    if (opaque) { g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); } // a JPEG can't be see-through: white, not black
+    g.drawImage(img, 0, 0, c.width, c.height);
     return c;
   } finally { URL.revokeObjectURL(url); }
 }
@@ -63,7 +65,7 @@ async function lcPictures(j, files, to, small, combine) {
     const { PDFDocument } = await import('/m/lib/pdf-lib.min.mjs');
     const docs = [], out = [];
     for (const [i, f] of files.entries()) {
-      const c = await lcPicture(f), jpg = new Uint8Array(await (await canvasBlob(c, 'image/jpeg', small ? 0.6 : 0.85)).arrayBuffer());
+      const c = await lcPicture(f, true), jpg = new Uint8Array(await (await canvasBlob(c, 'image/jpeg', small ? 0.6 : 0.85)).arrayBuffer());
       if (!combine || !docs.length) docs.push({ doc: await PDFDocument.create(), name: stem(f.name) + '.pdf' });
       const d = docs.at(-1).doc, im = await d.embedJpg(jpg), w = c.width * 0.75, h = c.height * 0.75; // 96 dpi in points
       d.addPage([w, h]).drawImage(im, { x: 0, y: 0, width: w, height: h });
@@ -74,7 +76,7 @@ async function lcPictures(j, files, to, small, combine) {
   }
   const type = to === 'png' ? 'image/png' : 'image/jpeg', out = [];
   for (const [i, f] of files.entries()) {
-    out.push(fileOf(await canvasBlob(await lcPicture(f), type, small ? 0.6 : 0.9), stem(f.name) + '.' + to, type));
+    out.push(fileOf(await canvasBlob(await lcPicture(f, to !== 'png'), type, small ? 0.6 : 0.9), stem(f.name) + '.' + to, type));
     ljProg(j, (i + 1) / files.length * 100);
   }
   return out;
@@ -150,7 +152,7 @@ const PDF_LOCAL = { local: true, gs: 'ok', dir: '', jobs: [], ops: [tg('edit', '
   tg('extract', 'Pick pages', 'Save only the pages you pick as a new PDF'), tg('split', 'Split', 'Every page as its own PDF'), tg('compress', 'Compress', 'Make it smaller to send. On the phone, pages become pictures.'),
   tg('lock', 'Add password', 'It asks for the password to open'), tg('unlock', 'Remove password', 'Opens without asking')] };
 async function pdfShots(bytes, level) {
-  const lib = await pdfLib(), task = lib.getDocument({ data: bytes.slice(), isEvalSupported: false }), doc = await task.promise, out = [];
+  const lib = await pdfLib(), task = lib.getDocument({ data: bytes.slice(), ...PDFJS_OPT }), doc = await task.promise, out = [];
   const dpi = level === 'smallest' ? 96 : 144, q = level === 'smallest' ? 0.5 : 0.7;
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i), vp1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale: dpi / 72 });
@@ -179,13 +181,19 @@ function localPdf() {
 // ---------- Transcribe (Whisper base, in a worker so the screen stays quick) ----------
 const TR_LOCAL = { local: true, jobs: [], engine: { state: 'ok', translate: true } };
 let trWorker = null, trWaiting = {};
-function whisper(audio, task, onLoad) {
+function whisper(audio, task, lang, onLoad) {
   if (!trWorker) {
     trWorker = new Worker('/m/whisper.js', { type: 'module' });
     trWorker.onmessage = ({ data: d }) => { const w = trWaiting[d.id]; if (!w) return; if (d.load) w.onLoad(d.load); else { delete trWaiting[d.id]; d.err ? w.no(new Error(d.err)) : w.ok(d.out); } };
+    // The worker itself didn't load (its engine comes from the internet the first time): end the waiting jobs, and
+    // start a new worker next time.
+    trWorker.onerror = () => {
+      for (const w of Object.values(trWaiting)) w.no(new Error('The speech engine needs the internet the first time. Try again with a signal.'));
+      trWaiting = {}; trWorker = null;
+    };
   }
   const id = Math.random().toString(36).slice(2);
-  return new Promise((ok, no) => { trWaiting[id] = { ok, no, onLoad }; trWorker.postMessage({ id, audio, task }, [audio.buffer]); });
+  return new Promise((ok, no) => { trWaiting[id] = { ok, no, onLoad }; trWorker.postMessage({ id, audio, task, lang }, [audio.buffer]); });
 }
 // 16 kHz mono, as Whisper wants. The phone decodes most sound and video itself; anything else goes through FFmpeg.
 async function trAudio(j, f) {
@@ -201,7 +209,7 @@ async function trAudio(j, f) {
   } finally { ctx.close(); }
 }
 const srtTime = (s) => { const ms = Math.round((s || 0) * 1000), p = (n, w = 2) => String(n).padStart(w, '0'); return `${p(Math.floor(ms / 3600e3))}:${p(Math.floor(ms / 60e3) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`; };
-function localTranscribe(files, to) {
+function localTranscribe(files, to, lang) {
   ljRun('tr', { inputs: files.map((f) => f.name), target: to }, async (j) => {
     const out = [], texts = [];
     for (const f of files) {
@@ -212,7 +220,7 @@ function localTranscribe(files, to) {
       const tick = setInterval(() => ljProg(j, (Date.now() - t0) / 1000 / Math.max(10, secs * 0.6) * 100), 1000); // ponytail: a guess, Whisper doesn't report progress
       let r;
       try {
-        r = await whisper(audio, to === 'en' ? 'translate' : 'transcribe', (p) => { if (p.status === 'progress' && p.file?.endsWith('.onnx')) { j.note = `Getting the speech engine once (${Math.round(p.progress || 0)}%)…`; render(); } });
+        r = await whisper(audio, to === 'en' ? 'translate' : 'transcribe', lang, (p) => { if (p.status === 'progress' && p.file?.endsWith('.onnx')) { j.note = `Getting the speech engine once (${Math.round(p.progress || 0)}%)…`; render(); } });
       } finally { clearInterval(tick); }
       const text = (r.text || '').trim(), chunks = r.chunks || [];
       texts.push(text);
@@ -242,7 +250,10 @@ function relayPart(path, blob, onp) {
     x.open('PUT', (HOSTED ? '' : ST?.relay || '') + path);
     x.setRequestHeader('Authorization', 'Bearer ' + frKey());
     x.upload.onprogress = (e) => e.lengthComputable && onp(e.loaded);
-    x.onload = () => x.status === 200 ? ok(JSON.parse(x.responseText)) : no(new Error(JSON.parse(x.responseText || '{}').error || "That didn't send."));
+    x.onload = () => { // an answer that isn't JSON (an error page from Cloudflare) must still end the send
+      let o; try { o = JSON.parse(x.responseText); } catch (e) {}
+      x.status === 200 && o ? ok(o) : no(new Error(o?.error || "That didn't send."));
+    };
     x.onerror = () => no(new Error("Can't reach the internet right now."));
     x.send(blob);
   });

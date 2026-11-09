@@ -20,7 +20,7 @@ function trToolsView(off) {
   return `${title}<div class="feed scroller">${off}
     ${T.err ? `<div class="notebox">${icon('alert')}<div>${esc(T.err)}</div></div>` : ''}
     <div class="dlbox cvbox">${trBox()}
-      <div class="route"><i class="dotlight"></i><span>${TRST.local ? 'Your PC is out of reach, so this phone listens. It\'s slower than the PC, and the first time it gets the speech engine (about 80 MB).' : IOS && !trCanRecord() ? `To talk now, run the <b>${SHORTCUT_TR}</b> Shortcut (Settings tab shows how). Voice Memos can share straight to it.` : 'Voice Recorder files are in Recordings, in My Files.'}</span></div></div>
+      <div class="route"><i class="dotlight"></i><span>${TRST.local ? 'Your PC is out of reach, so this phone listens. It\'s slower than the PC, and the first time it gets the speech engine (about 80 MB).' : IOS && !trCanRecord() ? `To talk now, run the <b>${SHORTCUT_TR}</b> Shortcut (Settings tab shows how). Voice Memos can share straight to it.` : IOS ? 'Record here, or pick a voice memo you saved to Files.' : 'Voice Recorder files are in Recordings, in My Files.'}</span></div></div>
     ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => trRow(j)).join('')}</div></section>` : ''}
   </div>`;
 }
@@ -32,7 +32,7 @@ function trHistoryView(off) {
     if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
     days.at(-1).rows.push(trRow(j, true));
   }
-  return `${dlTitle('History', 'Everything transcribed, on the PC and your phones.')}
+  return `${dlTitle('History', 'What this phone transcribed, newest first.')}
     <div class="feed scroller">${off}${days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
       : `<div class="empty">${icon('transcribe')}<h2>Nothing transcribed yet</h2><p>Pick a voice memo in Transcribe, or tap Transcribe on a download.</p></div>`}</div>`;
 }
@@ -50,6 +50,7 @@ function trShortcutGuide() {
       <li><b>Get Contents of URL</b> with the address below. Method <b>POST</b>, Request Body <b>File</b>, pick <b>Sound</b>. <b>Set Variable</b> <b>Job</b> to it. <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> and <b>Stop This Shortcut</b>. For English text from any language, change <b>to=text</b> to <b>to=en</b>.${field('Start', `${base}/api/phone/tr/ios/start?t=${t}&name=Recording.m4a&to=text`)}</li>
       <li>Add a <b>Text</b> “no” and <b>Set Variable</b> <b>Done</b> to it. Then <b>Repeat</b> <b>300</b> times, and inside it <b>If</b> <b>Done</b> <b>is</b> “no”:</li>
       <li>…<b>Get Contents of URL</b> of the address below, with <b>Job</b> put where it says JOB. <b>If</b> it <b>begins with</b> <b>WAIT</b>: <b>Wait</b> 2 seconds. <b>Otherwise</b>, <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with it. <b>Otherwise</b>: <b>Copy to Clipboard</b> and <b>Show Result</b>. In both of these, <b>Set Variable</b> <b>Done</b> to a Text “yes”.${field('Get', `${base}/api/phone/tr/ios/get/JOB?t=${t}`)}</li>
+      <li>After the Repeat: <b>If</b> <b>Done</b> <b>is</b> “no”: <b>Show Notification</b> “Still transcribing on the PC. The text will be in Premade Tools › History.”</li>
       <li>Put it where your thumb is: <b>Share</b> › <b>Add to Home Screen</b>, or Settings › <b>Action Button</b> › Shortcut. Allow the microphone and devices on your network when asked. The text also lands in History here and on the PC.</li>
     </ol></details></section>`;
 }

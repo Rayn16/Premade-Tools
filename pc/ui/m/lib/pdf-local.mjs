@@ -4,7 +4,19 @@
 import { PDFDocument, degrees } from './pdf-lib.min.mjs';
 
 const base = (n) => n.replace(/\.pdf$/i, '');
-const open = (f, password) => PDFDocument.load(f.bytes, password === undefined ? { ignoreEncryption: false } : { password });
+const open = (f, password) => openPdf(f.bytes, password);
+
+// Opens a PDF for the tools and the editor. One that opens without a password but carries restrictions (a bank
+// statement) is encrypted all the same: it's read with the empty password and its pages are copied into a new
+// document, because saved as it is, the library still points it at its old lock and nothing can open it.
+export async function openPdf(bytes, password) {
+  try { return await PDFDocument.load(bytes, password === undefined ? {} : { password }); } catch (e) {
+    if (password !== undefined || !/encrypted/i.test(e.message)) throw e;
+  }
+  const src = await PDFDocument.load(bytes, { password: '' }), out = await PDFDocument.create();
+  for (const p of await out.copyPages(src, src.getPageIndices())) out.addPage(p);
+  return out;
+}
 const save = (doc) => doc.save({ useObjectStreams: true });
 
 async function pick(f, spec) { // spec: "3,1r90,2"

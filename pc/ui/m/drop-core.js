@@ -23,6 +23,7 @@ function dropTitle(it) {
 
 async function dropRefresh() {
   try { DROPST = await api(DROPAPI.base); } catch (e) {}
+  if (!DROPST?.local) FD.sent = ''; // "It reaches PC when your PC is back on": it is
   if (DROPST && !dropTargets().some((d) => d.id === FD.to)) FD.to = dropTargets()[0]?.id || '';
 }
 
@@ -66,7 +67,8 @@ function dropRow(it) {
     <div class="row-text grow"><span class="row-title clip" dir="auto">${esc(dropTitle(it))}</span>
       <div class="hmeta"><span class="sitetag">${it.kind === 'files' ? plural(it.files.length, 'file') : it.kind === 'link' ? 'Link' : 'Text'}</span><span>${dir} · ${hm(new Date(it.at))}${sz}</span>${waiting}
         ${!mine && it.fetched ? `<span class="where">${icon('check')}${it.kind === 'files' ? 'Saved' : 'Copied'}</span>` : ''}</div>
-      ${it.kind === 'text' && it.text.includes('\n') ? `<div class="hmeta clip">${esc(it.text.split('\n').slice(1).join(' '))}</div>` : ''}</div>
+      ${it.kind === 'text' && it.text.includes('\n') ? `<div class="hmeta clip">${esc(it.text.split('\n').slice(1).join(' '))}</div>` : ''}
+      ${it.kind === 'files' && it.text ? `<div class="hmeta clip" dir="auto">${esc(it.text)}</div>` : ''}</div>
     <div class="hacts">${DROPAPI.acts(it)}${it.kind === 'files' && typeof frShareBtn === 'function' ? frShareBtn('drop', it) : ''}<button type="button" class="iconbtn" data-drop="remove" data-id="${it.id}" aria-label="Remove from the list" title="Remove from the list">${icon('x')}</button></div></div>`;
 }
 
@@ -81,22 +83,16 @@ function dropList(items, empty) {
     : `<div class="empty">${icon('drop')}<h2>Nothing here yet</h2><p>${empty}</p></div>`;
 }
 
-function dropSend() {
+async function dropSend() {
   if (DROPST?.local) return localDrop(); // the PC is off: through the relay (local.js)
-  const fd = new FormData();
-  for (const f of FD.files) fd.append('f', f, f.name);
-  if (FD.text.trim()) fd.append('text', FD.text);
-  const x = new XMLHttpRequest();
-  x.open('POST', `${DROPAPI.base}/send?to=${encodeURIComponent(FD.to)}`);
-  for (const [k, v] of Object.entries(DROPAPI.hdr)) x.setRequestHeader(k, v);
-  x.upload.onprogress = (e) => { if (e.lengthComputable) { FD.up = Math.floor(e.loaded / e.total * 100); render(); } };
-  x.onload = async () => {
-    FD.up = -1;
-    if (x.status === 200) { FD.files = []; FD.text = ''; FD.err = ''; } else FD.err = x.responseText.trim() || "That didn't send.";
-    await dropRefresh(); render(); DROPAPI.after();
-  };
-  x.onerror = () => { FD.up = -1; FD.err = "Couldn't reach your PC."; render(); };
-  FD.up = 0; FD.err = ''; render(); x.send(fd);
+  FD.up = 0; FD.err = ''; render();
+  let x;
+  try {
+    x = await sendForm(`${DROPAPI.base}/send?to=${encodeURIComponent(FD.to)}`, DROPAPI.hdr, FD.files, FD.text.trim() ? { text: FD.text } : {}, (p) => { FD.up = Math.floor(p * 100); render(); });
+  } catch (e) { FD.up = -1; FD.err = e.message; render(); return; }
+  FD.up = -1;
+  if (x.status === 200) { FD.files = []; FD.text = ''; FD.err = ''; } else FD.err = x.responseText.trim() || "That didn't send.";
+  await dropRefresh(); render(); DROPAPI.after();
 }
 
 const dropCopied = (key) => { FD.copied = key; render(); setTimeout(() => { FD.copied = ''; render(); }, 1800); };

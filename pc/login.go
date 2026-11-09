@@ -39,12 +39,14 @@ func (d *Downloader) OpenLogin(site string) error {
 		return err
 	}
 	go func() {
-		time.Sleep(3 * time.Second)
-		for i := 0; i < 720; i++ { // up to an hour
-			if err := d.saveCookies(); err != nil {
-				return // the window is closed
+		ok := false
+		for i := 0; i < 1800; i++ { // every 2 s, so a window closed right after logging in still had its cookies saved; up to an hour
+			time.Sleep(2 * time.Second)
+			err := d.saveCookies()
+			if err != nil && (ok || i >= 30) {
+				return // the window is closed, or didn't open within a minute
 			}
-			time.Sleep(5 * time.Second)
+			ok = ok || err == nil
 		}
 	}()
 	return nil
@@ -64,7 +66,7 @@ func (d *Downloader) saveCookies() error {
 	if err != nil || v.WS == "" {
 		return fmt.Errorf("no debugger")
 	}
-	ws, err := websocket.Dial(v.WS, "", "http://127.0.0.1/")
+	ws, err := websocket.Dial(v.WS, "", "http://127.0.0.1") // exactly what Edge was started to allow (startEdge), or it says 403
 	if err != nil {
 		return err
 	}

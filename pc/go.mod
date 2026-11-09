@@ -6,6 +6,7 @@ require (
 	github.com/bodgit/sevenzip v1.6.5
 	github.com/pdfcpu/pdfcpu v0.16.4
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	github.com/xdg-go/stringprep v1.0.4
 	golang.org/x/net v0.62.0
 	golang.org/x/sys v0.49.0
 )
@@ -23,7 +24,6 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/stangelandcl/ppmd v0.1.1 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
-	github.com/xdg-go/stringprep v1.0.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
 	golang.org/x/crypto v0.58.0 // indirect
