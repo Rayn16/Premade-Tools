@@ -87,6 +87,7 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         visible = true;
+        Updater.opened(this);
         web.evaluateJavascript("window.vaultRefresh && vaultRefresh()", null);
         if (Vault.paired(this)) new Thread(() -> Updater.check(this, this)).start();
     }

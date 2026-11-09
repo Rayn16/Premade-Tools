@@ -27,6 +27,7 @@ type App struct {
 	pairs   map[string]time.Time
 	warn    map[string]time.Time // last time each warning was shown as a Windows notification
 	upd     string               // newer version waiting, if any
+	updErr  string               // why the last Update now failed
 	moving  bool
 	health  string // vault drive health, "" when unknown
 	eng     *Engines
@@ -42,6 +43,7 @@ type App struct {
 
 func main() {
 	background := flag.Bool("background", false, "start without opening the window (used when Windows starts)")
+	restarted := flag.Bool("restarted", false, "started by an update: wait for the old copy to let go of the port")
 	flag.Parse()
 	os.MkdirAll(appDir(), 0o755)
 	if lf, err := os.OpenFile(filepath.Join(appDir(), "vault.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
@@ -49,6 +51,10 @@ func main() {
 	}
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	for try := 0; err != nil && *restarted && try < 30; try++ {
+		time.Sleep(500 * time.Millisecond)
+		ln, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
+	}
 	if err != nil {
 		// Already running: just show its window.
 		if !*background {

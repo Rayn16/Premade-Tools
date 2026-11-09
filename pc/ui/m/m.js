@@ -77,6 +77,7 @@ async function refresh() {
       location.reload(); return;
     }
     VER = ST.version;
+    if (S.updBusy && ST.updErr) { S.updBusy = ''; S.updErr = ST.updErr; } // the PC couldn't update: say why, offer it again
     if (NATIVE?.keepAway && ST.relay && !ST.relay.includes('REPLACE')) NATIVE.keepAway(ST.tsHost || '', `${ST.relay}/m/?t=${encodeURIComponent(TOKEN)}&pc=${encodeURIComponent(ST.remote || '')}&link=${encodeURIComponent(ST.link || '')}`);
     try { ST.fr ? localStorage.setItem('ptfr', ST.fr) : localStorage.removeItem('ptfr'); } catch (e) {} // the relay key, for drops while the PC is off
     if (HOSTED) for (const [k, v] of [['pc', ST.remote], ['link', ST.link]]) { // keep both addresses up to date
@@ -225,11 +226,11 @@ function actions(it, p, me) {
 
 // The pop-up that offers a new version. Updating puts it on the PC, which hands it to this phone.
 function updView() {
-  if (!ST?.update || OFFLINE || (S.updLater === ST.update && !S.updBusy)) return '';
+  if (!ST?.update || (OFFLINE && !S.updBusy) || (S.updLater === ST.update && !S.updBusy)) return '';
   return `<div class="mpop"><div class="mpop-card" role="dialog" aria-modal="true" aria-label="Update ready">
     <img class="mpop-crest" src="/icon.svg" alt=""><h2 class="sheet-title">Update ready</h2>
     <p class="sheet-text">Premade Tools <b class="mono">${esc(ST.update)}</b> is out. You have <span class="mono">${esc(ST.version)}</span>.</p>
-    <p class="sheet-note" role="status">${esc(S.updBusy || (NATIVE ? 'It updates your PC, then this app.' : 'It updates your PC, and this app with it.'))}</p>
+    <p class="sheet-note" role="status">${esc(S.updBusy || S.updErr || (NATIVE ? 'It updates your PC, then this app.' : 'It updates your PC, and this app with it.'))}</p>
     <div class="actions-stack"><button type="button" class="btn primary block" data-updnow ${S.updBusy ? 'disabled' : ''}>Update now</button><button type="button" class="btn block" data-updlater ${S.updBusy ? 'disabled' : ''}>Later</button></div></div></div>`;
 }
 
@@ -383,14 +384,15 @@ $app.addEventListener('click', async (e) => {
     else if (d.askclear !== undefined) { S.ask = null; render(); }
     else if (d.updlater !== undefined) { S.updLater = ST.update; render(); }
     else if (d.updnow !== undefined) {
-      S.updBusy = 'Updating your PC…'; render();
+      S.updBusy = 'Updating your PC…'; S.updErr = ''; S.updAt = Date.now(); render();
       const m = (await api('/api/phone/update', {})).msg;
-      S.updBusy = /^Updating/.test(m) ? 'Updating your PC. This reloads in a moment.' : '';
-      if (!S.updBusy) { S.updLater = ST.update; S.msg = m; }
+      S.updBusy = /^Updating/.test(m) ? (NATIVE ? 'Updating your PC. Then this app updates and opens again by itself.' : 'Updating your PC. This reloads by itself when it’s done.') : '';
+      if (/^Update failed/.test(m)) S.updErr = m;
+      else if (!S.updBusy) { S.updLater = ST.update; S.msg = m; }
       render();
     }
     else if (d.themePick) { await api('/api/phone/settings', { theme: d.themePick }); refresh(); }
-  } catch (err) { S.updBusy = ''; S.msg = err.message; render(); }
+  } catch (err) { if (S.updBusy) S.updErr = err.message; S.updBusy = ''; S.msg = err.message; render(); }
 });
 function closeSheet() {
   if (FLOW[S.sheet] === 'confirm' || FLOW[S.sheet]?.done) delete FLOW[S.sheet];
@@ -412,7 +414,16 @@ function watchRestore(it) {
 $app.addEventListener('input', (e) => { if (e.target.id === 'q') { S.q = e.target.value; const n = document.getElementById('dl'); n.innerHTML = (OFFLINE ? n.querySelector('.offline')?.outerHTML || '' : '') + listView(); lazyMedia($app); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 window.vaultRefresh = refresh; // the Android app calls this after it sends something
-if (HOSTED && 'serviceWorker' in navigator) navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' }).catch(() => {});
+// iPhone: new pages arrive with a new offline copy (sw.js). Look for one each time Premade comes to the front, and
+// once it has taken over, reload as soon as nothing is going on, so the Home Screen app never sits on old pages.
+let NEWPAGES = false;
+if (HOSTED && 'serviceWorker' in navigator) {
+  const had = !!navigator.serviceWorker.controller; // the very first install isn't an update
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) NEWPAGES = true; });
+  navigator.serviceWorker.register('/m/sw.js', { scope: '/m/' }).then((reg) => {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+  }).catch(() => {});
+}
 document.addEventListener("DOMContentLoaded", () => refresh()); // after every tool's file has loaded: with no PC to wait for, the first draw comes at once
 try { if (localStorage.getItem('ptUpdated') && NATIVE?.update) NATIVE.update(); localStorage.removeItem('ptUpdated'); } catch (e) {}
 let slow = 0;
@@ -420,5 +431,8 @@ setInterval(() => { // every second while a download runs, else every 30 s
   // A box being typed in isn't redrawn; an empty one (the link box after a download starts) is.
   const a = document.activeElement;
   if (document.hidden || S.sheet || S.ask || S.drawer || (['q', 'dlurl', 'dlhere', 'pdfpw'].includes(a?.id) && a.value)) return;
-  if (dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy() || ++slow >= 30) { slow = 0; refresh(); }
+  if (S.updBusy && Date.now() - S.updAt > 3 * 60e3) { S.updBusy = ''; S.updErr = "Your PC hasn't come back yet. Check that Premade Tools is open on it."; render(); }
+  const busy = S.updBusy || dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy();
+  if (NEWPAGES && !busy) { location.reload(); return; }
+  if (busy || ++slow >= 30) { slow = 0; refresh(); }
 }, 1000);
