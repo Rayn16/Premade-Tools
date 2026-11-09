@@ -108,7 +108,12 @@ function frUpload(files, to, dev) {
     x.open('POST', `${FRAPI.base}/upload?to=${encodeURIComponent(to)}&dev=${encodeURIComponent(dev)}&name=${encodeURIComponent(f.name)}`);
     for (const [k, v] of Object.entries(FRAPI.hdr)) x.setRequestHeader(k, v);
     x.upload.onprogress = (e) => { if (e.lengthComputable) { FR.up = Math.floor((i + e.loaded / e.total) / files.length * 100); render(); } };
-    x.onload = () => x.status === 200 ? ok() : bad(new Error(x.responseText.trim() || "That didn't send."));
+    x.onload = () => {
+      if (x.status === 200) return ok();
+      let msg = x.responseText.trim();
+      try { msg = JSON.parse(msg).error || msg; } catch (e) {} // a relay answer is JSON
+      bad(new Error(x.status === 401 ? "Couldn't send it through your PC. Close Premade and open it again, then try once more." : msg || "That didn't send."));
+    };
     x.onerror = () => bad(new Error("Couldn't reach your PC."));
     x.send(f);
   })), Promise.resolve());

@@ -35,6 +35,7 @@ async function api(path, body) {
   const opt = { headers: { Authorization: 'Bearer ' + TOKEN } };
   if (body !== undefined) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
   let r;
+  if (HOSTED && PCURL && path.startsWith(PCURL + '/')) path = path.slice(PCURL.length); // the tools' bases carry PCURL; keep the fallback below
   if (!path.startsWith('/') || !HOSTED) r = await fetch(path.startsWith('/') ? PCURL + path : path, opt);
   else { // the address that answered last, then the other one
     for (const base of [PCURL, ...PCS.filter((b) => b !== PCURL)].filter(Boolean)) {
