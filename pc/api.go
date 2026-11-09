@@ -647,7 +647,7 @@ func unq(s string) string {
 
 func serveItem(w http.ResponseWriter, r *http.Request, st *Store, id string, attach bool) {
 	it := st.Get(id)
-	if st == nil || it == nil || it.Missed {
+	if st == nil || it == nil || it.Sha == "" {
 		http.NotFound(w, r)
 		return
 	}
@@ -682,7 +682,7 @@ func (a *App) saveToPC(w http.ResponseWriter, r *http.Request) {
 	if st != nil {
 		it = st.Get(r.PathValue("id"))
 	}
-	if it == nil || it.Missed {
+	if it == nil || it.Sha == "" {
 		http.NotFound(w, r)
 		return
 	}
@@ -711,7 +711,7 @@ func (a *App) queueRestore(w http.ResponseWriter, r *http.Request) {
 	if st != nil {
 		it = st.Get(id)
 	}
-	if it == nil || it.Missed {
+	if it == nil || it.Sha == "" {
 		http.NotFound(w, r)
 		return
 	}
