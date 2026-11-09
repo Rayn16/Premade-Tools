@@ -119,10 +119,11 @@ export default {
     // Sending: start, then PUT each 50 MB part, then done. Only then does the friend see it.
     if (req.method === 'POST' && path === '/send') {
       const b = await req.json().catch(() => ({}));
-      const name = clean(b.name, 200).replace(/[\\/]/g, '_'), size = Number(b.size) || 0, dev = clean(b.dev, 40) || 'all';
+      const name = clean(b.name, 200).replace(/[\\/]/g, '_'), size = Number(b.size ?? 0), dev = clean(b.dev, 40) || 'all';
       const to = await env.DB.prepare('SELECT id FROM people WHERE id = ? AND approved = 1').bind(clean(b.to, 40)).first();
       if (!to) return fail("That person isn't here any more.");
       if (!name) return fail('The file has no name.');
+      if (!Number.isSafeInteger(size) || size < 0) return fail('The file has no size.');
       if (size > MAX) return fail('That file is over 1 GB, the most one send can be.');
       if ((await used(env)) + size > CAP) return fail('Friends storage is full right now. Files free up when friends pick them up, or after 7 days.', 507);
       const id = rid(12);
@@ -135,8 +136,9 @@ export default {
       if (!it) return fail('That send is gone.', 404);
       const up = env.FILES.resumeMultipartUpload(it.id, it.up);
       if (req.method === 'PUT' && m[2]) {
-        const n = Number(m[2]);
-        if (n < 1 || n > 1000) return fail('bad part');
+        // The storage limit goes by the size the send said, so no part may hold more than its share of that.
+        const n = Number(m[2]), room = Math.min(PART, it.size - (n - 1) * PART);
+        if (n < 1 || !(Number(req.headers.get('content-length') ?? NaN) <= room)) return fail('That part is bigger than the file.');
         const part = await up.uploadPart(n, req.body);
         return json({ n, etag: part.etag });
       }

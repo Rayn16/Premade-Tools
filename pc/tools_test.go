@@ -97,6 +97,10 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 			names[id] = in.Name
 			writeJ(w, map[string]any{"id": id, "part": 1 << 20})
 		case r.Method == "PUT" && strings.HasPrefix(p, "/send/"):
+			if r.ContentLength < 0 { // the relay holds each part to its share of the size, so it needs the length
+				http.Error(w, `{"error":"That part is bigger than the file."}`, 400)
+				return
+			}
 			io.Copy(io.Discard, r.Body)
 			writeJ(w, map[string]any{"n": 1, "etag": "e"})
 		case strings.HasSuffix(p, "/done"):
@@ -180,4 +184,26 @@ func psRead(lit string) (val, rest string, ok bool) {
 		b.WriteRune(r[i])
 	}
 	return b.String(), "", false
+}
+
+// An empty file sent to a friend still goes: the relay takes a part only with its length up front, even 0.
+func TestFriendSendEmptyFile(t *testing.T) {
+	a, h := testApp(t)
+	relay := newFakeRelay(t)
+	a.fr = &Friends{a: a, hc: relay.Client(), busy: map[string]bool{}, wake: make(chan struct{}, 1)}
+	a.fr.last = &frPeople{Approved: true, People: []frPerson{{ID: "f1", Name: "Sam"}}}
+	if w := call(h, "POST", "/api/ui/friends/upload?to=f1&dev=all&name=empty.txt", strings.NewReader("")); w.Code != 200 {
+		t.Fatalf("send: %d %s", w.Code, w.Body)
+	}
+	for end := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		a.fr.mu.Lock()
+		s := *a.fr.sends[0]
+		a.fr.mu.Unlock()
+		if s.State == "done" {
+			break
+		}
+		if s.State == "failed" || time.Now().After(end) {
+			t.Fatalf("the send is %s: %s", s.State, s.Note)
+		}
+	}
 }

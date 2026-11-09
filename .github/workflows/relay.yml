@@ -18,6 +18,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
+      - name: Test (a relay that fails its test isn't deployed)
+        run: node worker.test.mjs
       - name: Check the token is there
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "::warning::No CLOUDFLARE_API_TOKEN secret yet, so the relay isn't deployed."; echo "SKIP=1" >> "$GITHUB_ENV"; fi
