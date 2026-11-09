@@ -25,6 +25,7 @@ import (
 
 // PdfOps lists what the PDF tools do, in the order the screens show them.
 var PdfOps = []Target{
+	{"edit", "Edit", "Change the text, add text, pictures, a signature or drawings"},
 	{"merge", "Merge", "Put PDFs together into one, in the order you pick"},
 	{"pages", "Pages", "Reorder, turn or delete pages"},
 	{"extract", "Pick pages", "Save only the pages you pick as a new PDF"},
@@ -56,6 +57,8 @@ func pdfDoneNote(j *CvJob) string {
 		return fmt.Sprintf("Split into %d PDFs.", len(j.Files))
 	case "compress":
 		return fmt.Sprintf("Compressed: %s → %s.", human(j.InSize), human(j.Size))
+	case "edit":
+		return "Saved the edited PDF."
 	case "lock":
 		return "Password added."
 	case "unlock":
@@ -81,11 +84,11 @@ func PdfCheck(names []string, op, pages, pw string) string {
 		if len(names) < 2 {
 			return "Pick at least two PDFs to merge."
 		}
-	case "pages", "extract", "split":
+	case "edit", "pages", "extract", "split":
 		if len(names) > 1 {
 			return "Pick one PDF at a time for this."
 		}
-		if op != "split" && !pagesRe.MatchString(pages) {
+		if (op == "pages" || op == "extract") && !pagesRe.MatchString(pages) {
 			return "Pick at least one page."
 		}
 	case "lock", "unlock":
@@ -159,6 +162,13 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 		dst := freeName(out, base+name, "pdf")
 		if err := editPages(ctx, src[0], dst, j.Pages); err != nil {
 			os.Remove(dst)
+			fail(j.Inputs[0], err)
+			return
+		}
+		made = append(made, dst)
+	case "edit": // the editor on the screen made the new PDF; the PC keeps it and sends it back
+		dst := freeName(out, base+" (edited)", "pdf")
+		if err := copyFile(src[0], dst); err != nil {
 			fail(j.Inputs[0], err)
 			return
 		}

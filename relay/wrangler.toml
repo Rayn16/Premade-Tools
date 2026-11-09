@@ -16,3 +16,11 @@ bucket_name = "premade-friends"
 binding = "DB"
 database_name = "premade-friends"
 database_id = "DB_ID" # the deploy workflow fills this in
+
+[[durable_objects.bindings]]
+name = "LINK"
+class_name = "Link"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Link"]

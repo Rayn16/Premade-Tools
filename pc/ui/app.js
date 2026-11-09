@@ -150,7 +150,7 @@ function homeView(live, dlDone, cvDone) {
     ${homeCards('go', [
       ['download', 'dl', 'Downloader', 'Paste a link from TikTok, Instagram, YouTube and more, and save it.', dlRun ? `<b>${dlRun}</b> downloading now` : tally(dlDone, 'download saved', 'downloads saved')],
       ['convert', 'convert', 'Converter', 'Turn photos, videos, audio and documents into other formats.', cvRun ? `<b>${cvRun}</b> converting now` : tally(cvDone, 'file converted', 'files converted')],
-      ['pdf', 'pdf', 'PDF', 'Merge, split, reorder, compress and lock PDFs.', pdfBusy() ? '<b>Working</b> on PDFs now' : tally(pdfJobs().filter((j) => j.state === 'done').length, 'PDF done', 'PDFs done')],
+      ['pdf', 'pdf', 'PDF', 'Edit, merge, split, compress and lock PDFs.', pdfBusy() ? '<b>Working</b> on PDFs now' : tally(pdfJobs().filter((j) => j.state === 'done').length, 'PDF done', 'PDFs done')],
       ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text and subtitles.', trBusy() ? '<b>Listening</b> now' : tally(trJobs().filter((j) => j.state === 'done').length, 'file transcribed', 'files transcribed')],
       ['drop', 'drop', 'File drop', 'Send files, links and text between this PC and your phones.', dropNew() ? `<b>${dropNew()}</b> new from your phones` : tally(dropJobs().length, 'drop this week', 'drops this week')],
       ['deleted', 'shield', 'Vault', 'Keeps what you delete on your phones, so you can get it back.', `${tally(live.length, 'deleted item', 'deleted items')} kept · ${tally(ST.phones.length, 'phone', 'phones')}`]])}
@@ -323,8 +323,8 @@ function updSheet() {
 function awaySettings() {
   const st = ST.tailscale || 'off', ok = st === 'ok';
   const row = (done, title, hint) => `<div class="row"><span class="thumb">${icon(done ? 'check' : 'x')}</span><div class="row-text"><span class="row-title">${title}</span><span class="row-hint">${hint}</span></div></div>`;
-  return `<section style="margin-top:22px"><h2 class="group-label">Away from home · ${ok ? 'phones reach this PC from anywhere' : 'phones reach this PC on the home Wi-Fi only'}</h2><div class="rows">
-    <div class="row"><div class="row-text"><span class="row-title">${ok ? 'Ready' : 'Without Tailscale'}</span><span class="row-hint">${ok ? `Through Tailscale, at <span class="mono">${esc(ST.remote)}</span>. Away from home, phones use this PC's tools as if they were here.` : 'Away from home, phones convert, edit PDFs and transcribe by themselves. To use this PC from anywhere too, set up Tailscale (free) once. This list ticks each step by itself within two minutes.'}</span></div></div>
+  return `<section style="margin-top:22px"><h2 class="group-label">Away from home · phones reach this PC from anywhere</h2><div class="rows">
+    <div class="row"><div class="row-text"><span class="row-title">${ok ? 'Through Tailscale' : 'Through the Friends relay'}</span><span class="row-hint">${ok ? `Through Tailscale, at <span class="mono">${esc(ST.remote)}</span>. Away from home, phones use this PC's tools as if they were here.` : 'Phones reach this PC through the Friends relay, at home and away, with nothing to set up. Sending files over 100 MB from a phone needs Tailscale (free), which this list ticks off by itself within two minutes.'}</span></div></div>
     ${row(st !== 'off', '1. Tailscale on this PC', 'Install <a href="https://tailscale.com/download/windows" target="_blank" rel="noopener">Tailscale</a> and sign in.')}
     ${row(ok, '2. HTTPS turned on', 'In the <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener">Tailscale admin page</a>, under DNS, turn on <b>MagicDNS</b> and <b>HTTPS Certificates</b>.')}
     <div class="row"><span class="thumb">${icon('phones')}</span><div class="row-text"><span class="row-title">3. Tailscale on each phone</span><span class="row-hint">Install it from the App Store or Play Store, sign in with the same account, and leave it on.</span></div></div>
@@ -563,9 +563,11 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.pair &
 let timer;
 const soon = () => { clearTimeout(timer); timer = setTimeout(tick, 3000); };
 async function tick() {
-  const typing = document.activeElement && ['q', 'folder', 'dlurl', 'pdfpw', 'frname', 'frmyname', 'frpcname'].includes(document.activeElement.id);
+  // Don't redraw under someone mid-typing. The link box redraws anyway (focus and caret are put back), so a
+  // download started from it keeps showing its progress.
+  const typing = document.activeElement && ['q', 'folder', 'pdfpw', 'frname', 'frmyname', 'frpcname'].includes(document.activeElement.id);
   if (!typing) await refresh();
   clearTimeout(timer);
-  timer = setTimeout(tick, dlRunning() || cvRunning() || pdfBusy() || trBusy() || PDFST?.gs === 'installing' || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' || S.page === 'drop' ? 3000 : FRST?.sends?.some((s) => s.state === 'running') ? 1500 : S.page === 'friends' ? 10000 : 30000);
+  timer = setTimeout(tick, dlRunning() ? 1000 : cvRunning() || pdfBusy() || trBusy() || PDFST?.gs === 'installing' || CV?.office === 'installing' || (DL && !DL.ready) ? 1500 : S.pair || S.page === 'setup' || S.page === 'drop' ? 3000 : FRST?.sends?.some((s) => s.state === 'running') ? 1500 : S.page === 'friends' ? 10000 : 30000);
 }
 refresh().then(() => { if (S.page === 'setup') enterStep(1); soon(); });

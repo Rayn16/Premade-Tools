@@ -73,6 +73,7 @@ func main() {
 	a.fr = NewFriends(a)
 	go a.watchClip()
 	go a.tsLoop()
+	go a.linkLoop()
 	if c := a.set.Get(); c.VaultDir != "" {
 		if a.store, err = OpenStore(c.VaultDir); err != nil {
 			log.Printf("vault at %s: %v", c.VaultDir, err)

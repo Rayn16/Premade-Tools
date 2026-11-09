@@ -10,7 +10,7 @@ import (
 func init() { mime.AddExtensionType(".mjs", "text/javascript; charset=utf-8") }
 
 // The PDF tools' calls: /api/ui/pdf/… for the PC window and /api/phone/pdf/… for paired phones.
-// Start takes the PDFs as "f" parts (in order), with ?op=merge|pages|extract|split|compress|lock|unlock,
+// Start takes the PDFs as "f" parts (in order), with ?op=edit|merge|pages|extract|split|compress|lock|unlock,
 // &pages=3,1r90,2 for pages and extract, &level=smallest for compress, and the password as a "pw" field.
 func (a *App) pdfRoutes(m *http.ServeMux) {
 	ui := func(p string, h http.HandlerFunc) { m.Handle(p, localOnly(h)) }

@@ -25,7 +25,7 @@ function pdfView() {
   const hist = days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
     : `<div class="empty">${icon('pdf')}<h2>Nothing done yet</h2><p>Pick a tool above and drop in PDFs. What your phones send shows up here too.</p></div>`;
   return `<main class="plain">
-    <div class="pagehead"><div><h1 class="pagetitle">PDF tools</h1><p class="pagelede">Merge, split, reorder, compress and lock PDFs. Everything runs on this PC; nothing is uploaded anywhere.</p></div></div>
+    <div class="pagehead"><div><h1 class="pagetitle">PDF tools</h1><p class="pagelede">Edit, merge, split, reorder, compress and lock PDFs. Everything runs on this PC; nothing is uploaded anywhere.</p></div></div>
     <div class="dlwrap scroller"><div class="dlinner">
       ${P.err ? `<div class="notebox">${icon('alert')}<div>${esc(P.err)}</div></div>` : ''}
       <div class="dlbox cvbox">${pdfBox()}</div>
