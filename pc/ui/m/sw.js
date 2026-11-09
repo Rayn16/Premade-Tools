@@ -4,9 +4,9 @@
 // (FFmpeg, PDF and Whisper code): saved copy first, they never change at a fixed version.
 const NAME = 'premade-__BUILD__';
 const SHELL = ['/m/', '/m/index.html', '/pt.css', '/dl.css', '/cv.css', '/pdf.css', '/tr.css', '/drop.css', '/friends.css', '/icon.svg', '/m/m.css',
-  '/m/common.js', '/m/pdf-core.js', '/m/tr-core.js', '/m/drop-core.js', '/m/friends-core.js', '/m/local.js', '/m/m.js', '/m/mdl.js', '/m/mcv.js',
+  '/m/common.js', '/m/pdf-core.js', '/m/pdf-edit.js', '/m/tr-core.js', '/m/drop-core.js', '/m/friends-core.js', '/m/local.js', '/m/m.js', '/m/mdl.js', '/m/mcv.js',
   '/m/mpdf.js', '/m/mtr.js', '/m/mdrop.js', '/m/mfriends.js', '/m/icon-180.png', '/m/pdfjs/pdf.min.mjs', '/m/pdfjs/pdf.worker.min.mjs',
-  '/m/whisper.js', '/m/lib/pdf-lib.min.mjs', '/m/lib/pdf-local.mjs', ...['classes', 'const', 'errors', 'index', 'types', 'utils', 'worker'].map((f) => `/m/ffmpeg/${f}.js`)];
+  '/m/whisper.js', '/m/lib/pdf-lib.min.mjs', '/m/lib/pdf-local.mjs', '/m/lib/pdf-edit.mjs', ...['classes', 'const', 'errors', 'index', 'types', 'utils', 'worker'].map((f) => `/m/ffmpeg/${f}.js`)];
 
 self.addEventListener('install', (e) => e.waitUntil(caches.open(NAME).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k.startsWith('premade-') && k !== NAME).map((k) => caches.delete(k)))).then(() => self.clients.claim())));

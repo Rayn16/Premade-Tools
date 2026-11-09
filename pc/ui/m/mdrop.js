@@ -24,7 +24,7 @@ function dropToolsView(off) {
   let kept = null;
   try { kept = JSON.parse(localStorage.getItem('ptdrop')); } catch (e) {}
   if ((OFFLINE || !DROPST) && kept && frKey()) DROPST = { ...kept, jobs: [], clip: null, clipSync: false, local: true }; // sent through the relay, picked up by the PC later
-  else if (OFFLINE || !DROPST) return title + `<div class="feed scroller">${off}<p class="mhint">${icon('info')}<span>Drops go through your PC, so it needs to be on and reachable${IOS ? ' (at home, or anywhere with Tailscale)' : ''}. To send while it's off, join Friends on the PC once.</span></p></div>`;
+  else if (OFFLINE || !DROPST) return title + `<div class="feed scroller">${off}<p class="mhint">${icon('info')}<span>Drops go through your PC, so it needs to be on and reachable. To send while it's off, join Friends on the PC once.</span></p></div>`;
   else { try { localStorage.setItem('ptdrop', JSON.stringify({ me: DROPST.me, devices: DROPST.devices })); } catch (e) {} }
   const fresh = dropJobs().filter((j) => j.to === DROPST.me && !j.fetched);
   const note = IOS ? 'Tap Copy to put it on this iPhone. To send this iPhone\'s clipboard, run the Drop to PC Shortcut.' : NATIVE?.dropClip ? 'It syncs by itself while Premade is open.' : 'Update the app to sync it by itself.';

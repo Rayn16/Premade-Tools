@@ -42,8 +42,8 @@
     if (!r.ok) { document.getElementById('err').textContent = (await r.text()).trim(); return; }
     const j = await r.json();
     // The key rides in the address, because a Home Screen app doesn't share Safari's storage. The pages come from the
-    // relay (https), so they open with the PC off; pc is the PC's Tailscale address, lan the home one for Shortcuts.
-    const q = 't=' + encodeURIComponent(j.token) + '&pc=' + encodeURIComponent(j.remote || '') + '&lan=' + encodeURIComponent('http://' + location.host);
+    // relay (https), so they open with the PC off; pc is the PC's Tailscale address, link the relay's way to it, lan the home one for Shortcuts.
+    const q = 't=' + encodeURIComponent(j.token) + '&pc=' + encodeURIComponent(j.remote || '') + '&link=' + encodeURIComponent(j.link || '') + '&lan=' + encodeURIComponent('http://' + location.host);
     location.replace(j.relay && !j.relay.includes('REPLACE') ? j.relay + '/m/?' + q : '/m/?t=' + encodeURIComponent(j.token));
   };
   // Hands the PC's address and the one-time code to the Android app.

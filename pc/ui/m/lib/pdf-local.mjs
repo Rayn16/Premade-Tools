@@ -29,6 +29,7 @@ export async function run(op, files, { pages = '', pw = '', level = 'smaller', s
     }
     return [{ name: base(one.name) + ' merged.pdf', bytes: await save(out) }];
   }
+  if (op === 'edit') return [{ name: base(one.name) + ' (edited).pdf', bytes: one.bytes }]; // the editor already made it (pdf-edit.js)
   if (op === 'pages') return [{ name: base(one.name) + ' (edited).pdf', bytes: await save(await pick(one, pages)) }];
   if (op === 'extract') return [{ name: base(one.name) + ' (picked pages).pdf', bytes: await save(await pick(one, pages)) }];
   if (op === 'split') {
