@@ -109,7 +109,11 @@ async function frUpload(files, to, dev) {
     const onp = (n) => { FR.up = Math.floor((i + Math.min(1, n / (f.size || 1))) / files.length * 100); render(); };
     const big = url.includes('/api/phone/') && f.size > 90 << 20;
     const x = await xhr('POST', big ? `${url}&piece=${await sendPieces(url, FRAPI.hdr, f, onp)}` : url, FRAPI.hdr, big ? null : f, big ? () => {} : onp);
-    if (x.status !== 200) throw new Error(x.responseText.trim() || "That didn't send.");
+    if (x.status !== 200) {
+      let msg = x.responseText.trim();
+      try { msg = JSON.parse(msg).error || msg; } catch (e) {} // a relay answer is JSON
+      throw new Error(x.status === 401 ? "Couldn't send it through your PC. Close Premade and open it again, then try once more." : msg || "That didn't send.");
+    }
   }
 }
 
