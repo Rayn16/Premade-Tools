@@ -247,12 +247,12 @@ func (c *Converter) add(j *CvJob) *CvJob {
 	c.mu.Lock()
 	c.jobs = append([]*CvJob{j}, c.jobs...)
 	c.saveLocked()
+	cp := *j // copied while locked: the worker may already be running it
 	c.mu.Unlock()
 	select {
 	case c.wake <- struct{}{}:
 	default:
 	}
-	cp := *j
 	return &cp
 }
 

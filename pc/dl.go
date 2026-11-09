@@ -193,12 +193,12 @@ func (d *Downloader) Start(raw string, audio bool, mode string, force bool, from
 	d.mu.Lock()
 	d.jobs = append([]*Job{j}, d.jobs...)
 	d.saveLocked()
+	c := *j // copied while locked: the worker may already be running it
 	d.mu.Unlock()
 	select {
 	case d.wake <- struct{}{}:
 	default:
 	}
-	c := *j
 	return &c, p, nil
 }
 
