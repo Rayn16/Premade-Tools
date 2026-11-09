@@ -429,9 +429,10 @@ document.addEventListener("DOMContentLoaded", () => refresh()); // after every t
 try { if (localStorage.getItem('ptUpdated') && NATIVE?.update) NATIVE.update(); localStorage.removeItem('ptUpdated'); } catch (e) {}
 let slow = 0;
 setInterval(() => { // every second while a download runs, else every 30 s
-  // A box being typed in isn't redrawn; an empty one (the link box after a download starts) is.
+  // A box being typed in isn't redrawn; an empty one (the link box after a download starts) is. Nor is an open sheet:
+  // on an iPhone a tap that lands while the page is redrawn is lost, so a busy page made the Send sheet ignore taps.
   const a = document.activeElement;
-  if (document.hidden || S.sheet || S.ask || S.drawer || (['q', 'dlurl', 'dlhere', 'pdfpw'].includes(a?.id) && a.value)) return;
+  if (document.hidden || S.sheet || S.ask || S.drawer || (typeof FR !== 'undefined' && FR.share) || (['q', 'dlurl', 'dlhere', 'pdfpw'].includes(a?.id) && a.value)) return;
   if (S.updBusy && Date.now() - S.updAt > 3 * 60e3) { S.updBusy = ''; S.updErr = "Your PC hasn't come back yet. Check that Premade Tools is open on it."; render(); }
   const busy = S.updBusy || dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy();
   if (NEWPAGES && !busy) { location.reload(); return; }
