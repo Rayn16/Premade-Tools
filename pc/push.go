@@ -220,6 +220,9 @@ func (a *App) hasPush(phoneID string) bool {
 func dropNote(it *Drop) string {
 	switch it.Kind {
 	case "text", "link":
+		if r := []rune(it.Text); len(r) > 200 { // a push takes 4 KB at most
+			return string(r[:200]) + "…"
+		}
 		return it.Text
 	}
 	if len(it.Files) == 1 {

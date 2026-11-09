@@ -74,8 +74,8 @@ const plural = (n, one) => n + ' ' + one + (n === 1 ? '' : 's');
 
 const ext = (name) => (name.includes('.') ? name.split('.').pop() : '').toUpperCase();
 const isShot = (it) => /screenshot/i.test(it.folder + it.name);
-function kindLabel(it) {
-  const e = ext(it.name) === 'JPG' ? 'JPEG' : ext(it.name);
+function kindLabel(it) { // HTML: the type comes from the file's name, so it's escaped
+  const e = esc(ext(it.name) === 'JPG' ? 'JPEG' : ext(it.name));
   if (it.kind === 'photo') return isShot(it) ? 'Screenshot' : (e + ' photo').trim();
   if (it.kind === 'video') return (e + ' video').trim();
   return it.kind === 'voice' ? 'Voice recording' : (e + ' file').trim();

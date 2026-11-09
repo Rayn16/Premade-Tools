@@ -155,7 +155,15 @@ func recvUpload(r *http.Request, dir string) ([]string, map[string]string, error
 			return nil, nil, fmt.Errorf("The files didn't arrive whole. Try again.")
 		}
 		if part.FileName() == "" {
-			b, _ := io.ReadAll(io.LimitReader(part, 4<<10))
+			max := int64(4 << 10)
+			if part.FormName() == "text" {
+				max = 256 << 10 // File drop's text, as long as the clipboard takes
+			}
+			b, _ := io.ReadAll(io.LimitReader(part, max+1))
+			if int64(len(b)) > max {
+				os.RemoveAll(dir)
+				return nil, nil, fmt.Errorf("That text is too long to send. Save it in a file and send the file.")
+			}
 			fields[part.FormName()] = string(b)
 			continue
 		}

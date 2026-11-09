@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"mime/multipart"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -85,5 +89,32 @@ func TestDropsSameNameAtOnce(t *testing.T) {
 	}
 	if len(got) != 20 {
 		t.Fatalf("%d of 20 notes are still there", len(got))
+	}
+}
+
+// Long text sent with File drop arrives whole (it was cut at 4 KB, mid-letter), and text past what a clipboard
+// takes is refused with a reason instead of cut.
+func TestLongDropText(t *testing.T) {
+	a, h := testApp(t)
+	a.drops = NewDrops(func() string { return t.TempDir() })
+	send := func(text string) *httptest.ResponseRecorder {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		mw.WriteField("text", text)
+		mw.Close()
+		return call(h, "POST", "/api/phone/drop/send?to=pc", &b, "Content-Type", mw.FormDataContentType())
+	}
+	long := strings.Repeat("مرحبا بالعالم ", 1000)
+	if w := send(long); w.Code != 200 {
+		t.Fatalf("long text: %d %s", w.Code, w.Body)
+	}
+	if got := a.drops.List("pc"); len(got) != 1 || got[0].Text != strings.TrimSpace(long) {
+		t.Fatalf("the text arrived cut: %d drops, %d of %d bytes", len(got), len(got[0].Text), len(long))
+	}
+	if w := send(strings.Repeat("a", 300<<10)); w.Code != 400 {
+		t.Fatalf("too long: %d %s", w.Code, w.Body)
+	}
+	if n := dropNote(&a.drops.List("pc")[0]); len([]rune(n)) > 201 {
+		t.Fatalf("a push would carry %d letters", len([]rune(n)))
 	}
 }
