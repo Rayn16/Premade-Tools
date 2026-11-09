@@ -74,7 +74,8 @@ async function refresh() {
     OFFLINE = false;
     if (VER && VER !== ST.version) { // the PC just updated itself: get the new pages, and the new Android app
       try { localStorage.setItem('ptUpdated', '1'); } catch (e) {}
-      location.reload(); return;
+      if (!busyNow()) { location.reload(); return; }
+      NEWPAGES = true; // once nothing would be lost
     }
     VER = ST.version;
     if (S.updBusy && ST.updErr) { S.updBusy = ''; S.updErr = ST.updErr; } // the PC couldn't update: say why, offer it again
@@ -417,6 +418,10 @@ window.vaultRefresh = refresh; // the Android app calls this after it sends some
 // iPhone: new pages arrive with a new offline copy (sw.js). Look for one each time Premade comes to the front, and
 // once it has taken over, reload as soon as nothing is going on, so the Home Screen app never sits on old pages.
 let NEWPAGES = false;
+const jobsBusy = () => S.updBusy || dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy();
+// What a reload would lose: a job, an upload, the PDF editor, a recording, or a result made here and not saved yet.
+const busyNow = () => jobsBusy() || ED.on || T.rec || [FD, FR, T, P, typeof CS === 'object' ? CS : {}].some((o) => o.up >= 0)
+  || LJ.some((j) => j.state === 'done' && !j.saved);
 if (HOSTED && 'serviceWorker' in navigator) {
   const had = !!navigator.serviceWorker.controller; // the very first install isn't an update
   navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) NEWPAGES = true; });
@@ -432,7 +437,7 @@ setInterval(() => { // every second while a download runs, else every 30 s
   const a = document.activeElement;
   if (document.hidden || S.sheet || S.ask || S.drawer || (['q', 'dlurl', 'dlhere', 'pdfpw'].includes(a?.id) && a.value)) return;
   if (S.updBusy && Date.now() - S.updAt > 3 * 60e3) { S.updBusy = ''; S.updErr = "Your PC hasn't come back yet. Check that Premade Tools is open on it."; render(); }
-  const busy = S.updBusy || dlBusy() || (typeof cvBusy === 'function' && cvBusy()) || pdfBusy() || trBusy();
-  if (NEWPAGES && !busy) { location.reload(); return; }
+  const busy = jobsBusy(); // polls every second
+  if (NEWPAGES && !busyNow()) { location.reload(); return; }
   if (busy || ++slow >= 30) { slow = 0; refresh(); }
 }, 1000);
