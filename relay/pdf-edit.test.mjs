@@ -20,4 +20,16 @@ assert.deepEqual(readText(out, out.getPage(0)).blocks.map((b) => b.text), ['Hell
 const t = readText(out, out.getPage(1)).blocks[0];
 assert.equal(t.text, 'On a turned page');
 assert.ok(Math.abs(t.angle) < 1 && t.x > 9 && t.x < 11, 'added text reads upright where it was put'); // the page is turned, the text isn't
+// White-out takes the letters under it out of the file, and the rest of the line stays where it was.
+{
+  const d2 = await PDFDocument.create(), f2 = await d2.embedFont(StandardFonts.Helvetica), pg = d2.addPage([400, 300]);
+  pg.drawText('IBAN: DE89 3704 0044', { x: 50, y: 250, size: 12, font: f2 });
+  pg.drawText('Name: Rayan', { x: 50, y: 220, size: 12, font: f2 });
+  const doc2 = await PDFDocument.load(await d2.save()), p2 = doc2.getPage(0), r2 = readText(doc2, p2), b = r2.blocks[0];
+  const x0 = 50 + f2.widthOfTextAtSize('IBAN: ', 12);
+  editText(doc2, p2, r2, {}, [{ type: 'white', x: x0 - 1, y: b.y - 2, w: 200, h: b.h + 4 }]);
+  const o2 = await PDFDocument.load(await doc2.save()), t2 = readText(o2, o2.getPage(0)).blocks;
+  assert.deepEqual(t2.map((x) => x.text), ['IBAN:', 'Name: Rayan']);
+  assert.ok(Math.abs(t2[0].x - b.x) < 0.01 && Math.abs(t2[1].y - r2.blocks[1].y) < 0.01, 'what is left stays where it was');
+}
 console.log('pdf-edit ok');

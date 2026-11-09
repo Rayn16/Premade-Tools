@@ -439,7 +439,8 @@ async function edSave() {
     for (let i = 0; i < ED.pages.length; i++) {
       const page = doc.getPage(i), edits = {};
       for (const [k, v] of Object.entries(ED.edits)) { const [p, id] = k.split(':'); if (+p === i) edits[id] = v; }
-      const extra = Object.keys(edits).length ? EDM.editText(doc, page, EDM.readText(doc, page), edits) : [];
+      const hide = ED.items.filter((it) => it.page === i && it.type === 'white');
+      const extra = Object.keys(edits).length || hide.length ? EDM.editText(doc, page, EDM.readText(doc, page), edits, hide) : [];
       await EDM.drawItems(doc, page, [...extra, ...ED.items.filter((it) => it.page === i)], ED.pics, edTextPng);
     }
     const bytes = await doc.save({ useObjectStreams: true });

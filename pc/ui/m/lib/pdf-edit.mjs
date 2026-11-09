@@ -196,7 +196,7 @@ export function readText(doc, page) {
   const show = (o, items) => {
     const f = font(ts.fk);
     if (!f) return;
-    const r = { op: o, f, size: ts.fs, th: ts.th, rise: ts.rise, tm, ctm: g.ctm, color: g.color, text: '', adv: 0 };
+    const r = { op: o, f, size: ts.fs, th: ts.th, rise: ts.rise, tc: ts.tc, tw: ts.tw, tm, ctm: g.ctm, color: g.color, text: '', adv: 0 };
     for (const it of items) {
       if (typeof it === 'number') { const dx = -it / 1000 * ts.fs * ts.th; r.adv += dx; if (it < -180) r.text += ' '; continue; }
       if (!it?.s) continue;
@@ -282,17 +282,46 @@ function swap(r, codes) {
   return pre + (r.size * r.th ? `[${fmt(-r.adv * 1000 / (r.size * r.th))}] TJ` : '');
 }
 
+// A run's command with each letter whose middle is under one of rects (view points) swapped for the space it took,
+// so the words around it stay put; null when none is.
+function unshow(r, V, rects) {
+  const f = r.f, step = f.type0 ? 2 : 1, k = r.size * r.th, m = mul(r.tm, r.ctm), mid = r.rise + (ASC + DESC) / 2 * r.size;
+  const a = r.op.args, items = r.op.op === 'TJ' ? (Array.isArray(a[0]) ? a[0] : []) : [r.op.op === '"' ? a[2] : a[0]];
+  if (!k) return null;
+  const out = [];
+  let x = 0, hit = false, codes = [];
+  const flush = () => { if (codes.length) out.push(hexOf(f, codes)); codes = []; };
+  for (const it of items) {
+    if (typeof it === 'number') { flush(); out.push(fmt(it)); x -= it / 1000 * k; continue; }
+    if (!it?.s) continue;
+    for (let i = 0; i + step <= it.s.length; i += step) {
+      const code = codeOf(it.s.subarray(i, i + step)), w = (f.width(code) / 1000 * r.size + r.tc + (step === 1 && code === 32 ? r.tw : 0)) * r.th;
+      const [px, py] = at(V.m, ...at(m, x + w / 2, mid));
+      if (rects.some((q) => px >= q.x && px <= q.x + q.w && py >= q.y && py <= q.y + q.h)) { flush(); out.push(fmt(-w * 1000 / k)); hit = true; } else codes.push(code);
+      x += w;
+    }
+  }
+  flush();
+  const pre = r.op.op === "'" ? 'T* ' : r.op.op === '"' ? `${fmt(a[0])} Tw ${fmt(a[1])} Tc T* ` : '';
+  return hit ? pre + `[${out.join(' ')}] TJ` : null;
+}
+
 // Changes lines in the page's own text. edits: { blockId: newText }. A line whose font has every letter keeps
 // that font; any other line is taken out and comes back as added text in the closest built-in font: those are
-// returned, for drawItems to draw.
-export function editText(doc, page, read, edits) {
-  const reps = [], extra = [];
+// returned, for drawItems to draw. hide: the page's white-outs, whose letters leave the file, not just the view.
+// ponytail: pictures (a scan) under a white-out stay in the file under the white box.
+export function editText(doc, page, read, edits, hide = []) {
+  const reps = [], extra = [], V = view(page);
   for (const [id, text] of Object.entries(edits)) {
     const b = read.blocks[id];
     if (!b || text === b.text) continue;
     const codes = text ? encode(b.runs[0].f, text) : [];
     b.runs.forEach((r, i) => reps.push({ s: r.op.start, e: r.op.end, to: swap(r, i === 0 && codes && text ? codes : null) }));
     if (!codes && text) extra.push({ type: 'text', text, x: b.ox, y: b.oy - b.size, size: b.size, color: b.color, family: b.family, bold: b.bold, italic: b.italic, angle: b.angle });
+  }
+  if (hide.length) for (const b of read.blocks) {
+    if (b.id in edits) continue;
+    for (const r of b.runs) { const to = unshow(r, V, hide); if (to) reps.push({ s: r.op.start, e: r.op.end, to }); }
   }
   if (!reps.length) return extra;
   reps.sort((p, q) => p.s - q.s);
