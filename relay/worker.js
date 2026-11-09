@@ -61,11 +61,14 @@ export default {
       return r ? json({ link: `${url.origin}/pc/${r.pc}` }) : fail('not found', 404);
     }
 
-    // Anyone with the app can ask to join. The very first person becomes the one who approves everyone else.
+    // Anyone with the app can ask to join. The very first person becomes the one who approves everyone else. So that
+    // strangers can't fill the list, at most 20 wait at once, and an ask nobody answered goes after a week.
     if (req.method === 'POST' && path === '/join') {
       const b = await req.json().catch(() => ({}));
       const name = clean(b.name, 40);
       if (!name) return fail('Type your name.');
+      await env.DB.prepare('DELETE FROM people WHERE approved = 0 AND made < ?').bind(now - 7 * 864e5).run();
+      if ((await env.DB.prepare('SELECT COUNT(*) AS n FROM people WHERE approved = 0').first()).n >= 20) return fail('Too many people are asking to join right now. Try again in a few days.', 429);
       const tok = rid(32), id = rid(8);
       const first = !(await env.DB.prepare('SELECT 1 FROM people LIMIT 1').first());
       await env.DB.prepare('INSERT INTO people (id, name, tok, approved, admin, devices, seen, made) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')

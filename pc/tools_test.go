@@ -379,3 +379,32 @@ func TestLoginHint(t *testing.T) {
 		t.Errorf("Instagram: %+v", p)
 	}
 }
+
+// A friend's file on a slow line keeps coming as long as it moves, and one that stalls stops.
+func TestFriendsSlowFile(t *testing.T) {
+	a, _ := testApp(t)
+	old, oldStall := relayURL, frStall
+	defer func() { relayURL, frStall = old, oldStall }()
+	frStall = 200 * time.Millisecond
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for i := 0; i < 8; i++ { // 800 ms in all, longer than frStall
+			fmt.Fprint(w, "ab")
+			w.(http.Flusher).Flush()
+			time.Sleep(100 * time.Millisecond)
+		}
+		if r.URL.Path == "/file/stuck" {
+			time.Sleep(2 * time.Second)
+		}
+	}))
+	defer srv.Close()
+	relayURL = srv.URL
+	f := &Friends{a: a, hc: &http.Client{}}
+	var b bytes.Buffer
+	if err := f.call("GET", "/file/slow", nil, &b); err != nil || b.String() != strings.Repeat("ab", 8) {
+		t.Fatalf("slow: %v %q", err, b.String())
+	}
+	at := time.Now()
+	if err := f.call("GET", "/file/stuck", nil, &bytes.Buffer{}); err == nil || time.Since(at) > 1500*time.Millisecond {
+		t.Fatalf("stuck: %v after %v", err, time.Since(at))
+	}
+}

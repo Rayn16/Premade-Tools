@@ -68,4 +68,10 @@ assert.equal((await call('POST', `/send/${empty.id}/done`, friend.token, { parts
 const inbox = (await call('GET', '/inbox', owner.token)).body;
 assert.deepEqual(inbox.map((i) => [i.name, i.size]).sort(), [['clip.bin', size], ['empty.txt', 0]]);
 assert.equal(objects.get(st.id).size, size);
+// Strangers can't fill the "Asking to join" list: 20 can wait, and an ask nobody answered goes after a week.
+for (let i = 0; i < 20; i++) assert.equal((await call('POST', '/join', null, { name: 'Stranger ' + i })).status, 200);
+assert.equal((await call('POST', '/join', null, { name: 'One more' })).status, 429, 'a 21st waiting ask was taken');
+db.exec(`UPDATE people SET made = ${Date.now() - 8 * 864e5} WHERE approved = 0`);
+assert.equal((await call('POST', '/join', null, { name: 'Next week' })).status, 200, 'old asks still fill the list');
+assert.equal((await call('GET', '/people', owner.token)).body.waiting.length, 1);
 console.log('relay ok');

@@ -56,7 +56,10 @@ function putPart(url, blob, onp) {
     x.open('PUT', url);
     x.setRequestHeader('Authorization', 'Bearer ' + TOKEN);
     x.upload.onprogress = (e) => e.lengthComputable && onp(e.loaded);
-    x.onload = () => x.status === 200 ? ok(JSON.parse(x.responseText)) : bad(new Error((JSON.parse(x.responseText || '{}').error) || "That didn't send."));
+    x.onload = () => { // an answer that isn't JSON (an error page from Cloudflare) must still end the send
+      let o; try { o = JSON.parse(x.responseText); } catch (e) {}
+      x.status === 200 && o ? ok(o) : bad(new Error(o?.error || "That didn't send."));
+    };
     x.onerror = () => bad(new Error("Can't reach Friends. Check the internet."));
     x.send(blob);
   });

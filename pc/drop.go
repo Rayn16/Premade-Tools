@@ -286,9 +286,42 @@ func (a *App) dropArrived(it *Drop) {
 	case "link":
 		say("File drop", from+" sent a link: "+it.Text, "drop")
 	default:
-		say("File drop", fmt.Sprintf("%s sent %s. It's in %s.", from, dropNote(it), it.Dir), "drop")
+		a.sayFiles(from, it)
 	}
 }
+
+// burst counts files that arrive one by one: the S23 shares many files a file at a time.
+type burst struct {
+	n     int
+	first *Drop
+}
+
+// sayFiles shows one pop-up for files from a device that arrive within a few seconds of each other.
+func (a *App) sayFiles(from string, it *Drop) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if b := a.bursts[it.From]; b != nil {
+		b.n += len(it.Files)
+		return
+	}
+	if a.bursts == nil {
+		a.bursts = map[string]*burst{}
+	}
+	b := &burst{n: len(it.Files), first: it}
+	a.bursts[it.From] = b
+	time.AfterFunc(burstWait, func() {
+		a.mu.Lock()
+		delete(a.bursts, it.From)
+		a.mu.Unlock()
+		what := dropNote(b.first)
+		if b.n > len(b.first.Files) {
+			what = fmt.Sprintf("%d files", b.n)
+		}
+		say("File drop", fmt.Sprintf("%s sent %s. It's in %s.", from, what, b.first.Dir), "drop")
+	})
+}
+
+var burstWait = 3 * time.Second
 
 // putClip puts a phone's copy onto the PC's clipboard (without the watcher sending it straight back).
 func (a *App) putClip(from, text string) {

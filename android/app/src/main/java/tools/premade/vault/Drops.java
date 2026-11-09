@@ -140,11 +140,16 @@ final class Drops {
             Uri u = in.getParcelableExtra(Intent.EXTRA_STREAM);
             if (u != null) uris.add(u);
         }
-        String text = in.getStringExtra(Intent.EXTRA_TEXT), last = "Nothing to send.";
+        String text = in.getStringExtra(Intent.EXTRA_TEXT), last = "Nothing to send.", err = null;
+        int sent = 0;
         try {
             if (uris.isEmpty() && text != null && !text.isBlank()) return post(c, "", text.getBytes(java.nio.charset.StandardCharsets.UTF_8), null);
-            for (Uri u : uris) last = post(c, displayName(c, u), null, u);
-            return uris.size() > 1 && last.startsWith("OK") ? "Sent " + uris.size() + " files to your PC." : last.replaceFirst("^(OK|ERR): ", "");
+            for (Uri u : uris) {
+                last = post(c, displayName(c, u), null, u);
+                if (last.startsWith("OK")) sent++; else if (err == null) err = last.replaceFirst("^ERR: ", "");
+            }
+            if (uris.size() < 2) return last.replaceFirst("^(OK|ERR): ", "");
+            return err == null ? "Sent " + uris.size() + " files to your PC." : sent + " of " + uris.size() + " files sent. " + err;
         } catch (Exception e) {
             return "Couldn't reach your PC. Is it on, and is this phone on home Wi-Fi?";
         }

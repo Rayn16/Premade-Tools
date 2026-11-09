@@ -39,7 +39,8 @@ type App struct {
 	drops   *Drops
 	fr      *Friends
 	ts      tailscale
-	clipSeq uint32 // Windows' clipboard counter when File drop last looked
+	clipSeq uint32            // Windows' clipboard counter when File drop last looked
+	bursts  map[string]*burst // files arriving one by one from a device, for one pop-up
 }
 
 func main() {

@@ -23,6 +23,7 @@ function dropTitle(it) {
 
 async function dropRefresh() {
   try { DROPST = await api(DROPAPI.base); } catch (e) {}
+  if (!DROPST?.local) FD.sent = ''; // "It reaches PC when your PC is back on": it is
   if (DROPST && !dropTargets().some((d) => d.id === FD.to)) FD.to = dropTargets()[0]?.id || '';
 }
 

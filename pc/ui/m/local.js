@@ -248,7 +248,10 @@ function relayPart(path, blob, onp) {
     x.open('PUT', (HOSTED ? '' : ST?.relay || '') + path);
     x.setRequestHeader('Authorization', 'Bearer ' + frKey());
     x.upload.onprogress = (e) => e.lengthComputable && onp(e.loaded);
-    x.onload = () => x.status === 200 ? ok(JSON.parse(x.responseText)) : no(new Error(JSON.parse(x.responseText || '{}').error || "That didn't send."));
+    x.onload = () => { // an answer that isn't JSON (an error page from Cloudflare) must still end the send
+      let o; try { o = JSON.parse(x.responseText); } catch (e) {}
+      x.status === 200 && o ? ok(o) : no(new Error(o?.error || "That didn't send."));
+    };
     x.onerror = () => no(new Error("Can't reach the internet right now."));
     x.send(blob);
   });

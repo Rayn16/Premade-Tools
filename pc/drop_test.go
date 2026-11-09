@@ -3,10 +3,12 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"log"
 	"mime/multipart"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -203,5 +205,27 @@ func TestDropNoteWithFiles(t *testing.T) {
 	it := a.drops.List("pc")[0]
 	if it.Kind != "files" || it.Text != "receipts for March" || dropNote(&it) != "march.pdf: receipts for March" {
 		t.Fatalf("%s %q %q", it.Kind, it.Text, dropNote(&it))
+	}
+}
+
+// Files the S23 shares one by one make one pop-up on the PC, not one each.
+func TestDropOnePopUp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pop-ups are real there")
+	}
+	a, h := testApp(t)
+	a.drops = NewDrops(func() string { return t.TempDir() })
+	old := burstWait
+	burstWait = 100 * time.Millisecond
+	defer func() { burstWait = old }()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	for _, n := range []string{"a", "b", "c"} {
+		call(h, "POST", "/api/phone/drop/ios?to=pc&name="+n, strings.NewReader("\xff\xd8\xff\xe0"))
+	}
+	time.Sleep(400 * time.Millisecond)
+	log.SetOutput(os.Stderr) // waits for any write still going
+	if out := logs.String(); strings.Count(out, "S23 sent 3 files") != 1 || strings.Contains(out, ".jpg") {
+		t.Fatalf("pop-ups: %s", out)
 	}
 }
