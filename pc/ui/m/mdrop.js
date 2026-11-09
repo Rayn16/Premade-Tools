@@ -3,7 +3,7 @@
 'use strict';
 
 const DROPAPI = {
-  base: PCURL + '/api/phone/drop',
+  get base() { return PCURL + '/api/phone/drop'; }, // PCURL can change (home, Tailscale, the relay link), so read it each time
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => {},

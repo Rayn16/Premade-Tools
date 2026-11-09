@@ -3,7 +3,7 @@
 'use strict';
 
 const TRAPI = {
-  base: PCURL + '/api/phone/tr',
+  get base() { return PCURL + '/api/phone/tr'; }, // PCURL can change (home, Tailscale, the relay link), so read it each time
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => trPoll(),
