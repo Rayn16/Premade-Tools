@@ -77,7 +77,7 @@ function pdfSettingsView(off) {
       <div class="block"><h2 class="block-title">${IOS ? 'Share sheet' : 'Documents › Premade'}</h2><p class="block-hint">${IOS ? 'Tap Save on a finished PDF and pick Save to Files, Mail or any app.' : 'Finished PDFs go into Documents › Premade by themselves. My Files shows them.'}</p></div>
     </div></section>
     <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">PDF folder</h2><p class="vaultpath-m">${esc(PDFST?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Change it on the PC in Settings.</p></div>
+      <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(PDFST?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>
       <div class="block"><h2 class="block-title">Strong compression</h2><p class="block-hint">${gs === 'ok' ? 'Ghostscript is ready, so scans and photo PDFs shrink a lot.' : gs === 'installing' ? 'Ghostscript is being installed on the PC.' : 'Ghostscript (free) isn\'t on the PC yet, so scans shrink less. Install it on the PC: Settings › PDF tools, or compress a PDF there once.'}</p></div>
     </div></section>
     <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>`;

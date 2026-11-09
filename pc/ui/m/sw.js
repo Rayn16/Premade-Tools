@@ -16,7 +16,7 @@ self.addEventListener('fetch', (e) => {
   if (r.method !== 'GET') return;
   if (u.origin === location.origin) {
     if (!u.pathname.startsWith('/m/') && !/^\/[\w-]+\.(css|svg)$/.test(u.pathname)) return; // relay calls go straight through
-    e.respondWith(fetch(r).then((res) => {
+    e.respondWith(fetch(r, { cache: 'no-cache' }).then((res) => { // always ask the relay, never the phone's web cache
       if (res.ok) { const copy = res.clone(); caches.open(NAME).then((c) => c.put(r, copy)); }
       return res;
     }).catch(() => caches.match(r, { ignoreSearch: true }).then((m) => m || caches.match('/m/index.html'))));

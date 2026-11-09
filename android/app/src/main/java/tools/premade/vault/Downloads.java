@@ -91,23 +91,20 @@ final class Downloads {
         } finally { h.disconnect(); }
     }
 
-    /** Videos to Movies/Premade, photos to Pictures/Premade, audio to Music/Premade, PDF tools' results to
-     *  Documents/Premade. A file already there is kept. */
+    /** The one folder everything Premade makes lands in on this phone: Download/Premade (Gallery still shows its pictures
+     *  and videos). A file already there is kept. */
+    static File dir() {
+        File d = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Premade");
+        d.mkdirs();
+        return d;
+    }
+
     private static void save(Context c, JSONObject j, String base) throws Exception {
         String id = j.getString("id");
         JSONArray files = j.optJSONArray("files");
         for (int n = 0; files != null && n < files.length(); n++) {
             JSONObject f = files.getJSONObject(n);
-            String dir;
-            switch (base.equals("/api/phone/pdf") ? "pdf" : f.optString("kind")) {
-                case "pdf": dir = Environment.DIRECTORY_DOCUMENTS; break;
-                case "video": dir = Environment.DIRECTORY_MOVIES; break;
-                case "photo": dir = Environment.DIRECTORY_PICTURES; break;
-                case "audio": dir = Environment.DIRECTORY_MUSIC; break;
-                default: dir = Environment.DIRECTORY_DOWNLOADS;
-            }
-            File d = new File(Environment.getExternalStoragePublicDirectory(dir), "Premade");
-            d.mkdirs();
+            File d = dir();
             String name = new File(f.getString("name")).getName();
             File out = new File(d, name);
             if (out.exists() && out.length() == f.optLong("size")) continue;
