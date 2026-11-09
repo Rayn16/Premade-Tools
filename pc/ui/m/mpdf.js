@@ -1,5 +1,5 @@
 // The PDF tools on the phone. Pick PDFs, the PC does the work, and the result comes back: the S23 app saves it
-// into Documents › Premade by itself; on the iPhone, Save opens the Share sheet (Save to Files, Mail, …).
+// into Download › Premade by itself; on the iPhone, Save opens the Share sheet (Save to Files, Mail, …).
 // The box itself is /m/pdf-core.js.
 'use strict';
 
@@ -13,7 +13,7 @@ const PDFAPI = {
   touch: true,
   after: () => pdfPoll(),
   from: (j) => dlFrom(j),
-  where: (j) => j.local ? ljWhere(j) : j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'Saved' : 'In Documents') : j.from === ST?.me && NATIVE?.savePdf ? 'Saving…' : 'On the PC',
+  where: (j) => j.local ? ljWhere(j) : j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'Saved' : 'In Download') : j.from === ST?.me && NATIVE?.savePdf ? 'Saving…' : 'On the PC',
   acts: (j) => j.local ? ljSaveBtn(j) : j.state === 'done' ? pdfSaveBtn(j) + frShareBtn('pdf', j) : '',
 };
 function pdfSaveBtn(j) {
@@ -24,7 +24,7 @@ function pdfSaveBtn(j) {
     return j.files.length === 1 ? `<a class="btn small" href="${pdfURL(j, 0, true)}">${icon('save')}Get</a>` : `<button type="button" class="btn small" data-pdfget="${j.id}">${icon('save')}Get</button>`;
 }
 
-// After each refresh: what this phone sent and is ready goes to Documents (S23) or is fetched ahead (iPhone).
+// After each refresh: what this phone sent and is ready goes to Download › Premade (S23) or is fetched ahead (iPhone).
 async function pdfPhoneRefresh() {
   await pdfRefresh();
   for (const j of pdfJobs()) {
@@ -54,7 +54,7 @@ function pdfToolsView(off) {
   return `${title}<div class="feed scroller">${off}
     ${P.err ? `<div class="notebox">${icon('alert')}<div>${esc(P.err)}</div></div>` : ''}
     <div class="dlbox cvbox">${pdfBox()}
-      <div class="route"><i class="dotlight"></i><span>${PDFST.local ? "Your PC is out of reach, so this phone does it. Tap <b>Save</b> when it's done." : IOS ? "Your PC does it. Tap <b>Save</b> when it's done." : 'Your PC does it, then it goes into Documents › Premade by itself.'}</span></div></div>
+      <div class="route"><i class="dotlight"></i><span>${PDFST.local ? "Your PC is out of reach, so this phone does it. Tap <b>Save</b> when it's done." : IOS ? "Your PC does it. Tap <b>Save</b> when it's done." : 'Your PC does it, then it goes into Download › Premade by itself.'}</span></div></div>
     ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => pdfRow(j)).join('')}</div></section>` : ''}
   </div>`;
 }
@@ -76,7 +76,7 @@ function pdfSettingsView(off) {
   return `${dlTitle('Settings', 'Where new PDFs go.')}<div class="headrule"></div>
     <div class="feed scroller">${off}
     <section class="group"><div class="sectionhead"><b>On this phone</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">${IOS ? 'Share sheet' : 'Documents › Premade'}</h2><p class="block-hint">${IOS ? 'Tap Save on a finished PDF and pick Save to Files, Mail or any app.' : 'Finished PDFs go into Documents › Premade by themselves. My Files shows them.'}</p></div>
+      <div class="block"><h2 class="block-title">${IOS ? 'Share sheet' : 'Download › Premade'}</h2><p class="block-hint">${IOS ? 'Tap Save on a finished PDF and pick Save to Files, Mail or any app.' : 'Finished PDFs go into Download › Premade by themselves. My Files shows them.'}</p></div>
     </div></section>
     <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
       <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(PDFST?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>

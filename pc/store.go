@@ -357,12 +357,13 @@ func (s *Store) Dismiss(id string) error {
 	return os.Remove(s.objPath(sha))
 }
 
-// Expired lists deleted files older than the cutoff. Hidden iPhone copies (still on the phone) never expire.
+// Expired counts the kept files older than the cutoff, which Clear deletes. Hidden iPhone copies (still on the phone)
+// never expire; a missed or dismissed one has no file to lose.
 func (s *Store) Expired(cutoff time.Time) (n int, bytes int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, it := range s.items {
-		if !it.Hidden && !it.Dismissed && it.DeletedAt.Before(cutoff) {
+		if !it.Hidden && !it.Missed && !it.Dismissed && it.DeletedAt.Before(cutoff) {
 			n++
 			bytes += it.Size
 		}

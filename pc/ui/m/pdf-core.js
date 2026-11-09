@@ -103,8 +103,8 @@ function pdfWhy() {
 
 const pdfReady = () => !!(P.op && P.files.length && !pdfWhy() && !P.loading && P.up < 0 && (P.pw || (P.op !== 'lock' && P.op !== 'unlock')));
 
-const pdfSpec = () => P.op === 'pages' ? P.pages.map((p) => p.n + (p.rot ? 'r' + p.rot : '')).join(',')
-  : P.op === 'extract' ? P.pages.filter((p) => p.sel).map((p) => p.n).join(',') : '';
+// The pages as they show, in order and turned (turns made in Pages still show in Pick pages, so they count there too).
+const pdfSpec = () => P.op === 'pages' || P.op === 'extract' ? P.pages.filter((p) => P.op === 'pages' || p.sel).map((p) => p.n + (p.rot ? 'r' + p.rot : '')).join(',') : '';
 
 function pdfPagesGrid() {
   if (P.loading && !P.pages.length) return `<div class="pdfwait">${icon('spin', 'spin')}Opening the PDF…</div>`;

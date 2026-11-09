@@ -21,6 +21,7 @@ import (
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/xdg-go/stringprep"
 )
 
 // PdfOps lists what the PDF tools do, in the order the screens show them.
@@ -95,6 +96,10 @@ func PdfCheck(names []string, op, pages, pw string) string {
 		if pw == "" {
 			return "Type the password."
 		}
+		if _, err := stringprep.SASLprep.Prepare(pw); op == "lock" && err != nil {
+			why := pwRule(err)
+			return strings.ToUpper(why[:1]) + why[1:] + "."
+		}
 	case "compress":
 	default:
 		return "Pick what to do with the PDF."
@@ -117,11 +122,25 @@ func pdfConf() *model.Configuration {
 	return conf
 }
 
+// pwRule says why a password can't be a PDF's (a PDF's password follows SASLprep, RFC 4013), or "".
+func pwRule(err error) string {
+	var pe stringprep.Error
+	switch {
+	case !errors.As(err, &pe):
+		return ""
+	case strings.HasPrefix(pe.Msg, "BiDi"):
+		return "a PDF password with Arabic letters has to start and end with one, with no English letters"
+	}
+	return fmt.Sprintf("a PDF password can't have %c in it", pe.Rune)
+}
+
 // pdfErr turns pdfcpu's error into something a person can act on.
 func pdfErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case pwRule(err) != "":
+		return errors.New(pwRule(err))
 	case errors.Is(err, pdfcpu.ErrWrongPassword):
 		return fmt.Errorf("that password didn't open it")
 	case errors.Is(err, pdfcpu.ErrNotEncrypted):

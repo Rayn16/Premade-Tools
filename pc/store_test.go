@@ -33,7 +33,9 @@ func TestStore(t *testing.T) {
 	if len(need) != 1 || need[0] != "i3" || len(st.Deleted()) != 3 {
 		t.Fatalf("sync: need=%v deleted=%d", need, len(st.Deleted()))
 	}
-	// Keep 1 year: a.jpg (400 days) goes, its shared object stays for b.jpg; hidden i2 is never cleared.
+	// Keep 1 year: a.jpg (400 days) goes, its shared object stays for b.jpg; hidden i2 is never cleared. One deleted
+	// without the bin as long ago has no file, so it isn't counted.
+	st.AddMissed(Item{Key: "m1", Name: "gone.jpg", Phone: "p", Size: 5000, DeletedAt: time.Now().Add(-400 * 24 * time.Hour)})
 	if n, _ := st.Expired(time.Now().Add(-365 * 24 * time.Hour)); n != 1 {
 		t.Fatalf("expired = %d", n)
 	}
