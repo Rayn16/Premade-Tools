@@ -26,11 +26,11 @@ const edEl = (sel) => ED.root.querySelector(sel);
 
 async function pdfEditOpen(file) {
   EDM ??= await import('/m/lib/pdf-edit.mjs');
-  const { PDFDocument } = await import('/m/lib/pdf-lib.min.mjs');
+  const { openPdf } = await import('/m/lib/pdf-local.mjs');
   const bytes = new Uint8Array(await file.arrayBuffer());
   let doc, view;
-  try { doc = await PDFDocument.load(bytes); } catch (e) {
-    P.err = /encrypt/i.test(e.message) ? 'This PDF has a password. Remove it first with Remove password, then edit it.' : "This PDF couldn't be opened. It may be damaged.";
+  try { doc = await openPdf(bytes); } catch (e) {
+    P.err = /encrypt|password/i.test(e.message) ? 'This PDF has a password. Remove it first with Remove password, then edit it.' : "This PDF couldn't be opened. It may be damaged.";
     return render();
   }
   try { view = await (await pdfLib()).getDocument({ data: bytes.slice(), isEvalSupported: false }).promise; } catch (e) { P.err = "This PDF couldn't be opened. It may be damaged."; return render(); }
@@ -434,8 +434,8 @@ async function edSave() {
   const btn = edEl('[data-ed="save"]');
   btn.innerHTML = `${icon('spin', 'spin')}Saving`;
   try {
-    const { PDFDocument } = await import('/m/lib/pdf-lib.min.mjs');
-    const doc = await PDFDocument.load(ED.bytes); // a fresh copy, so a failed save leaves nothing half done
+    const { openPdf } = await import('/m/lib/pdf-local.mjs');
+    const doc = await openPdf(ED.bytes); // a fresh copy, so a failed save leaves nothing half done
     for (let i = 0; i < ED.pages.length; i++) {
       const page = doc.getPage(i), edits = {};
       for (const [k, v] of Object.entries(ED.edits)) { const [p, id] = k.split(':'); if (+p === i) edits[id] = v; }

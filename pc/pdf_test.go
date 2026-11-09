@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
 // testPDF makes a PDF with n pages (one picture each) and returns its path.
@@ -120,6 +121,18 @@ func TestPdfWork(t *testing.T) {
 		t.Fatal("merged a locked PDF")
 	} else {
 		t.Log(fails[0])
+	}
+	// A PDF that opens without a password but carries restrictions (a bank statement) merges and locks like any other.
+	conf := model.NewAESConfiguration("", "the bank's", 256)
+	conf.Permissions = model.PermissionsNone
+	if err := api.EncryptFile(ctx, b, filepath.Join(in, "r.pdf"), conf); err != nil {
+		t.Fatal(err)
+	}
+	if m := run(&CvJob{Target: "merge", Inputs: []string{"a.pdf", "r.pdf"}}); pageCount(t, m[0]) != 5 {
+		t.Fatal("merge with a restricted PDF")
+	}
+	if m := run(&CvJob{Target: "lock", Inputs: []string{"r.pdf"}, pw: "mine"}); len(m) != 1 {
+		t.Fatal("lock a restricted PDF")
 	}
 	// A job that failed leaves no empty file behind in the folder.
 	ents, _ := os.ReadDir(out)

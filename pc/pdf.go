@@ -150,6 +150,9 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 
 	switch j.Target {
 	case "merge":
+		for i := range src {
+			src[i] = opened(ctx, src[i])
+		}
 		dst := freeName(out, base+" merged.pdf")
 		if err := api.MergeCreateFile(ctx, src, dst, false, pdfConf()); err != nil {
 			os.Remove(dst)
@@ -195,7 +198,7 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 				err = c.compress(ctx, s, dst, j.Small)
 			case "lock":
 				dst = freeName(out, baseName(s)+" locked.pdf")
-				err = withPassword(ctx, s, dst, j.pw, true)
+				err = withPassword(ctx, opened(ctx, s), dst, j.pw, true)
 			case "unlock":
 				dst = freeName(out, baseName(s)+" unlocked.pdf")
 				err = withPassword(ctx, s, dst, j.pw, false)
@@ -213,6 +216,17 @@ func (c *Converter) pdfWork(ctx context.Context, j *CvJob, in, out string, prog 
 		}
 	}
 	return
+}
+
+// opened gives a PDF that opens without a password but carries restrictions (a bank statement) as a copy without
+// them, next to it, since pdfcpu won't merge or lock one; any other PDF comes back as it is.
+func opened(ctx context.Context, src string) string {
+	conf := model.NewAESConfiguration("", "", 256)
+	conf.ValidationMode = model.ValidationRelaxed
+	if dst := src + ".open.pdf"; api.DecryptFile(ctx, src, dst, conf) == nil {
+		return dst
+	}
+	return src
 }
 
 // withPassword adds pw (to open, and to change it) or opens the file with pw and saves it without one.
