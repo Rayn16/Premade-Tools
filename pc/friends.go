@@ -250,10 +250,7 @@ func (f *Friends) receive(it frItem) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	name := filepath.Base(strings.ReplaceAll(it.Name, "\\", "/"))
-	if name == "." || name == "/" || name == "" {
-		name = "file"
-	}
+	name := cleanName(it.Name, 0)
 	out, err := os.Create(filepath.Join(tmp, name))
 	if err != nil {
 		return err

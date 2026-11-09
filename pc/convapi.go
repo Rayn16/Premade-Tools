@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -189,8 +190,14 @@ func cleanName(s string, n int) string {
 	if s == "" || s == "_" {
 		s = "file" + strconv.Itoa(n+1)
 	}
+	if b, _, _ := strings.Cut(s, "."); winDevice.MatchString(strings.TrimRight(b, " ")) {
+		s = "_" + s
+	}
 	return s
 }
+
+// winDevice matches the names Windows opens a device for instead of a file (CON, NUL, COM1, …), extension or not.
+var winDevice = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³]|conin\$|conout\$)$`)
 
 func saveBody(r io.Reader, dir, name string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {

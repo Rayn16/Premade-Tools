@@ -63,10 +63,7 @@ func (a *App) friendsRoutes(m *http.ServeMux) {
 	// Any other file: the page uploads it here, raw, with ?to=&dev=&name=, and the PC sends it on.
 	both("/upload", func(w http.ResponseWriter, r *http.Request, from string) {
 		q := r.URL.Query()
-		name := filepath.Base(strings.ReplaceAll(q.Get("name"), "\\", "/"))
-		if name == "." || name == "/" || name == "" {
-			name = "file"
-		}
+		name := cleanName(q.Get("name"), 0)
 		dir, err := os.MkdirTemp(appDir(), "fsend-")
 		if err != nil {
 			ok(w, err)
