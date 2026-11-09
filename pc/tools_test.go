@@ -207,3 +207,19 @@ func TestFriendSendEmptyFile(t *testing.T) {
 		}
 	}
 }
+
+// A song called "...Baby One More Time" is inside the folder like any other file: the app can open it,
+// share it and send it on. A name that climbs out of the folder still can't.
+func TestPathOfThreeDotsTitle(t *testing.T) {
+	out := t.TempDir()
+	d := &Downloader{dir: func() string { return out }}
+	c := &Converter{dir: func() string { return out }}
+	for name, inside := range map[string]bool{"...Baby One More Time.mp3": true, "Playlist/...And Justice for All.mp3": true, "../x.mp3": false} {
+		if _, ok := d.Path(&Job{Files: []DLFile{{Name: name}}}, 0); ok != inside {
+			t.Errorf("Downloader: %q inside = %v", name, ok)
+		}
+		if _, ok := c.Path(&CvJob{Files: []DLFile{{Name: name}}}, 0); ok != inside {
+			t.Errorf("Converter: %q inside = %v", name, ok)
+		}
+	}
+}

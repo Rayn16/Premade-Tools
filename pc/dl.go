@@ -640,10 +640,8 @@ func (d *Downloader) Path(j *Job, n int) (string, bool) {
 	if n < 0 || n >= len(j.Files) {
 		return "", false
 	}
-	dir := d.dir()
-	p := filepath.Join(dir, j.Files[n].Name)
-	if rel, err := filepath.Rel(dir, p); err != nil || strings.HasPrefix(rel, "..") {
+	if !filepath.IsLocal(j.Files[n].Name) {
 		return "", false
 	}
-	return p, true
+	return filepath.Join(d.dir(), j.Files[n].Name), true
 }

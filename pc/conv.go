@@ -289,12 +289,10 @@ func (c *Converter) Path(j *CvJob, n int) (string, bool) {
 	if n < 0 || n >= len(j.Files) {
 		return "", false
 	}
-	dir := c.dir()
-	p := filepath.Join(dir, j.Files[n].Name)
-	if rel, err := filepath.Rel(dir, p); err != nil || strings.HasPrefix(rel, "..") {
+	if !filepath.IsLocal(j.Files[n].Name) {
 		return "", false
 	}
-	return p, true
+	return filepath.Join(c.dir(), j.Files[n].Name), true
 }
 
 func (c *Converter) worker() {
