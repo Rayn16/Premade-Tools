@@ -179,13 +179,19 @@ function localPdf() {
 // ---------- Transcribe (Whisper base, in a worker so the screen stays quick) ----------
 const TR_LOCAL = { local: true, jobs: [], engine: { state: 'ok', translate: true } };
 let trWorker = null, trWaiting = {};
-function whisper(audio, task, onLoad) {
+function whisper(audio, task, lang, onLoad) {
   if (!trWorker) {
     trWorker = new Worker('/m/whisper.js', { type: 'module' });
     trWorker.onmessage = ({ data: d }) => { const w = trWaiting[d.id]; if (!w) return; if (d.load) w.onLoad(d.load); else { delete trWaiting[d.id]; d.err ? w.no(new Error(d.err)) : w.ok(d.out); } };
+    // The worker itself didn't load (its engine comes from the internet the first time): end the waiting jobs, and
+    // start a new worker next time.
+    trWorker.onerror = () => {
+      for (const w of Object.values(trWaiting)) w.no(new Error('The speech engine needs the internet the first time. Try again with a signal.'));
+      trWaiting = {}; trWorker = null;
+    };
   }
   const id = Math.random().toString(36).slice(2);
-  return new Promise((ok, no) => { trWaiting[id] = { ok, no, onLoad }; trWorker.postMessage({ id, audio, task }, [audio.buffer]); });
+  return new Promise((ok, no) => { trWaiting[id] = { ok, no, onLoad }; trWorker.postMessage({ id, audio, task, lang }, [audio.buffer]); });
 }
 // 16 kHz mono, as Whisper wants. The phone decodes most sound and video itself; anything else goes through FFmpeg.
 async function trAudio(j, f) {
@@ -201,7 +207,7 @@ async function trAudio(j, f) {
   } finally { ctx.close(); }
 }
 const srtTime = (s) => { const ms = Math.round((s || 0) * 1000), p = (n, w = 2) => String(n).padStart(w, '0'); return `${p(Math.floor(ms / 3600e3))}:${p(Math.floor(ms / 60e3) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`; };
-function localTranscribe(files, to) {
+function localTranscribe(files, to, lang) {
   ljRun('tr', { inputs: files.map((f) => f.name), target: to }, async (j) => {
     const out = [], texts = [];
     for (const f of files) {
@@ -212,7 +218,7 @@ function localTranscribe(files, to) {
       const tick = setInterval(() => ljProg(j, (Date.now() - t0) / 1000 / Math.max(10, secs * 0.6) * 100), 1000); // ponytail: a guess, Whisper doesn't report progress
       let r;
       try {
-        r = await whisper(audio, to === 'en' ? 'translate' : 'transcribe', (p) => { if (p.status === 'progress' && p.file?.endsWith('.onnx')) { j.note = `Getting the speech engine once (${Math.round(p.progress || 0)}%)…`; render(); } });
+        r = await whisper(audio, to === 'en' ? 'translate' : 'transcribe', lang, (p) => { if (p.status === 'progress' && p.file?.endsWith('.onnx')) { j.note = `Getting the speech engine once (${Math.round(p.progress || 0)}%)…`; render(); } });
       } finally { clearInterval(tick); }
       const text = (r.text || '').trim(), chunks = r.chunks || [];
       texts.push(text);
