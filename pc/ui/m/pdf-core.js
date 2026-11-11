@@ -24,12 +24,10 @@ let PDFST = null; // GET PDFAPI.base
 const P = { op: '', files: [], pages: [], thumbs: {}, loading: false, bad: '', pw: '', showPw: false, level: 'smaller', up: -1, err: '', gen: 0, drag: -1 };
 
 const pdfJobs = () => [...(typeof ljOf === 'function' ? ljOf('pdf') : []), ...(PDFST?.jobs || [])]; // ljOf: jobs done on the phone itself (local.js)
-const pdfBusy = () => pdfJobs().some((j) => j.state === 'queued' || j.state === 'running');
+const pdfBusy = () => pdfJobs().some(isLive);
 const pdfIsPdf = (f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
 const pdfOp = (id) => (PDFST?.ops || []).find((o) => o.id === id);
 const pdfTitle = (j) => j.inputs.length > 1 ? `${j.inputs[0]} and ${j.inputs.length - 1} more` : j.inputs[0];
-const pdfSize = (b) => (b >= 1 << 30 ? (b / (1 << 30)).toFixed(1) + ' GB' : b >= 1 << 20 ? (b / (1 << 20)).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
-const pdfHue = (id) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 
 async function pdfRefresh() {
   try { PDFST = await api(PDFAPI.base); } catch (e) {}
@@ -116,8 +114,8 @@ function pdfPagesGrid() {
       ${edit ? `<span class="pgacts"><button type="button" class="iconbtn" data-pdf="move" data-i="${i}" data-by="-1" ${i ? '' : 'disabled'} aria-label="Move page ${p.n} earlier">${icon('left')}</button><button type="button" class="iconbtn" data-pdf="turn" data-i="${i}" aria-label="Turn page ${p.n}">${icon('turn')}</button><button type="button" class="iconbtn" data-pdf="del" data-i="${i}" aria-label="Delete page ${p.n}">${icon('bin')}</button><button type="button" class="iconbtn" data-pdf="move" data-i="${i}" data-by="1" ${i < last ? '' : 'disabled'} aria-label="Move page ${p.n} later">${icon('right')}</button></span>` : ''}
     </div>`).join('');
   const kept = P.pages.filter((p) => p.sel).length;
-  const bar = edit ? `<span class="row-hint">${P.pages.length} ${P.pages.length === 1 ? 'page' : 'pages'}${PDFAPI.touch ? '' : ' · drag pages to reorder'}</span><span class="grow"></span><button type="button" class="btn small" data-pdf="reset">Reset</button>`
-    : `<span class="row-hint">${kept} of ${P.pages.length} picked</span><span class="grow"></span><button type="button" class="btn small" data-pdf="all">All</button><button type="button" class="btn small" data-pdf="none">None</button>`;
+  const bar = edit ? `<span class="hint">${P.pages.length} ${P.pages.length === 1 ? 'page' : 'pages'}${PDFAPI.touch ? '' : ' · drag pages to reorder'}</span><span class="grow"></span><button type="button" class="btn small" data-pdf="reset">Reset</button>`
+    : `<span class="hint">${kept} of ${P.pages.length} picked</span><span class="grow"></span><button type="button" class="btn small" data-pdf="all">All</button><button type="button" class="btn small" data-pdf="none">None</button>`;
   return `<div class="pdfbar">${bar}</div><div class="pdfpages scroller">${cells}</div>`;
 }
 
@@ -136,14 +134,14 @@ function pdfFiles() {
   }
   const total = P.files.reduce((s, f) => s + f.size, 0), last = P.files.length - 1;
   const list = P.op === 'merge'
-    ? `<div class="rows pdflist">${P.files.map((f, i) => `<div class="row"><span class="pdfnum">${i + 1}</span><span class="row-text grow"><span class="row-title clip">${esc(f.name)}</span><span class="row-hint">${pdfSize(f.size)}</span></span>
-        <button type="button" class="iconbtn" data-pdf="fmove" data-i="${i}" data-by="-1" ${i ? '' : 'disabled'} aria-label="Move up">${icon('up')}</button><button type="button" class="iconbtn" data-pdf="fmove" data-i="${i}" data-by="1" ${i < last ? '' : 'disabled'} aria-label="Move down">${icon('down')}</button><button type="button" class="iconbtn" data-pdf="drop" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x')}</button></div>`).join('')}</div>
+    ? `<div class="rows pdflist">${P.files.map((f, i) => `<div class="row"><span class="pdfnum">${i + 1}</span><span class="row-text"><span class="t">${esc(f.name)}</span><span class="m">${size(f.size)}</span></span><span class="acts">
+        <button type="button" class="iconbtn" data-pdf="fmove" data-i="${i}" data-by="-1" ${i ? '' : 'disabled'} aria-label="Move up">${icon('up')}</button><button type="button" class="iconbtn" data-pdf="fmove" data-i="${i}" data-by="1" ${i < last ? '' : 'disabled'} aria-label="Move down">${icon('down')}</button><button type="button" class="iconbtn" data-pdf="drop" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x')}</button></span></div>`).join('')}</div>
       <div class="pdfmore"><label class="btn small" for="pdffile" data-pdf="pick" data-add="1">${icon('plus')}Add more</label><span class="grow"></span><button type="button" class="btn small" data-pdf="clear">Start over</button></div>`
     : `<div class="cvpicked"><div class="cvchips">${P.files.slice(0, 6).map((f, i) => `<span class="cvchip">${icon('pdf')}<span>${esc(f.name)}</span><button type="button" class="iconbtn" data-pdf="drop" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x')}</button></span>`).join('')}${P.files.length > 6 ? `<span class="cvchip more">+${P.files.length - 6} more</span>` : ''}</div>
       <button type="button" class="btn small" data-pdf="clear">Start over</button></div>`;
   const why = pdfWhy();
-  return `${list}<div class="dlunder">${why ? `<span class="detected is-bad">${icon('alert')}<span>${esc(why)}</span></span>`
-    : `<span class="detected"><i class="dotlight"></i><span><b>${P.files.length} ${P.files.length === 1 ? 'PDF' : 'PDFs'}</b> · ${pdfSize(total)}${P.pages.length && PDF_ONE.includes(P.op) ? ` · ${P.pages.length} pages` : ''}</span></span>`}</div>`;
+  return `${list}<div class="under">${why ? `<span class="detected is-bad">${icon('alert')}<span>${esc(why)}</span></span>`
+    : `<span class="detected"><i class="dotlight"></i><span><b>${P.files.length} ${P.files.length === 1 ? 'PDF' : 'PDFs'}</b> · ${size(total)}${P.pages.length && PDF_ONE.includes(P.op) ? ` · ${P.pages.length} pages` : ''}</span></span>`}</div>`;
 }
 
 function pdfOptions() {
@@ -152,14 +150,14 @@ function pdfOptions() {
   if (op === 'compress') {
     const gs = PDFST?.gs || 'missing';
     return `<div class="cvto"><span class="group-label">How small</span><div class="seg">${[['smaller', 'Smaller'], ['smallest', 'Smallest']].map(([id, l]) => `<button type="button" data-pdf="level" data-level="${id}" aria-pressed="${P.level === id}">${l}</button>`).join('')}</div></div>
-      <p class="row-hint cvhint">${P.level === 'smallest' ? 'Pictures get softer. Good for sending.' : 'Still sharp on screens and fine to print.'}</p>
-      ${gs === 'ok' ? '' : `<p class="row-hint pdfnote">${icon('info')}<span>${gs === 'installing' ? 'Ghostscript is being installed on the PC, so scans shrink less this time.'
+      <p class="cvhint">${P.level === 'smallest' ? 'Pictures get softer. Good for sending.' : 'Still sharp on screens and fine to print.'}</p>
+      ${gs === 'ok' ? '' : `<p class="hint pdfnote">${icon('info')}<span>${gs === 'installing' ? 'Ghostscript is being installed on the PC, so scans shrink less this time.'
         : `Scans and photo PDFs shrink much more with Ghostscript (free) on the PC. ${PDFAPI.touch ? 'Install it on the PC in Settings.' : 'It installs the first time you compress.'}`}</span></p>`}`;
   }
   if (op === 'lock' || op === 'unlock') {
-    return `<div class="pdfpw"><label class="dlinput">${icon('lock')}<span class="sr">Password</span><input id="pdfpw" type="${P.showPw ? 'text' : 'password'}" value="${esc(P.pw)}" placeholder="${op === 'lock' ? 'New password' : 'The PDF\'s password'}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    return `<div class="pdfpw"><label class="linkfield">${icon('lock')}<input id="pdfpw" aria-label="Password" type="${P.showPw ? 'text' : 'password'}" value="${esc(P.pw)}" placeholder="${op === 'lock' ? 'New password' : 'The PDF\'s password'}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
       <button type="button" class="btn" data-pdf="showpw">${P.showPw ? 'Hide' : 'Show'}</button></div>
-      ${op === 'lock' ? '<p class="row-hint cvhint">Write it down: nobody can open the PDF without it, and the PC doesn\'t keep it.</p>' : ''}`;
+      ${op === 'lock' ? '<p class="cvhint">Write it down: nobody can open the PDF without it, and the PC doesn\'t keep it.</p>' : ''}`;
   }
   return '';
 }
@@ -168,25 +166,22 @@ function pdfBox() {
   const ops = (PDFST?.ops || []).map((o) => `<button type="button" class="pdfop" data-pdf="op" data-op="${o.id}" aria-pressed="${P.op === o.id}">${icon(PDF_ICON[o.id])}<b>${esc(o.label)}</b><span>${esc(o.note)}</span></button>`).join('');
   const ready = pdfReady();
   const note = PDFAPI.touch && pdfOp(P.op)?.note;
-  return `<div class="pdfops">${ops}</div>${note ? `<p class="row-hint pdfopnote">${esc(note)}</p>` : ''}
+  return `<div class="pdfops">${ops}</div>${note ? `<p class="hint pdfopnote">${esc(note)}</p>` : ''}
     ${pdfFiles()}${P.files.length ? pdfOptions() : ''}
-    ${P.files.length ? `<div class="cvopts"><span class="grow"></span><button type="button" class="btn primary" data-pdf="go" ${ready ? '' : 'disabled'}>${P.up >= 0 ? `${icon('spin', 'spin')}Sending ${P.up}%` : `${icon(PDF_ICON[P.op] || 'pdf')}${P.op === 'edit' && P.files[0] === P.edited ? 'Send again' : PDF_GO[P.op] || 'Go'}`}</button></div>` : ''}`;
+    ${P.files.length ? `<div class="cvopts"><span class="grow"></span><button type="button" class="btn primary" data-pdf="go" ${ready ? '' : 'disabled'}>${P.up >= 0 ? `${icon('spin', 'spin')}Sending ${P.up}%` : `${P.op === 'edit' && P.files[0] === P.edited ? 'Send again' : PDF_GO[P.op] || 'Go'}`}</button></div>` : ''}`;
 }
 
-// One job in a list; the frame adds where it went and its buttons.
-function pdfRow(j, full) {
-  const live = j.state === 'queued' || j.state === 'running';
-  const n = (j.files || []).length, where = PDFAPI.where(j);
-  const sizes = j.size && j.inSize ? `${pdfSize(j.inSize)} → ${pdfSize(j.size)}` : '';
-  return `<div class="row" data-lj="${j.id}"><span class="thumb" style="--h:${pdfHue(j.id)}">${icon(PDF_ICON[j.target] || 'pdf')}</span>
-    <div class="row-text grow"><span class="row-title clip">${esc(pdfTitle(j))}</span>
-      <div class="hmeta"><span class="sitetag">${esc(pdfOp(j.target)?.label || j.target)}</span>${live ? `<span class="jobstate">${j.state === 'queued' ? 'Waiting its turn' : 'Working on it…'}</span>` : ''}
-        ${full && n > 1 ? `<span>${n} files</span>` : ''}${full && sizes && j.target === 'compress' ? `<span>${sizes}</span>` : ''}<span>${hm(new Date(j.at))}${full ? ' · from ' + esc(PDFAPI.from(j)) : ''}</span>
-        ${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
-      ${live ? `<div class="prog"><i style="width:${Math.max(4, j.pct)}%"></i></div>` : ''}
-      ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${live && !j.local ? `<button type="button" class="btn small" data-pdf="cancel" data-id="${j.id}">Cancel</button>` : PDFAPI.acts(j)}</div></div>`;
+// A job as a row (rowOf in common.js); the device adds where it went (PDFAPI.where) and its buttons (PDFAPI.acts).
+function pdfFields(j) {
+  const live = isLive(j), fs = j.files || [];
+  const meta = j.state === 'failed' ? j.note || "That didn't work."
+    : (pdfOp(j.target)?.label || j.target) + (live ? ', ' + (j.state === 'queued' ? 'waiting its turn' : 'working on it')
+      : (fs.length > 1 ? `, ${fs.length} files` : '') + (j.size && j.inSize && j.target === 'compress' ? `, ${size(j.inSize)} to ${size(j.size)}` : '') + (j.note ? '. ' + j.note : ''));
+  return { id: j.id, th: thumb(j.state === 'failed' ? 'alert' : PDF_ICON[j.target] || 'pdf', ''), title: esc(pdfTitle(j)), meta: esc(meta), bad: j.state === 'failed',
+    where: PDFAPI.where(j), when: stamp(new Date(j.at)), pct: live ? (j.state === 'queued' ? 0 : j.pct) : -1 };
 }
+const pdfRow = (j) => rowOf({ ...pdfFields(j), acts: !isLive(j) || j.local ? PDFAPI.acts(j) // a phone cancels only its own
+  : !PDFAPI.touch || j.from === ST?.me ? `<button type="button" class="btn text" data-pdf="cancel" data-id="${j.id}">Cancel</button>` : '' });
 
 function pdfAdd(list, replace) {
   P.files = (replace ? [] : P.files).concat([...list]);

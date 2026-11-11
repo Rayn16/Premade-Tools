@@ -7,34 +7,19 @@ const TRAPI = {
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => trPoll(),
-  from: (j) => dlFrom(j),
   url: (j, n, dl) => j.local ? ljURL(j, n) : `${PCURL}/api/phone/tr/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`,
-  where: (j) => j.local ? ljWhere(j) : '',
-  acts: (j) => j.local ? ljSaveBtn(j) : frShareBtn('tr', j),
+  where: (j) => j.local ? ljWhere(j) : '', // the text is right there, under Text
+  acts: (j) => j.local ? ljSaveBtn(j) : more('tr' + j.id, [frShareBtn('tr', j), j.from === ST?.me && `<button type="button" role="menuitem" data-trremove="${j.id}">${icon('x')}Remove from the list</button>`]),
 };
 
-function trToolsView(off) {
+function trToolsView() {
   if (OFFLINE || !TRST) TRST = TR_LOCAL; // the PC is out of reach: this phone listens
-  const title = dlTitle('Transcribe', TRST.local ? 'Voice memos and videos become text, on this phone.' : 'Voice memos and videos become text. Your PC listens; nothing goes online.');
-  const mine = trJobs().filter((j) => j.from === ST?.me).slice(0, 5);
-  return `${title}<div class="feed scroller">${off}
-    ${T.err ? `<div class="notebox">${icon('alert')}<div>${esc(T.err)}</div></div>` : ''}
-    <div class="dlbox cvbox">${trBox()}
-      <div class="route"><i class="dotlight"></i><span>${TRST.local ? 'Your PC is out of reach, so this phone listens. It\'s slower than the PC, and the first time it gets the speech engine (about 80 MB).' : IOS && !trCanRecord() ? `To talk now, run the <b>${SHORTCUT_TR}</b> Shortcut (Settings tab shows how). Voice Memos can share straight to it.` : IOS ? 'Record here, or pick a voice memo you saved to Files.' : 'Voice Recorder files are in Recordings, in My Files.'}</span></div></div>
-    ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => trRow(j)).join('')}</div></section>` : ''}
-  </div>`;
-}
-
-function trHistoryView(off) {
-  const days = [];
-  for (const j of trJobs()) {
-    const day = dayOf(new Date(j.at));
-    if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
-    days.at(-1).rows.push(trRow(j, true));
-  }
-  return `${dlTitle('History', 'What this phone transcribed, newest first.')}
-    <div class="feed scroller">${off}${days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
-      : `<div class="empty">${icon('transcribe')}<h2>Nothing transcribed yet</h2><p>Pick a voice memo in Transcribe, or tap Transcribe on a download.</p></div>`}</div>`;
+  const jobs = [...trJobs()].sort(newest);
+  return `${note(esc(T.err))}<div class="dlbox cvbox">${trBox()}</div>
+    <p class="tip">${TRST.local ? "Your PC is out of reach, so this phone listens. It's slower than the PC, and the first time it gets the speech engine (about 80 MB)."
+      : IOS && !trCanRecord() ? `To talk now, run the ${SHORTCUT_TR} Shortcut. Voice Memos can share straight to it. <button type="button" class="link" data-go="trsettings">Set it up</button>`
+      : IOS ? 'Record here, or pick a voice memo you saved to Files.' : 'Voice Recorder files are in Recordings, in My Files.'}</p>
+    ${jobs.length ? byDay(jobs, (j) => j.at, trRow) : ''}`;
 }
 
 const SHORTCUT_TR = 'Transcribe with Premade';
@@ -42,31 +27,27 @@ const SHORTCUT_TR = 'Transcribe with Premade';
 // iPhone: Home Screen apps reach the PC over http, where Safari keeps the mic off, so a Shortcut records instead.
 function trShortcutGuide() {
   const base = PCLINK, t = encodeURIComponent(TOKEN);
-  const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
-  return `<section class="group"><div class="sectionhead"><b>Record and transcribe</b><i></i></div>
+  return `<section class="sec"><h2>Record and transcribe</h2><p class="tip">Safari keeps the microphone off for Premade, so a Shortcut records instead. Make it once.</p>
     <details class="iosguide"><summary>Set up "${SHORTCUT_TR}"</summary><ol>
       <li>Open <b>Shortcuts</b>, tap <b>+</b> and name it <b>${SHORTCUT_TR}</b>. Tap <b>ⓘ</b> and turn on <b>Show in Share Sheet</b>; under <b>Receive</b>, pick <b>Media</b> and <b>Files</b>. Then it also takes voice memos from Voice Memos › Share.</li>
       <li><b>If</b> <b>Shortcut Input</b> <b>has any value</b>: <b>Set Variable</b> <b>Sound</b> to <b>Shortcut Input</b>. <b>Otherwise</b>: <b>Record Audio</b> (tap the arrow: Start Recording <b>Immediately</b>, Finish Recording <b>On Tap</b>) and <b>Set Variable</b> <b>Sound</b> to <b>Recorded Audio</b>. <b>End If</b>.</li>
-      <li><b>Get Contents of URL</b> with the address below. Method <b>POST</b>, Request Body <b>File</b>, pick <b>Sound</b>. <b>Set Variable</b> <b>Job</b> to it. <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> and <b>Stop This Shortcut</b>. For English text from any language, change <b>to=text</b> to <b>to=en</b>.${field('Start', `${base}/api/phone/tr/ios/start?t=${t}&name=Recording.m4a&to=text`)}</li>
+      <li><b>Get Contents of URL</b> with the address below. Method <b>POST</b>, Request Body <b>File</b>, pick <b>Sound</b>. <b>Set Variable</b> <b>Job</b> to it. <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> and <b>Stop This Shortcut</b>. For English text from any language, change <b>to=text</b> to <b>to=en</b>.${copyField('Start', `${base}/api/phone/tr/ios/start?t=${t}&name=Recording.m4a&to=text`)}</li>
       <li>Add a <b>Text</b> “no” and <b>Set Variable</b> <b>Done</b> to it. Then <b>Repeat</b> <b>300</b> times, and inside it <b>If</b> <b>Done</b> <b>is</b> “no”:</li>
-      <li>…<b>Get Contents of URL</b> of the address below, with <b>Job</b> put where it says JOB. <b>If</b> it <b>begins with</b> <b>WAIT</b>: <b>Wait</b> 2 seconds. <b>Otherwise</b>, <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with it. <b>Otherwise</b>: <b>Copy to Clipboard</b> and <b>Show Result</b>. In both of these, <b>Set Variable</b> <b>Done</b> to a Text “yes”.${field('Get', `${base}/api/phone/tr/ios/get/JOB?t=${t}`)}</li>
+      <li>…<b>Get Contents of URL</b> of the address below, with <b>Job</b> put where it says JOB. <b>If</b> it <b>begins with</b> <b>WAIT</b>: <b>Wait</b> 2 seconds. <b>Otherwise</b>, <b>If</b> it <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with it. <b>Otherwise</b>: <b>Copy to Clipboard</b> and <b>Show Result</b>. In both of these, <b>Set Variable</b> <b>Done</b> to a Text “yes”.${copyField('Get', `${base}/api/phone/tr/ios/get/JOB?t=${t}`)}</li>
       <li>After the Repeat: <b>If</b> <b>Done</b> <b>is</b> “no”: <b>Show Notification</b> “Still transcribing on the PC. The text will be in Premade Tools › History.”</li>
       <li>Put it where your thumb is: <b>Share</b> › <b>Add to Home Screen</b>, or Settings › <b>Action Button</b> › Shortcut. Allow the microphone and devices on your network when asked. The text also lands in History here and on the PC.</li>
     </ol></details></section>`;
 }
 
-function trSettingsView(off) {
-  const e = TRST?.engine || {};
-  return `${dlTitle('Settings', 'Where text goes, and the speech engine.')}<div class="headrule"></div>
-    <div class="feed scroller">${off}${IOS ? trShortcutGuide() : ''}
-    <section class="group"><div class="sectionhead"><b>On this phone</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Text and subtitles</h2><p class="block-hint">Open a finished file and tap Copy text. Subtitles (.srt) ${IOS ? 'open in Safari; tap Share › Save to Files' : 'save into Downloads'}.</p></div>
-    </div></section>
-    <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(TRST?.dir || '')}</p><p class="block-hint">A .txt and an .srt of everything stay here. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>
-      <div class="block"><h2 class="block-title">Speech engine</h2><p class="block-hint">${e.state === 'ok' ? `Whisper is ready${e.gpu ? ' on the graphics card' : ''}.` : e.state === 'installing' ? `The PC is getting it (${e.pct}%).` : 'The PC gets Whisper (free, about 2.3 GB) the first time something is transcribed.'}${e.translate ? ' Translating to English is ready too.' : ''}</p></div>
-    </div></section>
-    <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>`;
+function trSettingsView() {
+  const e = TRST?.local ? {} : TRST?.engine || {};
+  return `${IOS ? trShortcutGuide() : ''}
+    <section class="sec"><h2>On ${ME}</h2>
+      <div class="srow"><span class="grow">Text and subtitles<span class="h">Tap Text on a finished file, then Copy text. Subtitles (.srt) ${IOS ? 'open in Safari; tap Share › Save to Files' : 'save into Downloads'}.</span></span></div></section>
+    <section class="sec"><h2>On your PC</h2>
+      <div class="srow"><span class="grow">Save folder<span class="h mono">${esc(TRST?.local ? '' : TRST?.dir || '')}</span><span class="h">A .txt and an .srt of everything stay here. Every tool saves into this one folder. Change it on the PC in Settings.</span></span></div>
+      <div class="srow"><span class="grow">Speech engine<span class="h">${e.state === 'ok' ? `Whisper is ready${e.gpu ? ' on the graphics card' : ''}.${e.translate ? ' Translating to English is ready too.' : ''}` : e.state === 'installing' ? `Your PC is getting it (${e.pct}%).` : 'Your PC gets Whisper (free, about 2.3 GB) the first time something is transcribed.'}</span></span>${e.state === 'ok' ? '<span class="ok">Ready</span>' : ''}</div>
+    </section>`;
 }
 
 let trTimer = null;
@@ -76,8 +57,12 @@ function trPoll() {
 }
 
 $app.addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-trdl]');
+  const b = e.target.closest('[data-trdl],[data-trremove]');
   if (!b) return;
-  try { await trFromDL(b.dataset.trdl); S.tool = 'transcribe'; S.tab = 'transcribe'; render(); } catch (err) { T.err = err.message; S.tool = 'transcribe'; S.tab = 'transcribe'; render(); }
+  try {
+    if (b.dataset.trremove) { await api(`${TRAPI.base}/remove/${b.dataset.trremove}`, {}); await trRefresh(); render(); return; }
+    await trFromDL(b.dataset.trdl);
+  } catch (err) { T.err = err.message; }
+  go('transcribe'); render(); // render: already on Transcribe, the error still shows
 });
 trRefresh().then(() => { if (ST) render(); }); // m.js's first refresh ran before this file loaded

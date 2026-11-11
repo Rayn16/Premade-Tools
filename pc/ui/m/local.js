@@ -37,8 +37,8 @@ async function ljSave(id) {
     if (e?.name !== 'AbortError' && j.blobs.length === 1) { const a = Object.assign(document.createElement('a'), { href: ljURL(j, 0), download: j.blobs[0].name }); a.click(); }
   }
 }
-const ljSaveBtn = (j) => j.state === 'done' ? `<button type="button" class="btn small ${j.saved ? '' : 'primary'}" data-ljsave="${j.id}">${icon(NATIVE ? 'save' : 'share')}Save</button>` : '';
-const ljWhere = (j) => j.state !== 'done' ? '' : j.saved ? 'Saved' : 'On this phone';
+const ljSaveBtn = (j) => j.state === 'done' ? `<button type="button" class="btn text" data-ljsave="${j.id}">${j.saved ? 'Save again' : 'Save'}</button>` : '';
+const ljWhere = (j) => j.state !== 'done' ? '' : j.saved ? icon('check') + 'Saved' : icon('phones') + 'Only on ' + ME + ' until you save it';
 document.getElementById('app').addEventListener('click', (e) => { const b = e.target.closest('[data-ljsave]'); if (b) ljSave(b.dataset.ljsave); });
 
 // ---------- pictures ----------

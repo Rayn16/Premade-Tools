@@ -7,56 +7,30 @@ const TRAPI = {
   hdr: { 'X-Vault': '1' },
   touch: false,
   after: () => soon(),
-  from: (j) => fromName(j),
   url: (j, n, dl) => `/api/ui/tr/file/${j.id}/${n}${dl ? '?dl=1' : ''}`,
-  where: (j) => j.state !== 'done' || !j.from ? '' : `On ${esc(fromName(j))} too`,
-  acts: (j) => `${j.state === 'done' ? `<button class="btn small" data-trpc="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}${frShareBtn('tr', j)}
-    <button class="iconbtn" data-trpc="remove" data-id="${j.id}" aria-label="Remove from history" title="Remove from history">${icon('x')}</button>`,
+  where: (j) => j.state !== 'done' ? '' : j.from ? icon('phones') + `On ${esc(phoneName(j.from))} too` : icon('pc') + 'On this PC',
+  acts: (j) => `${j.state === 'done' ? `<button type="button" class="btn text" data-trpc="show" data-id="${j.id}">Show</button>` : ''}${more('tr' + j.id, [frShareBtn('tr', j),
+    `<button type="button" role="menuitem" data-trpc="remove" data-id="${j.id}">${icon('x')}Remove from the list</button>`])}`,
 };
 
-function trHist(jobs, empty) {
-  const days = [];
-  for (const j of jobs) {
-    const day = dayOf(new Date(j.at));
-    if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
-    days.at(-1).rows.push(trRow(j, true));
-  }
-  return days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
-    : `<div class="empty">${icon('transcribe')}<h2>Nothing transcribed yet</h2><p>${empty}</p></div>`;
-}
-
 function trView() {
-  const jobs = trJobs(), live = jobs.filter((j) => j.state === 'queued' || j.state === 'running');
-  return `<main class="plain">
-    <div class="pagehead"><div><h1 class="pagetitle">Transcribe</h1><p class="pagelede">Voice memos and videos become text and subtitles. Whisper runs on this PC's graphics card; nothing is uploaded anywhere.</p></div></div>
-    <div class="dlwrap scroller"><div class="dlinner">
-      ${T.err ? `<div class="notebox">${icon('alert')}<div>${esc(T.err)}</div></div>` : ''}
-      <div class="dlbox cvbox">${trBox()}</div>
-      ${live.length ? `<section class="sec"><h2 class="group-label">Working now</h2><div class="rows hrows">${live.map((j) => trRow(j)).join('')}</div></section>` : ''}
-      <section class="sec"><h2 class="group-label">History</h2>${trHist(jobs.filter((j) => j.state === 'done' || j.state === 'failed'), 'Drop in a voice memo or video. Downloads have a Transcribe button too, and what your phones send shows up here.')}</section>
-    </div></div>
-  </main>`;
+  const jobs = trJobs().sort(newest);
+  return `<section class="main">${head('Transcribe')}<div class="body scroller"><div class="col">
+    ${T.err ? `<div class="notebox">${icon('alert')}<div>${esc(T.err)}</div></div>` : ''}
+    <div class="dlbox cvbox">${trBox()}</div>
+    ${jobs.length ? byDay(jobs, (j) => j.at, trRow) : `<div class="empty">${icon('transcribe')}<h2>Nothing transcribed yet</h2><p>Drop in a voice memo or video. Whisper runs on this PC, and downloads have a Transcribe button too.</p></div>`}
+  </div></div></section>`;
 }
 
 function trSettings() {
   if (!TRST) return '';
-  const e = TRST.engine, st = e.state;
-  return `<div class="cols" style="margin-top:18px">
-    <div class="col">
-      <section><h2 class="group-label">Transcribe · where text goes</h2><div class="rows">
-        <div class="row"><div class="row-text"><span class="row-title">Save folder, the same for every tool</span><span class="row-hint mono">${esc(TRST.dir)}</span></div><button class="btn small" data-trpc="folder">Change…</button></div>
-        <div class="row"><div class="row-text"><span class="row-title">Each file gives</span><span class="row-hint">A .txt with the words and an .srt with subtitles, with the same name as the file.</span></div></div>
-      </div></section>
-    </div>
-    <div class="col">
-      <section><h2 class="group-label">Transcribe · engine</h2><div class="rows">
-        <div class="row"><div class="row-text"><span class="row-title">Whisper (large-v3-turbo)</span><span class="row-hint">whisper.cpp, free · ${e.gpu ? 'on the NVIDIA graphics card' : 'no NVIDIA card found, so it runs slowly on the processor'} · about ${e.gpu ? '2.3' : '1.7'} GB${st.startsWith('error') ? ' · ' + esc(st.slice(7)) : ''}</span></div>
-          ${st === 'ok' ? '<span class="sbadge is-good"><i></i>Ready</span>' : st === 'installing' ? `<span class="sbadge"><i></i>Getting it… ${e.pct}%</span>` : '<button class="btn small" data-trpc="engine">Get it now</button>'}</div>
-        <div class="row"><div class="row-text"><span class="row-title">Translate to English</span><span class="row-hint">A second model (Whisper medium, about 1.5 GB), fetched the first time you translate</span></div>
-          ${e.translate ? '<span class="sbadge is-good"><i></i>Ready</span>' : st === 'installing' ? '' : `<button class="btn small" data-trpc="engine" data-to="en" ${st === 'ok' ? '' : 'disabled'}>Get it now</button>`}</div>
-      </div></section>
-    </div>
-  </div>`;
+  const e = TRST.engine, st = e.state, ok = '<span class="ok">Ready</span>';
+  return `<section class="sec"><h2>Transcribe</h2>
+    <div class="srow"><span class="grow">Speech engine<span class="h">Whisper large-v3-turbo, free, about ${e.gpu ? '2.3 GB, on the NVIDIA graphics card' : "1.7 GB. This PC has no NVIDIA card, so it's slow"}. Each file gives a .txt with the words and an .srt with subtitles.${st === 'installing' ? ` Getting it, ${e.pct}%.` : st.startsWith('error') ? ' Last try: ' + esc(st.slice(7)) + '.' : ''}</span></span>
+      ${st === 'ok' ? ok : st === 'installing' ? '' : '<button type="button" class="btn" data-trpc="engine">Get it now</button>'}</div>
+    <div class="srow"><span class="grow">Translate to English<span class="h">A second model, Whisper medium, about 1.5 GB. It's fetched the first time you translate.</span></span>
+      ${e.translate ? ok : st === 'installing' ? '' : `<button type="button" class="btn" data-trpc="engine" data-to="en" ${st === 'ok' ? '' : 'disabled'}>Get it now</button>`}</div>
+  </section>`;
 }
 
 $app.addEventListener('click', async (e) => {
@@ -67,7 +41,6 @@ $app.addEventListener('click', async (e) => {
     if (b.dataset.trdl) { await trFromDL(b.dataset.trdl); S.page = 'transcribe'; }
     else if (a === 'remove') await api('/api/ui/tr/remove/' + id, {});
     else if (a === 'show') return void await api('/api/ui/tr/show/' + id, {});
-    else if (a === 'folder') await api('/api/ui/tr/folder', {});
     else if (a === 'engine') { await api('/api/ui/tr/engine' + (b.dataset.to ? '?to=en' : ''), {}); soon(); }
     await trRefresh(); render();
   } catch (err) { T.err = err.message; S.page = 'transcribe'; render(); }

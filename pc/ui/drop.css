@@ -1,13 +1,11 @@
-/* File drop, PC window and phone (with cv.css and dl.css for the box, chips and rows). */
-.droprow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-.droptargets{display:flex;flex-wrap:wrap;gap:6px;margin:0}
-.droptargets svg.i{font-size:12px;color:var(--gold)}
-.droptext{display:block;width:100%;box-sizing:border-box;margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);
-  font:inherit;font-size:14px;line-height:1.5;resize:vertical;min-height:44px;unicode-bidi:plaintext}
-.droptext:focus{outline:none;border-color:var(--gold-line)}
-.dropclip{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
-.dropclip .row-hint{display:flex;align-items:center;gap:8px}
-.dropclip-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.dropclip-text{margin-top:8px;max-height:120px;overflow:auto;font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;unicode-bidi:plaintext}
-.droprow-item .row-title{max-width:100%}
+/* File drop, PC window and phone (with cv.css for the box and pt.css for rows). */
+.droprow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.droprow .hint{color:var(--fg2)}
+.droptargets{display:flex;flex-wrap:wrap;gap:6px}
+.droptext{display:block;width:100%;margin-top:12px;padding:10px 12px;border:1px solid var(--line2);border-radius:10px;background:var(--field);color:var(--fg);
+  font:inherit;font-size:14px;line-height:20px;resize:vertical;min-height:44px;unicode-bidi:plaintext}
+.droptext:focus{outline:2px solid var(--ring);outline-offset:-1px;border-color:transparent}
+.dropclip{margin:24px 0 0;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.dropclip-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.dropclip-text{margin-top:8px;max-height:120px;overflow:auto;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;unicode-bidi:plaintext}
 .m .droptext{font-size:16px} /* 16px stops iPhone Safari zooming in */
