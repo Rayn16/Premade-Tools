@@ -1,31 +1,13 @@
-/* Friends, PC window and phone (with dl.css and cv.css for the box, rows and notes). */
-.field{height:38px;padding:0 12px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--fg);font:inherit;font-size:14px;min-width:0}
-.field:focus{outline:none;border-color:var(--gold-line)}
-.field.small{height:32px;width:160px;font-size:13px}
+/* Friends, PC window and phone (with pt.css for rows and notes). */
 .frjoin{display:flex;gap:8px;margin:12px 0}
 .frjoin .field{flex:1 1 0}
-.frface{font:700 15px var(--display);color:var(--gold-hi)}
-.frdot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted2);margin-right:2px;flex:none}
-.frdot.is-on{background:var(--good,#3fb27f);box-shadow:0 0 6px var(--good,#3fb27f)}
-.frperson .hmeta{flex-wrap:wrap}
-.notebox.is-good{border-left-color:var(--good,#3fb27f)}
-.notebox.is-good svg.i{color:var(--good,#3fb27f)}
+.frdot{display:inline-block;width:6px;height:6px;margin-right:6px;vertical-align:1px;border-radius:50%;background:var(--fg3)}
+.frdot.is-on{background:var(--good)}
 .frsheet{display:block}
-.frsheet .sheet-text{margin:0 0 10px}
-.frpick{display:grid;gap:6px;margin-bottom:12px}
-.frpickrow{width:100%;text-align:left;cursor:pointer;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:inherit;font:inherit}
-.frpickrow:hover,.frpickrow:focus-visible{border-color:var(--gold-line)}
-.frpickrow .row-hint{display:flex;align-items:center;gap:6px}
-.frchev{transform:rotate(-90deg);color:var(--muted)}
+.frsheet .sheet-text{margin:0 0 12px}
+.rows.frpick{margin:0 0 12px}
+.rows .row.frrow{grid-template-columns:44px minmax(0,1fr) auto}
+.frrow .th{width:44px;height:44px;border-radius:50%;font-size:18px;font-weight:500;color:var(--fg)}
 .m .field{font-size:16px;height:44px} /* 16px stops iPhone Safari zooming in */
-.m .field.small{width:130px;height:38px}
+.m .field.small{width:130px;height:40px}
 .m .frjoin .btn{height:44px}
-/* Home's Friends button, apart from the tool cards */
-.frhome{position:relative;flex:none;display:flex;align-items:center;gap:10px;padding:8px 14px 8px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--fg);font:inherit;cursor:pointer;text-align:left;box-shadow:var(--hi)}
-.frhome:hover,.frhome:focus-visible{border-color:var(--gold-line)}
-.frhome>svg.i{font-size:20px;color:var(--gold);padding:6px;border:1px solid var(--gold-line);border-radius:6px;box-sizing:content-box}
-.frhome-text{display:grid;line-height:1.25}
-.frhome-text b{font:700 14px var(--display);color:var(--gold-hi)}
-.frhome-text span{font:500 11.5px var(--mono);color:var(--muted)}
-.frhome-dot{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:var(--accent);color:var(--accent-fg);font:600 11px/18px var(--body);font-style:normal;text-align:center}
-.m .titlerow .frhome{align-self:center;padding:6px 10px 6px 8px}

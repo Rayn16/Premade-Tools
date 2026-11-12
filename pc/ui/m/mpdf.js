@@ -12,16 +12,16 @@ const PDFAPI = {
   hdr: { Authorization: 'Bearer ' + TOKEN },
   touch: true,
   after: () => pdfPoll(),
-  from: (j) => dlFrom(j),
-  where: (j) => j.local ? ljWhere(j) : j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'Saved' : 'In Download') : j.from === ST?.me && NATIVE?.savePdf ? 'Saving…' : 'On the PC',
-  acts: (j) => j.local ? ljSaveBtn(j) : j.state === 'done' ? pdfSaveBtn(j) + frShareBtn('pdf', j) : '',
+  where: (j) => whereOf(j, IOS ? 'Saved' : 'In Download › Premade'),
+  acts: (j) => j.local ? ljSaveBtn(j) : (j.state === 'done' ? pdfSaveBtn(j) : '') + more('pdf' + j.id, [frShareBtn('pdf', j),
+    j.from === ST?.me && `<button type="button" role="menuitem" data-pdfremove="${j.id}">${icon('x')}Remove from the list</button>`]),
 };
 function pdfSaveBtn(j) {
-    if (NATIVE?.savePdf) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn small" data-pdfsave="${j.id}">${icon('save')}Save</button>`;
-    const files = pdfBlobs[j.id];
-    if (Array.isArray(files) && navigator.canShare?.({ files })) return `<button type="button" class="btn small primary" data-pdfshare="${j.id}">${icon('share')}Save</button>`;
-    if (files === 'loading') return `<span class="btn small" aria-disabled="true">${icon('spin', 'spin')}Getting it</span>`;
-    return j.files.length === 1 ? `<a class="btn small" href="${pdfURL(j, 0, true)}">${icon('save')}Get</a>` : `<button type="button" class="btn small" data-pdfget="${j.id}">${icon('save')}Get</button>`;
+  if (NATIVE?.savePdf) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn text" data-pdfsave="${j.id}">Save</button>`;
+  const files = pdfBlobs[j.id];
+  if (Array.isArray(files) && navigator.canShare?.({ files })) return `<button type="button" class="btn text" data-pdfshare="${j.id}">Save</button>`;
+  if (files === 'loading') return `<span class="btn text" aria-disabled="true">${icon('spin', 'spin')}Getting it</span>`;
+  return j.files.length === 1 ? `<a class="btn text" href="${pdfURL(j, 0, true)}">Save</a>` : `<button type="button" class="btn text" data-pdfget="${j.id}">Get</button>`;
 }
 
 // After each refresh: what this phone sent and is ready goes to Download › Premade (S23) or is fetched ahead (iPhone).
@@ -47,42 +47,22 @@ async function pdfFetch(j) {
   render();
 }
 
-function pdfToolsView(off) {
+function pdfToolsView() {
   if (OFFLINE || !PDFST) PDFST = PDF_LOCAL; // the PC is out of reach: this phone does it
-  const title = dlTitle('PDF tools', PDFST.local ? 'Pick what to do, then the PDFs.' : 'Pick what to do, then the PDFs. Your PC does the work.');
-  const mine = pdfJobs().filter((j) => j.from === ST?.me).slice(0, 5);
-  return `${title}<div class="feed scroller">${off}
-    ${P.err ? `<div class="notebox">${icon('alert')}<div>${esc(P.err)}</div></div>` : ''}
-    <div class="dlbox cvbox">${pdfBox()}
-      <div class="route"><i class="dotlight"></i><span>${PDFST.local ? "Your PC is out of reach, so this phone does it. Tap <b>Save</b> when it's done." : IOS ? "Your PC does it. Tap <b>Save</b> when it's done." : 'Your PC does it, then it goes into Download › Premade by itself.'}</span></div></div>
-    ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => pdfRow(j)).join('')}</div></section>` : ''}
-  </div>`;
+  const jobs = [...pdfJobs()].sort(newest);
+  return `${note(esc(P.err))}<div class="dlbox cvbox">${pdfBox()}</div>
+    <p class="tip">${PDFST.local ? "Your PC is out of reach, so this phone does it. Tap it when it's done to save it." : IOS ? "Your PC does it. Tap it when it's done to save it." : 'Your PC does it, then it goes into Download › Premade by itself.'}</p>
+    ${jobs.length ? byDay(jobs, (j) => j.at, pdfRow) : ''}`;
 }
 
-function pdfHistoryView(off) {
-  const days = [];
-  for (const j of pdfJobs()) {
-    const day = dayOf(new Date(j.at));
-    if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
-    days.at(-1).rows.push(pdfRow(j, true));
-  }
-  return `${dlTitle('History', 'What this phone did with the PDF tools, newest first.')}
-    <div class="feed scroller">${off}${days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
-      : `<div class="empty">${icon('pdf')}<h2>Nothing done yet</h2><p>Pick a tool in Tools.</p></div>`}</div>`;
-}
-
-function pdfSettingsView(off) {
-  const gs = PDFST?.gs || '';
-  return `${dlTitle('Settings', 'Where new PDFs go.')}<div class="headrule"></div>
-    <div class="feed scroller">${off}
-    <section class="group"><div class="sectionhead"><b>On this phone</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">${IOS ? 'Share sheet' : 'Download › Premade'}</h2><p class="block-hint">${IOS ? 'Tap Save on a finished PDF and pick Save to Files, Mail or any app.' : 'Finished PDFs go into Download › Premade by themselves. My Files shows them.'}</p></div>
-    </div></section>
-    <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(PDFST?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>
-      <div class="block"><h2 class="block-title">Strong compression</h2><p class="block-hint">${gs === 'ok' ? 'Ghostscript is ready, so scans and photo PDFs shrink a lot.' : gs === 'installing' ? 'Ghostscript is being installed on the PC.' : 'Ghostscript (free) isn\'t on the PC yet, so scans shrink less. Install it on the PC: Settings › PDF tools, or compress a PDF there once.'}</p></div>
-    </div></section>
-    <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>`;
+function pdfSettingsView() {
+  const gs = PDFST?.local ? '' : PDFST?.gs || '';
+  return `<section class="sec"><h2>On ${ME}</h2>
+      <div class="srow"><span class="grow">${IOS ? 'Save' : 'Download › Premade'}<span class="h">${IOS ? 'Tap a finished PDF, then Save, and pick Save to Files, Mail or any app.' : 'Finished PDFs go into Download › Premade by themselves. My Files shows them.'}</span></span></div></section>
+    <section class="sec"><h2>On your PC</h2>
+      <div class="srow"><span class="grow">Save folder<span class="h mono">${esc(PDFST?.local ? '' : PDFST?.dir || '')}</span><span class="h">A copy of everything stays here. Every tool saves into this one folder. Change it on the PC in Settings.</span></span></div>
+      <div class="srow"><span class="grow">Strong compression<span class="h">${gs === 'ok' ? 'Ghostscript is ready, so scans and photo PDFs shrink a lot.' : gs === 'installing' ? 'Ghostscript is being installed on your PC.' : "Ghostscript (free) isn't on your PC yet, so scans shrink less. Install it there: Settings › PDF tools, or compress a PDF there once."}</span></span>${gs === 'ok' ? '<span class="ok">Ready</span>' : ''}</div>
+    </section>`;
 }
 
 let pdfTimer = null;
@@ -96,6 +76,7 @@ $app.addEventListener('click', async (e) => {
   if (!b) return;
   const d = b.dataset;
   if (d.pdfsave) { pdfSaving.add(d.pdfsave); NATIVE.savePdf(d.pdfsave); b.textContent = 'Saving…'; }
+  else if (d.pdfremove) { await api(`${PDFAPI.base}/remove/${d.pdfremove}`, {}).catch(() => {}); await pdfRefresh(); render(); }
   else if (d.pdfshare) {
     try {
       await navigator.share({ files: pdfBlobs[d.pdfshare] });

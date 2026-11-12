@@ -40,98 +40,69 @@ function officeNote(k) {
   const st = CV.office;
   if (st === 'installing') return `<div class="notebox is-info">${icon('spin', 'spin')}<div><b>Installing LibreOffice…</b> Windows may ask once to allow it. This takes a few minutes.</div></div>`;
   return `<div class="notebox">${icon('alert')}<div>Office files are converted by <b>LibreOffice</b>, a free office suite, and it isn't on this PC yet (about 350 MB).${st.startsWith('error') ? ` Last try: ${esc(st.slice(7))}.` : ''}
-    <div class="acts"><button class="btn small primary" data-cv="office">Install LibreOffice</button></div></div></div>`;
+    <div class="acts"><button type="button" class="btn small primary" data-cv="office">Install LibreOffice</button></div></div></div>`;
 }
 
 function convertView() {
-  const jobs = CV?.jobs || [];
-  const live = jobs.filter((j) => j.state === 'queued' || j.state === 'running');
-  const past = jobs.filter((j) => j.state === 'done' || j.state === 'failed');
+  const jobs = [...(CV?.jobs || [])].sort(newest);
   const { kind, why } = CV ? picked() : {};
   const to = kind ? pickTarget(kind) : '';
   const many = C.files.length > 1;
   const canCombine = kind?.id === 'image' && to === 'pdf' && many;
   const can = kind && !why && (kind.engine !== 'soffice' || CV.office === 'ok') && C.up < 0;
   const total = C.files.reduce((s, f) => s + f.size, 0);
-  const chips = C.files.slice(0, 6).map((f, i) => `<span class="cvchip">${icon(kindIcon[kindOf(f.name)?.id] || 'doc')}<span>${esc(f.name)}</span><button class="iconbtn" data-cv="drop" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x')}</button></span>`).join('')
+  const chips = C.files.slice(0, 6).map((f, i) => `<span class="cvchip">${icon(kindIcon[kindOf(f.name)?.id] || 'doc')}<span>${esc(f.name)}</span><button type="button" class="iconbtn" data-cv="drop" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x')}</button></span>`).join('')
     + (C.files.length > 6 ? `<span class="cvchip more">+${C.files.length - 6} more</span>` : '');
   const box = !C.files.length
     ? `<label class="cvdrop" id="cvdrop">${icon('upload')}<b>Drop files here</b><span>or</span><span class="btn">Choose files…</span>
         <input type="file" id="cvpick" multiple hidden><small>Pictures (iPhone HEIC too), videos, sound, Word, Excel and PowerPoint files.</small></label>`
-    : `<div class="cvpicked"><div class="cvchips">${chips}</div><button class="btn small" data-cv="clear">Start over</button></div>
-      <div class="dlunder">${why ? `<span class="detected is-bad">${icon('alert')}<span>${esc(why)}</span></span>`
-        : `<span class="detected"><i class="dotlight"></i><span><b>${C.files.length} ${esc(kind.label.toLowerCase())}${many ? 's' : ''}</b> · ${sizeOf(total)}</span></span>`}</div>
+    : `<div class="cvpicked"><div class="cvchips">${chips}</div><button type="button" class="btn small" data-cv="clear">Start over</button></div>
+      <div class="under">${why ? `<span class="detected is-bad">${icon('alert')}<span>${esc(why)}</span></span>`
+        : `<span class="detected"><i class="dotlight"></i><span><b>${C.files.length} ${esc(kind.label.toLowerCase())}${many ? 's' : ''}</b> · ${size(total)}</span></span>`}</div>
       ${kind ? `<div class="cvto"><span class="group-label">Make ${many ? 'them' : 'it'}</span><div class="seg">${kind.targets.map((t) => `<button type="button" data-cv="to" data-to="${t.id}" aria-pressed="${t.id === to}" title="${esc(t.note || '')}">${esc(t.label)}</button>`).join('')}</div></div>
-      <p class="row-hint cvhint">${esc(kind.targets.find((t) => t.id === to)?.note || '')}</p>
+      <p class="cvhint">${esc(kind.targets.find((t) => t.id === to)?.note || '')}</p>
       <div class="cvopts">
-        ${kind.engine !== 'soffice' ? `<label class="audiosw"><input type="checkbox" class="switch" role="switch" id="cvsmall" ${C.small ? 'checked' : ''}>Smaller file${kind.id === 'video' ? ' (up to 1080p)' : kind.id === 'image' ? ' (up to 2048 px)' : ''}</label>` : ''}
-        ${canCombine ? `<label class="audiosw"><input type="checkbox" class="switch" role="switch" id="cvcombine" ${C.combine ? 'checked' : ''}>All in one PDF</label>` : ''}
+        ${kind.engine !== 'soffice' ? `<label class="sw"><input type="checkbox" class="switch" role="switch" id="cvsmall" ${C.small ? 'checked' : ''}>Smaller file${kind.id === 'video' ? ' (up to 1080p)' : kind.id === 'image' ? ' (up to 2048 px)' : ''}</label>` : ''}
+        ${canCombine ? `<label class="sw"><input type="checkbox" class="switch" role="switch" id="cvcombine" ${C.combine ? 'checked' : ''}>All in one PDF</label>` : ''}
         <span class="grow"></span>
-        <button class="btn primary" data-cv="go" ${can ? '' : 'disabled'}>${C.up >= 0 ? `${icon('spin', 'spin')}Sending ${C.up}%` : `${icon('convert')}Convert`}</button>
+        <button type="button" class="btn primary" data-cv="go" ${can ? '' : 'disabled'}>${C.up >= 0 ? `${icon('spin', 'spin')}Sending ${C.up}%` : 'Convert'}</button>
       </div>` : ''}
       ${officeNote(kind)}`;
-  const liveRows = live.map((j) => `<div class="row">${cvThumb(j)}
-    <div class="row-text grow"><span class="row-title">${esc(cvTitle(j))}</span>
-      <div class="hmeta"><span class="sitetag">${esc(j.target)}</span><span class="jobstate">${j.state === 'queued' ? 'Waiting its turn' : j.pct < 1 ? 'Starting…' : `Converting ${Math.floor(j.pct)}%`}</span><span>from ${esc(fromName(j))}</span></div>
-      <div class="prog"><i style="width:${Math.max(2, j.pct)}%"></i></div></div>
-    <button class="btn small" data-cv="cancel" data-id="${j.id}">Cancel</button></div>`).join('');
-  const days = [];
-  for (const j of past) {
-    const day = dayOf(new Date(j.at));
-    if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
-    days.at(-1).rows.push(cvRow(j));
-  }
-  const hist = days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
-    : `<div class="empty">${icon('convert')}<h2>Nothing converted yet</h2><p>Drop files above. Files converted from your phones show up here too.</p></div>`;
-  return `<main class="plain">
-    <div class="pagehead"><div><h1 class="pagetitle">Convert</h1><p class="pagelede">Drop in files and pick what they should become. Everything runs on this PC; nothing is uploaded anywhere.</p></div></div>
-    <div class="dlwrap scroller"><div class="dlinner">
-      ${C.err ? `<div class="notebox">${icon('alert')}<div>${esc(C.err)}</div></div>` : ''}
-      <div class="dlbox cvbox">${box}</div>
-      ${liveRows ? `<section class="sec"><h2 class="group-label">Converting now</h2><div class="rows hrows">${liveRows}</div></section>` : ''}
-      <section class="sec"><h2 class="group-label">History</h2>${hist}</section>
-    </div></div>
-  </main>`;
+  return `<section class="main">${head('Convert')}<div class="body scroller"><div class="col">
+    ${C.err ? `<div class="notebox">${icon('alert')}<div>${esc(C.err)}</div></div>` : ''}
+    <div class="dlbox cvbox">${box}</div>
+    ${jobs.length ? byDay(jobs, (j) => j.at, cvRow) : `<div class="empty">${icon('convert')}<h2>Nothing converted yet</h2><p>Drop files above. Everything runs on this PC, and files converted from your phones show up here too.</p></div>`}
+  </div></div></section>`;
 }
 
 const cvTitle = (j) => j.inputs.length > 1 ? `${j.inputs[0]} and ${j.inputs.length - 1} more` : j.inputs[0];
-const cvThumb = (j) => `<span class="thumb" style="--h:${hue(j.id)}">${icon(kindIcon[j.kind] || 'doc')}</span>`;
+const cvTarget = (j) => CV?.kinds?.find((k) => k.id === j.kind)?.targets.find((t) => t.id === j.target)?.label || j.target.toUpperCase();
+
+// A conversion as a row: the result's own picture when it has one, what it became, and where it is now.
+function cvFields(j) {
+  const fs = j.files || [], n = shown1(fs), live = isLive(j);
+  const meta = j.state === 'failed' ? j.note || "That didn't convert."
+    : `To ${cvTarget(j)}` + (live ? ', ' + (j.state === 'queued' ? 'waiting its turn' : j.pct < 1 ? 'starting' : Math.floor(j.pct) + '%')
+      : (fs.length > 1 ? `, ${fs.length} files` : '') + (j.size && j.inSize ? `, ${size(j.inSize)} to ${size(j.size)}` : '') + (j.note ? '. ' + j.note : ''));
+  return { id: j.id, th: thumb(j.state === 'failed' ? 'alert' : fs[n]?.kind || kindIcon[j.kind] || 'doc', j.state === 'done' && n >= 0 ? `/api/ui/cv/file/${j.id}/${n}` : ''),
+    title: esc(cvTitle(j)), meta: esc(meta), bad: j.state === 'failed', where: whereOf(j), when: stamp(new Date(j.at)), pct: live ? (j.state === 'queued' ? 0 : j.pct) : -1 };
+}
 
 function cvRow(j) {
-  const n = (j.files || []).length;
-  const where = j.state === 'failed' ? '' : j.from ? (j.fetched ? `Sent back to ${esc(fromName(j))}` : `Waiting for ${esc(fromName(j))} to pick it up`) : 'On this PC';
-  const saved = j.size && j.inSize ? ` · ${sizeOf(j.inSize)} → ${sizeOf(j.size)}` : '';
-  return `<div class="row">${cvThumb(j)}
-    <div class="row-text grow"><span class="row-title">${esc(cvTitle(j))}</span>
-      <div class="hmeta"><span class="sitetag">${esc(j.target)}</span><span>${n > 1 ? `${n} files` : esc((j.files || [])[0]?.name || '')}${saved}</span><span>${hm(new Date(j.at))} · from ${esc(fromName(j))}</span>
-      ${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
-      ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">
-      ${j.state === 'done' ? `<button class="btn small" data-cv="show" data-id="${j.id}">${icon('folder')}Show</button>` : ''}${frShareBtn('cv', j)}
-      <button class="iconbtn" data-cv="remove" data-id="${j.id}" aria-label="Remove from history" title="Remove from history">${icon('x')}</button>
-    </div></div>`;
+  const id = `data-id="${j.id}"`;
+  return rowOf({ ...cvFields(j), acts: isLive(j) ? `<button type="button" class="btn text" data-cv="cancel" ${id}>Cancel</button>`
+    : `${j.state === 'done' ? `<button type="button" class="btn text" data-cv="show" ${id}>Show</button>` : ''}${more('cv' + j.id, [frShareBtn('cv', j), `<button type="button" role="menuitem" data-cv="remove" ${id}>${icon('x')}Remove from the list</button>`])}` });
 }
 
 function cvSettings() {
   if (!CV) return '';
-  const st = (ok, busy) => ok ? '<span class="sbadge is-good"><i></i>Ready</span>' : `<span class="sbadge"><i></i>${busy ? 'Installing…' : 'Not yet'}</span>`;
-  const office = CV.office;
-  return `<div class="cols" style="margin-top:18px">
-    <div class="col">
-      <section><h2 class="group-label">Converter · where files go</h2><div class="rows">
-        <div class="row"><div class="row-text"><span class="row-title">Save folder, the same for every tool</span><span class="row-hint mono">${esc(CV.dir)}</span></div><button class="btn small" data-cv="folder">Change…</button></div>
-        <div class="row"><div class="row-text"><span class="row-title">Phones</span><span class="row-hint">Files sent from a phone go back to that phone. A copy stays here.</span></div></div>
-      </div></section>
-    </div>
-    <div class="col">
-      <section><h2 class="group-label">Converter · engines</h2><div class="rows">
-        <div class="row"><div class="row-text"><span class="row-title">Pictures</span><span class="row-hint">ImageMagick, fetched by itself (free)</span></div>${st(CV.ready.magick)}</div>
-        <div class="row"><div class="row-text"><span class="row-title">Video and sound</span><span class="row-hint">FFmpeg, shared with the Downloader</span></div>${st(CV.ready.ffmpeg)}</div>
-        <div class="row"><div class="row-text"><span class="row-title">Office files</span><span class="row-hint">LibreOffice (free, about 350 MB)${office.startsWith('error') ? ' · ' + esc(office.slice(7)) : ''}</span></div>
-          ${office === 'ok' ? st(true) : office === 'installing' ? st(false, true) : '<button class="btn small" data-cv="office">Install</button>'}</div>
-      </div></section>
-    </div>
-  </div>`;
+  const ok = '<span class="ok">Ready</span>', office = CV.office;
+  return `<section class="sec"><h2>Converter</h2>
+    <div class="srow"><span class="grow">Pictures<span class="h">ImageMagick, free. ${CV.ready.magick ? 'It reads iPhone HEIC photos too.' : 'Setting itself up.'}</span></span>${CV.ready.magick ? ok : ''}</div>
+    <div class="srow"><span class="grow">Video and sound<span class="h">FFmpeg, shared with the Downloader.${CV.ready.ffmpeg ? '' : ' Setting itself up.'}</span></span>${CV.ready.ffmpeg ? ok : ''}</div>
+    <div class="srow"><span class="grow">Office files<span class="h">LibreOffice, free, about 350 MB.${office === 'installing' ? ' Installing now.' : office.startsWith('error') ? ' Last try: ' + esc(office.slice(7)) + '.' : ''}</span></span>
+      ${office === 'ok' ? ok : office === 'installing' ? '' : '<button type="button" class="btn" data-cv="office">Install</button>'}</div>
+  </section>`;
 }
 
 async function cvRefresh() {
@@ -172,7 +143,6 @@ $app.addEventListener('click', async (e) => {
     else if (a === 'cancel') { await api('/api/ui/cv/cancel/' + id, {}); await cvRefresh(); render(); }
     else if (a === 'remove') { await api('/api/ui/cv/remove/' + id, {}); await cvRefresh(); render(); }
     else if (a === 'show') await api('/api/ui/cv/show/' + id, {});
-    else if (a === 'folder') { await api('/api/ui/cv/folder', {}); await cvRefresh(); render(); }
     else if (a === 'office') { await api('/api/ui/cv/office', {}); await cvRefresh(); render(); soon(); }
   } catch (err) { C.err = err.message; render(); }
 });

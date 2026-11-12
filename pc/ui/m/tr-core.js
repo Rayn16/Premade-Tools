@@ -1,5 +1,5 @@
 // Transcribe's box and rows, shared by the PC window (tr-ui.js) and the phones (mtr.js), which set TRAPI:
-// { base, hdr, touch, after(), acts(job), where(job), from(job), url(job, n, dl) }. The PC's Whisper does the work.
+// { base, hdr, touch, after(), acts(job), where(job), url(job, n, dl) }. The PC's Whisper does the work.
 'use strict';
 
 ICON.transcribe = '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/>';
@@ -11,7 +11,7 @@ const T = { files: [], to: 'text', up: -1, err: '', open: {}, text: {}, copied: 
 const trCanRecord = () => !!(window.Vault?.recordStart || (navigator.mediaDevices?.getUserMedia && window.MediaRecorder && window.isSecureContext));
 
 const trJobs = () => [...(typeof ljOf === 'function' ? ljOf('tr') : []), ...(TRST?.jobs || [])]; // ljOf: jobs done on the phone itself (local.js)
-const trBusy = () => trJobs().some((j) => j.state === 'queued' || j.state === 'running') || TRST?.engine?.state === 'installing';
+const trBusy = () => trJobs().some(isLive) || TRST?.engine?.state === 'installing';
 const trOk = (f) => /^(audio|video)\//.test(f.type) || /\.(mp3|m4a|aac|wav|flac|ogg|opus|wma|aiff?|amr|caf|mov|mp4|m4v|mkv|webm|avi|wmv|flv|3gp|mts|ts)$/i.test(f.name);
 const trTitle = (j) => j.inputs.length > 1 ? `${j.inputs[0]} and ${j.inputs.length - 1} more` : j.inputs[0];
 
@@ -42,19 +42,19 @@ function trBox() {
       <small>${TRAPI.touch ? 'From Files, Photos or anywhere on this phone' : 'Any sound or video file on this PC'}</small></label>`
     : `<div class="cvpicked"><div class="cvchips">${T.files.slice(0, 6).map((f, i) => `<span class="cvchip">${icon('transcribe')}<span>${esc(f.name)}</span><button type="button" class="iconbtn" data-tr="drop" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x')}</button></span>`).join('')}${T.files.length > 6 ? `<span class="cvchip more">+${T.files.length - 6} more</span>` : ''}</div>
       <label class="btn small" for="trfile">${icon('plus')}Add</label><button type="button" class="btn small" data-tr="clear">Start over</button></div>
-      <div class="dlunder">${bad ? `<span class="detected is-bad">${icon('alert')}<span>${esc(bad.name)} has no sound. Pick a voice memo, video or sound file.</span></span>`
+      <div class="under">${bad ? `<span class="detected is-bad">${icon('alert')}<span>${esc(bad.name)} has no sound. Pick a voice memo, video or sound file.</span></span>`
         : `<span class="detected"><i class="dotlight"></i><span><b>${T.files.length} ${T.files.length === 1 ? 'file' : 'files'}</b></span></span>`}</div>`;
-  const rec = !trCanRecord() || T.files.length ? '' : T.up >= 0 ? `<div class="trrec"><span class="row-hint">${icon('spin', 'spin')} Sending the recording to the PC…</span></div>` : T.rec
+  const rec = !trCanRecord() || T.files.length ? '' : T.up >= 0 ? `<div class="trrec"><span class="hint">${icon('spin', 'spin')}Sending the recording to the PC…</span></div>` : T.rec
     ? `<div class="trrec is-on"><span class="pulse"></span><b>Recording</b><span class="mono" id="trclock">${trClock()}</span><span class="grow"></span><button type="button" class="btn small" data-tr="recstop">${icon('check')}Stop and transcribe</button><button type="button" class="iconbtn" data-tr="reccancel" aria-label="Throw away the recording">${icon('x')}</button></div>`
-    : `<div class="trrec"><span class="row-hint">Or talk now:</span><button type="button" class="btn small" data-tr="rec">${icon('transcribe')}Record</button></div>`;
+    : `<div class="trrec"><span class="hint">Or talk now:</span><button type="button" class="btn small" data-tr="rec">${icon('transcribe')}Record</button></div>`;
   const note = trEngineNote();
   const ready = T.files.length && !bad && T.up < 0;
   return `${T.rec ? '' : files}${rec}
-    <div class="cvopts"><label class="audiosw"><input type="checkbox" class="switch" role="switch" id="trto" ${T.to === 'en' ? 'checked' : ''}>Translate to English</label><span class="grow"></span>
-      ${T.files.length ? `<button type="button" class="btn primary" data-tr="go" ${ready ? '' : 'disabled'}>${T.up >= 0 ? `${icon('spin', 'spin')}Sending ${T.up}%` : `${icon('transcribe')}Transcribe`}</button>` : ''}</div>
+    <div class="cvopts"><label class="sw"><input type="checkbox" class="switch" role="switch" id="trto" ${T.to === 'en' ? 'checked' : ''}>Translate to English</label><span class="grow"></span>
+      ${T.files.length ? `<button type="button" class="btn primary" data-tr="go" ${ready ? '' : 'disabled'}>${T.up >= 0 ? `${icon('spin', 'spin')}Sending ${T.up}%` : 'Transcribe'}</button>` : ''}</div>
     ${TRST?.local ? `<div class="cvto"><span class="group-label">Spoken in</span><div class="seg">${[['ar', 'Arabic'], ['en', 'English']].map(([k, l]) => `<button type="button" data-tr="lang" data-lang="${k}" aria-pressed="${T.lang === k}">${l}</button>`).join('')}</div></div>` : ''}
-    <p class="row-hint cvhint">${TRST?.local ? (T.to === 'en' ? `${T.lang === 'ar' ? 'Arabic' : 'English'} in, English text out.` : `This phone writes down ${T.lang === 'ar' ? 'Arabic' : 'English'} as it's spoken.`) : T.to === 'en' ? 'Any language in, English text out.' : 'It hears the language by itself, Arabic and English included.'}</p>
-    ${note ? `<p class="row-hint pdfnote">${icon('info')}<span>${esc(note)}</span></p>` : ''}`;
+    <p class="cvhint">${TRST?.local ? (T.to === 'en' ? `${T.lang === 'ar' ? 'Arabic' : 'English'} in, English text out.` : `This phone writes down ${T.lang === 'ar' ? 'Arabic' : 'English'} as it's spoken.`) : T.to === 'en' ? 'Any language in, English text out.' : 'It hears the language by itself, Arabic and English included.'}</p>
+    ${note ? `<p class="hint pdfnote">${icon('info')}<span>${esc(note)}</span></p>` : ''}`;
 }
 
 // The text of each file in a done job (file 2k is the .txt of input k), fetched when the row is opened.
@@ -73,26 +73,29 @@ async function trLoad(j) {
 
 function trTextView(j) {
   const t = T.text[j.id];
-  if (t === undefined || t === 'loading') return `<div class="pdfwait">${icon('spin', 'spin')}Getting the text…</div>`;
-  if (t === 'error') return `<div class="hmeta bad">${icon('alert')}The text is gone from the PC's folder.</div>`;
+  if (t === undefined || t === 'loading') return '<div class="trtext"><i>Getting the text…</i></div>';
+  if (t === 'error') return `<div class="trtext"><i>The text is gone from the PC's folder.</i></div>`;
   const srt = j.files.map((f, n) => [f, n]).filter(([f]) => /\.srt$/i.test(f.name));
   return `<div class="trtext scroller" dir="auto">${t ? esc(t) : '<i>No speech was heard.</i>'}</div>
     <div class="trbar"><button type="button" class="btn small primary" data-tr="copy" data-id="${j.id}">${icon(T.copied === j.id ? 'check' : 'copy')}${T.copied === j.id ? 'Copied' : 'Copy text'}</button>
       ${srt.map(([f, n]) => `<a class="btn small" href="${TRAPI.url(j, n, true)}">${icon('save')}Subtitles${srt.length > 1 ? ' · ' + esc(f.name.split(/[\\/]/).pop()) : ' (.srt)'}</a>`).join('')}</div>`;
 }
 
-function trRow(j, full) {
-  const live = j.state === 'queued' || j.state === 'running';
-  const where = TRAPI.where(j), open = T.open[j.id] && j.state === 'done';
-  return `<div class="row trrow" data-lj="${j.id}"><div class="trtop"><span class="thumb" style="--h:${pdfHue(j.id)}">${icon('transcribe')}</span>
-    <div class="row-text grow"><span class="row-title clip">${esc(trTitle(j))}</span>
-      <div class="hmeta"><span class="sitetag">${esc(j.lang || (j.target === 'en' ? 'To English' : 'Text'))}</span>${live ? `<span class="jobstate">${j.state === 'queued' ? 'Waiting its turn' : 'Listening…'}</span>` : ''}
-        <span>${hm(new Date(j.at))}${full ? ' · from ' + esc(TRAPI.from(j)) : ''}</span>${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
-      ${live ? `<div class="prog"><i style="width:${Math.max(4, j.pct)}%"></i></div>` : ''}
-      ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : j.note ? `<div class="hmeta">${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${live && !j.local ? `<button type="button" class="btn small" data-tr="cancel" data-id="${j.id}">Cancel</button>`
-      : `${j.state === 'done' ? `<button type="button" class="btn small" data-tr="open" data-id="${j.id}" aria-expanded="${!!open}">${icon(open ? 'up' : 'down')}${open ? 'Hide' : 'Text'}</button>` : ''}${TRAPI.acts(j)}`}</div></div>
-    ${open ? trTextView(j) : ''}</div>`;
+// A job as a row (rowOf in common.js), with its text under it once opened; the device adds where it went and its buttons.
+function trFields(j) {
+  const live = isLive(j);
+  const meta = j.state === 'failed' ? j.note || "That didn't work."
+    : `${j.lang || 'Speech'} to ${j.target === 'en' ? 'English text' : 'text'}` + (live ? ', ' + (j.state === 'queued' ? 'waiting its turn' : 'listening') : j.note ? '. ' + j.note : '');
+  return { id: j.id, th: thumb(j.state === 'failed' ? 'alert' : 'transcribe', ''), title: esc(trTitle(j)), meta: esc(meta), bad: j.state === 'failed',
+    where: TRAPI.where(j), when: stamp(new Date(j.at)), pct: live ? (j.state === 'queued' ? 0 : j.pct) : -1 };
+}
+
+function trRow(j) {
+  const open = (T.open[j.id] || FLAT) && j.state === 'done'; // the phone's sheet (FLAT, common.js) shows the text straight away
+  if (open && T.text[j.id] === undefined) trLoad(j);
+  const cancel = isLive(j) && !j.local && (!TRAPI.touch || j.from === ST?.me); // a phone cancels only its own
+  return rowOf({ ...trFields(j), cls: 'trrow', extra: open ? trTextView(j) : '', acts: isLive(j) ? (cancel ? `<button type="button" class="btn text" data-tr="cancel" data-id="${j.id}">Cancel</button>` : '')
+    : `${j.state === 'done' && !FLAT ? `<button type="button" class="btn text" data-tr="open" data-id="${j.id}" aria-expanded="${!!open}">${open ? 'Hide text' : 'Text'}</button>` : ''}${TRAPI.acts(j)}` });
 }
 
 async function trSend() {

@@ -1,5 +1,5 @@
 // File drop's send box, clipboard card and rows, shared by the PC window (drop-ui.js) and the phones (mdrop.js),
-// which set DROPAPI: { base, hdr, touch, after(), acts(drop), url(drop, n, dl) }.
+// which set DROPAPI: { base, hdr, touch, after(), acts(drop), url(drop, n, dl), thumb(drop, n), seen, menu?(drop) }.
 'use strict';
 
 ICON.drop = '<path d="M7 4v13M3.5 7.5L7 4l3.5 3.5M17 20V7M13.5 16.5L17 20l3.5-3.5"/>';
@@ -15,7 +15,8 @@ const dropDev = (id) => (DROPST?.devices || []).find((d) => d.id === id);
 const dropName = (id) => id === DROPST?.me ? (DROPAPI.touch ? 'This phone' : 'This PC') : dropDev(id)?.name || String(id || '').replace(/^friend:/, '');
 const dropTargets = () => (DROPST?.devices || []).filter((d) => d.id !== DROPST.me);
 const dropIcon = (it) => it.kind === 'link' ? 'link' : it.kind === 'text' ? 'text' : it.files.length === 1 && it.files[0].kind === 'photo' ? 'photo' : it.files.length === 1 && it.files[0].kind === 'video' ? 'video' : 'file';
-const dropNew = () => !DROPAPI.touch ? 0 : dropJobs().filter((j) => j.to === DROPST?.me && !j.fetched).length;
+// New for this device: on a phone, not saved yet; on the PC, came in since File drop was last open.
+const dropNew = () => dropJobs().filter((j) => j.to === DROPST?.me && (DROPAPI.touch ? !j.fetched : new Date(j.at) > DROPAPI.seen)).length;
 function dropTitle(it) {
   if (it.kind !== 'files') return it.text.split('\n')[0];
   return it.files.length > 1 ? `${it.files[0].name} and ${it.files.length - 1} more` : it.files[0]?.name || 'Files';
@@ -35,53 +36,42 @@ dropInput.addEventListener('change', () => { FD.files = FD.files.concat([...drop
 function dropBox() {
   const targets = dropTargets();
   if (!targets.length) return `<div class="empty">${icon('phones')}<h2>Nothing to send to yet</h2><p>Pair a phone first: Vault › Phones › Add a phone.</p></div>`;
-  const devIcon = (d) => d.kind === 'pc' ? 'folder' : 'phones';
   const files = !FD.files.length
     ? `<label class="cvdrop dropzone" id="dropzone" for="dropfile">${icon('drop')}<b>${DROPAPI.touch ? 'Pick photos or files' : 'Drop files here'}</b>${DROPAPI.touch ? '' : '<span>or</span><span class="btn">Choose files…</span>'}</label>`
     : `<div class="cvpicked"><div class="cvchips">${FD.files.slice(0, 6).map((f, i) => `<span class="cvchip">${icon('file')}<span>${esc(f.name)}</span><button type="button" class="iconbtn" data-drop="unpick" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x')}</button></span>`).join('')}${FD.files.length > 6 ? `<span class="cvchip more">+${FD.files.length - 6} more</span>` : ''}</div>
       <label class="btn small" for="dropfile">${icon('plus')}Add</label><button type="button" class="btn small" data-drop="clear">Start over</button></div>`;
   const ready = (FD.files.length || FD.text.trim()) && FD.to && FD.up < 0;
-  return `<div class="droprow"><span class="row-hint">Send to</span><div class="chips droptargets" role="group" aria-label="Send to">${targets.map((d) =>
-      `<button type="button" class="pill" data-dropto="${esc(d.id)}" aria-pressed="${FD.to === d.id}">${icon(devIcon(d))}${esc(d.name)}</button>`).join('')}</div></div>
+  return `<div class="droprow"><span class="hint">Send to</span><div class="chips droptargets" role="group" aria-label="Send to">${targets.map((d) =>
+      `<button type="button" class="pill" data-dropto="${esc(d.id)}" aria-pressed="${FD.to === d.id}">${icon(d.kind === 'pc' ? 'pc' : 'phones')}${esc(d.name)}</button>`).join('')}</div></div>
     ${files}
     <textarea id="droptext" class="droptext" rows="2" dir="auto" placeholder="Or type, or paste a link or text">${esc(FD.text)}</textarea>
-    <div class="cvopts"><span class="grow"></span><button type="button" class="btn primary" data-drop="send" ${ready ? '' : 'disabled'}>${FD.up >= 0 ? `${icon('spin', 'spin')}Sending ${FD.up}%` : `${icon('drop')}Send${FD.to ? ' to ' + esc(dropName(FD.to)) : ''}`}</button></div>`;
+    <div class="cvopts"><span class="grow"></span><button type="button" class="btn primary" data-drop="send" ${ready ? '' : 'disabled'}>${FD.up >= 0 ? `${icon('spin', 'spin')}Sending ${FD.up}%` : `Send${FD.to ? ' to ' + esc(dropName(FD.to)) : ''}`}</button></div>`;
 }
 
 // The shared clipboard: whatever was copied last on any device.
 function dropClipCard(note) {
   const c = DROPST?.clip;
-  if (!DROPST?.clipSync) return `<div class="dropclip is-off"><span class="row-hint">${icon('copy')}Clipboard sync is off. Turn it on in Settings.</span></div>`;
-  if (!c?.text) return `<div class="dropclip"><span class="row-hint">${icon('copy')}Copy something on any device and it shows up here. ${note || ''}</span></div>`;
+  if (!DROPST?.clipSync) return `<div class="dropclip is-off"><span class="hint">${icon('copy')}Clipboard sync is off. Turn it on in Settings.</span></div>`;
+  if (!c?.text) return `<div class="dropclip"><span class="hint">${icon('copy')}Copy something on any device and it shows up here. ${note || ''}</span></div>`;
   return `<div class="dropclip"><div class="dropclip-head"><span class="eyebrow">Clipboard · from ${esc(dropName(c.from))} · ${esc(whenShort(new Date(c.at)))}</span>
-      <button type="button" class="btn small" data-drop="clipcopy">${icon(FD.copied === 'clip' ? 'check' : 'copy')}${FD.copied === 'clip' ? 'Copied' : 'Copy'}</button></div>
-    <div class="dropclip-text" dir="auto">${esc(c.text.length > 600 ? c.text.slice(0, 600) + '…' : c.text)}</div>${note ? `<p class="row-hint">${note}</p>` : ''}</div>`;
+      <button type="button" class="btn text" data-drop="clipcopy">${FD.copied === 'clip' ? 'Copied' : 'Copy'}</button></div>
+    <div class="dropclip-text" dir="auto">${esc(c.text.length > 600 ? c.text.slice(0, 600) + '…' : c.text)}</div>${note ? `<p class="hint">${note}</p>` : ''}</div>`;
 }
 
-function dropRow(it) {
-  const mine = it.from === DROPST?.me;
-  const dir = mine ? `To ${esc(dropName(it.to))}` : `From ${esc(dropName(it.from))}`;
-  const sz = it.kind === 'files' ? ' · ' + size(it.files.reduce((s, f) => s + f.size, 0)) : '';
-  const waiting = mine && it.to !== 'pc' && !it.fetched ? `<span class="jobstate">Waiting for ${esc(dropName(it.to))} to pick it up</span>` : '';
-  return `<div class="row droprow-item"><span class="thumb" style="--h:${pdfHue(it.id)}">${icon(dropIcon(it))}</span>
-    <div class="row-text grow"><span class="row-title clip" dir="auto">${esc(dropTitle(it))}</span>
-      <div class="hmeta"><span class="sitetag">${it.kind === 'files' ? plural(it.files.length, 'file') : it.kind === 'link' ? 'Link' : 'Text'}</span><span>${dir} · ${hm(new Date(it.at))}${sz}</span>${waiting}
-        ${!mine && it.fetched ? `<span class="where">${icon('check')}${it.kind === 'files' ? 'Saved' : 'Copied'}</span>` : ''}</div>
-      ${it.kind === 'text' && it.text.includes('\n') ? `<div class="hmeta clip">${esc(it.text.split('\n').slice(1).join(' '))}</div>` : ''}
-      ${it.kind === 'files' && it.text ? `<div class="hmeta clip" dir="auto">${esc(it.text)}</div>` : ''}</div>
-    <div class="hacts">${DROPAPI.acts(it)}${it.kind === 'files' && typeof frShareBtn === 'function' ? frShareBtn('drop', it) : ''}<button type="button" class="iconbtn" data-drop="remove" data-id="${it.id}" aria-label="Remove from the list" title="Remove from the list">${icon('x')}</button></div></div>`;
+// A drop as a row (rowOf in common.js): what it is, who it's from or to, and whether they have it yet.
+function dropFields(it) {
+  const mine = it.from === DROPST?.me, fs = it.files || [], n = shown1(fs), other = esc(dropName(mine ? it.to : it.from));
+  const what = it.kind !== 'files' ? (it.kind === 'link' ? 'Link' : 'Text') : (fs.length > 1 ? plural(fs.length, 'file') : { photo: 'Photo', video: 'Video' }[fs[0]?.kind] || 'File') + ', ' + size(fs.reduce((s, f) => s + f.size, 0));
+  const rest = it.kind === 'text' ? it.text.split('\n').slice(1).join(' ') : it.kind === 'files' ? it.text : '';
+  return { id: it.id, th: thumb(n >= 0 ? fs[n].kind : dropIcon(it), n >= 0 && DROPAPI.thumb ? DROPAPI.thumb(it, n) : ''), title: esc(dropTitle(it)),
+    meta: `${what} ${mine ? 'to' : 'from'} ${other}${rest ? ': ' + esc(rest) : ''}`,
+    where: mine ? (it.to === 'pc' ? '' : icon(it.fetched ? 'check' : 'clock') + (it.fetched ? `${other} has it` : `Waiting for ${other} to pick it up`))
+      : it.fetched ? icon('check') + (it.kind === 'files' ? 'Saved' : 'Copied') : it.to === 'pc' && it.kind === 'files' ? icon('pc') + 'On this PC' : '',
+    when: stamp(new Date(it.at)), pct: -1 };
 }
 
-function dropList(items, empty) {
-  const days = [];
-  for (const it of items) {
-    const day = dayOf(new Date(it.at));
-    if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
-    days.at(-1).rows.push(dropRow(it));
-  }
-  return days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
-    : `<div class="empty">${icon('drop')}<h2>Nothing here yet</h2><p>${empty}</p></div>`;
-}
+const dropRow = (it) => rowOf({ ...dropFields(it), acts: DROPAPI.acts(it) + more('drop' + it.id, [...(DROPAPI.menu?.(it) || []), it.kind === 'files' && typeof frShareBtn === 'function' ? frShareBtn('drop', it) : '',
+  `<button type="button" role="menuitem" data-drop="remove" data-id="${it.id}">${icon('x')}Remove from the list</button>`]) });
 
 async function dropSend() {
   if (DROPST?.local) return localDrop(); // the PC is off: through the relay (local.js)

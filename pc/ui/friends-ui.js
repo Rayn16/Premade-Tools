@@ -10,11 +10,6 @@ const FRAPI = {
     <div class="sheet-body frsheet">${body}</div></section></div>`,
 };
 
-function frView() {
-  return `<main class="plain">
-    <div class="pagehead"><div><h1 class="pagetitle">Friends</h1><p class="pagelede">Everyone who has Premade Tools. Send them anything you make, to one of their devices or all of them.</p></div></div>
-    <div class="dlwrap scroller"><div class="dlinner">${frPage()}</div></div>
-  </main>`;
-}
+const frView = () => `<section class="main">${head('Friends')}<div class="body scroller"><div class="col">${frPage()}</div></div></section>`;
 
 frRefresh().then(() => { if (ST) render(); }); // app.js's first refresh ran before this file loaded

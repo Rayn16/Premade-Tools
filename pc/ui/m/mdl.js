@@ -2,30 +2,19 @@
 // and the iPhone saves them to Photos through the "Download with Premade" Shortcut.
 'use strict';
 
-const DS = { url: '', audio: false, probe: null, probing: '', busy: false, err: '', note: null };
+const DS = { url: '', audio: false, probe: null, probing: '', busy: false, err: '', note: null, ask: null, phone: null, hereWarned: false };
 const SHORTCUT_DL = 'Download with Premade';
-const IOS = !NATIVE;
 let dlProbeTimer = null;
 const saving = new Set(); // jobs the Android app was asked to save
 
 ICON.dl = '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>';
-ICON.link = '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>';
-ICON.music = '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>';
-ICON.menu = '<path d="M4 7h16M4 12h16M4 17h16"/>';
-ICON.share = '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>';
 
 const dlJobs = () => DL?.jobs || [];
-const dlBusy = () => dlJobs().some((j) => j.state === 'queued' || j.state === 'running');
-const dlHue = (id) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-const dlSize = (b) => (b >= 1 << 30 ? (b / (1 << 30)).toFixed(1) + ' GB' : b >= 1 << 20 ? (b / (1 << 20)).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
-const dlFrom = (j) => (j.local ? 'this phone' : !j.from ? 'the PC' : j.from === ST?.me ? 'this phone' : phoneById(j.from)?.Name || 'a phone');
-const dlThumb = (j) => `<span class="thumb" style="--h:${dlHue(j.id)}">${icon(j.audio ? 'music' : (j.files || []).some((f) => f.kind === 'video') || !j.files?.length ? 'video' : 'photo')}</span>`;
-const dlTag = (s) => `<span class="sitetag">${esc(s || 'Link')}</span>`;
+const dlBusy = () => dlJobs().some(isLive);
 const fileURL = (j, n, dl) => `${PCURL}/api/phone/dl/file/${j.id}/${n}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
 // The link in what was pasted ("Look at this https://…"), as the PC finds it (cleanURL); the phone's own download needs it bare.
 const dlLink = (s) => s.match(/https?:\/\/[^\s"'<>]+/i)?.[0].replace(/[.,;!?)]+$/, '') || (/^\S+\.\S+$/.test(s.trim()) ? 'https://' + s.trim() : s.trim());
 const runDl = (text) => 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTCUT_DL) + '&input=text&text=' + encodeURIComponent(text);
-const dlTitle = (name, lede) => `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">${name}</h1><p class="pagelede">${lede}</p></div></div>`;
 
 // On the S23, finished downloads sent from this phone go straight into Gallery.
 function dlAfterRefresh() {
@@ -35,136 +24,108 @@ function dlAfterRefresh() {
   }
 }
 
+// A download as a row, seen from this phone. Photos show themselves; videos keep their icon, so a list doesn't
+// pull every video's start over the phone's data.
+function dlFields(j) {
+  const fs = j.files || [], n = shown1(fs), live = isLive(j);
+  const kind = j.state === 'failed' ? 'alert' : (fs[n] || fs[0])?.kind || (j.audio ? 'audio' : /picture/.test(j.what || '') ? 'photo' : 'video');
+  const state = j.state === 'queued' ? 'waiting its turn' : j.pct < 1 ? 'starting' : j.pct >= 99 ? 'finishing' : Math.floor(j.pct) + '%';
+  return { id: j.id, th: thumb(kind, j.state === 'done' && fs[n]?.kind === 'photo' && !OFFLINE ? fileURL(j, n) : '', dlDur(j)),
+    title: esc(j.title || j.url.replace(/^https?:\/\/(www\.)?/, '')), bad: j.state === 'failed',
+    meta: j.state === 'failed' ? esc(j.note || "That didn't download.") : esc(dlWhat(j) + (live ? ', ' + state : j.size ? ', ' + size(j.size) : '') + (j.note ? '. ' + j.note : '')),
+    where: whereOf(j, IOS ? (j.audio ? 'In Files' : 'In your Photos') : 'In Gallery'), when: stamp(new Date(j.at)), pct: live ? (j.state === 'queued' ? 0 : j.pct) : -1 };
+}
+
+// Save: the S23 app saves it into Gallery. The iPhone opens a photo or video in Safari, whose Share button has
+// Save Image and Save Video (several files: pick each from a menu); sound and files go to Files, several as one ZIP.
+// It stays after saving: on the iPhone, opening it doesn't mean it was saved.
 function dlSaveButton(j) {
-  if (j.state !== 'done') return '';
-  if (NATIVE?.saveDownload) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn small" data-dlsave="${j.id}">${icon('save')}Save</button>`;
-  if (j.audio || (j.files || []).every((f) => f.kind === 'audio' || f.kind === 'file')) { // several (a playlist's songs) come as one ZIP, which Files opens
-    return `<a class="btn small" href="${j.files?.length > 1 ? `${PCURL}/api/phone/dl/zip/${j.id}?t=${encodeURIComponent(TOKEN)}` : fileURL(j, 0, true)}" data-dlgot="${j.id}">${icon('save')}To Files</a>`;
-  }
-  // Opens the video in Safari; its Share button has Save Video / Save Image (to Photos). No Shortcut needed.
   const fs = j.files || [];
-  return fs.map((f, n) => `<a class="btn small" href="${fileURL(j, n, false)}" target="_blank" data-dlgot="${j.id}">${icon('save')}${fs.length > 1 ? 'Item ' + (n + 1) : 'To Photos'}</a>`).join('');
+  if (NATIVE?.saveDownload) return j.from === ST?.me && j.fetched ? '' : `<button type="button" class="btn text" data-dlsave="${j.id}">Save</button>`;
+  if (j.audio || fs.every((f) => f.kind === 'audio' || f.kind === 'file')) return `<a class="btn text" href="${fs.length > 1 ? `${PCURL}/api/phone/dl/zip/${j.id}?t=${encodeURIComponent(TOKEN)}` : fileURL(j, 0, true)}" data-dlgot="${j.id}">Save</a>`;
+  if (fs.length === 1) return `<a class="btn text" href="${fileURL(j, 0)}" target="_blank" data-dlgot="${j.id}">Save</a>`;
+  return more('dlsave' + j.id, fs.map((f, n) => `<a role="menuitem" href="${fileURL(j, n)}" target="_blank" data-dlgot="${j.id}">${icon(f.kind === 'video' ? 'video' : 'photo')}${f.kind === 'video' ? 'Video' : 'Photo'} ${n + 1}</a>`), 'Save');
 }
 
-function dlRow(j, full) {
-  const state = j.state === 'queued' ? 'Waiting its turn' : j.state === 'running' ? (j.pct < 1 ? 'Starting…' : j.pct >= 99 ? 'Finishing…' : `On the PC ${Math.floor(j.pct)}%`) : '';
-  const where = j.state !== 'done' ? '' : j.from === ST?.me && j.fetched ? (IOS ? 'In Photos' : 'In Gallery') : j.from === ST?.me && NATIVE ? 'Saving…' : 'On the PC';
-  return `<div class="row">${dlThumb(j)}<div class="row-text grow"><span class="row-title clip">${esc(j.title || j.url)}</span>
-    <div class="hmeta">${dlTag(j.site)}${full ? `<span>${esc(j.what)}${j.size ? ' · ' + dlSize(j.size) : ''}</span>` : ''}<span>${hm(new Date(j.at))}${full ? ' · from ' + esc(dlFrom(j)) : ''}</span>
-    ${state ? `<span class="jobstate">${state}</span>` : ''}${where ? `<span class="where">${icon('check')}${where}</span>` : ''}</div>
-    ${j.state === 'running' || j.state === 'queued' ? `<div class="prog"><i style="width:${Math.max(2, j.pct)}%"></i></div>` : ''}
-    ${j.state === 'failed' ? `<div class="hmeta bad">${icon('alert')}${esc(j.note)}</div>` : ''}</div>
-    <div class="hacts">${dlSaveButton(j)}${frShareBtn('dl', j)}${full && j.state === 'done' && (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') ? `<button type="button" class="btn small" data-trdl="${j.id}">${icon('transcribe')}Text</button>` : ''}${(j.state === 'running' || j.state === 'queued') && j.from === ST?.me ? `<button type="button" class="btn small" data-dlcancel="${j.id}">Cancel</button>` : ''}</div></div>`;
+function dlRow(j) {
+  const acts = isLive(j) ? (j.from === ST?.me ? `<button type="button" class="btn text" data-dlcancel="${j.id}">Cancel</button>` : '')
+    : j.state !== 'done' ? '' : dlSaveButton(j) + more('dl' + j.id, [frShareBtn('dl', j),
+      (j.files || []).some((f) => f.kind === 'video' || f.kind === 'audio') && `<button type="button" role="menuitem" data-trdl="${j.id}">${icon('transcribe')}Transcribe</button>`]);
+  return rowOf({ ...dlFields(j), acts });
 }
 
+// What the link is, under the box: checking, the site and title, or why it won't work.
 function dlLine() {
-  if (DS.err) return `<div class="detected is-bad">${icon('alert')}<span>${esc(DS.err)}</span></div>`;
-  if (!DS.url.trim()) return `<div class="detected">Any link from TikTok, YouTube, Instagram, X, Reddit and about 1,700 other sites.</div>`;
-  if (DS.probing) return `<div class="detected"><span class="pulse"></span><span>Checking the link…</span></div>`;
+  const line = (text, bad) => `<p class="detected ${bad ? 'is-bad' : ''}">${bad ? icon('alert') : ''}<span>${text}</span></p>`;
+  if (DS.err) return line(esc(DS.err), true);
+  if (!DS.url.trim()) return '';
+  if (DS.probing) return `<p class="detected"><i class="pulse"></i><span>Checking the link…</span></p>`;
   const p = DS.probe;
   if (!p) return '';
-  if (p.err) return `<div class="detected is-bad">${icon('alert')}<span>${esc(p.err)}${p.login ? ' On the PC: Settings › Logins.' : ''}</span></div>`;
-  return `<div class="detected"><i class="dotlight"></i><span><b>${esc(p.site)}</b> · ${esc(p.title || '')}${p.title ? ' · ' : ''}${esc(DS.audio && !p.pictures ? 'Sound only, MP3' : p.what)}</span></div>`;
+  if (p.err) return line(esc(p.err) + (p.login ? ' On the PC: Settings › Downloader › Logins.' : ''), true);
+  return `<p class="detected"><i class="dotlight"></i><span><b>${esc(p.site)}</b> · ${esc(p.title || '')}${p.title ? ' · ' : ''}${esc(DS.audio && !p.pictures ? 'Sound only, MP3' : p.what)}</span></p>`;
 }
 
-function dlView(off) {
-  if (OFFLINE && IOS) return dlTitle('Download', 'Paste a link, or share one from any app.') + `<div class="feed scroller">${off}
-    <div class="dlbox">
-      <label class="dlinput">${icon('link')}<span class="sr">Link</span><input id="dlhere" value="${esc(DS.url)}" placeholder="Paste a link" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url"></label>
-      <div class="detected">Any link from TikTok, YouTube, Instagram, X, Reddit and about 1,700 other sites.</div>
-      <div class="bigbtns">${navigator.clipboard?.readText ? '<button type="button" class="btn" data-dlherepaste>Paste</button>' : ''}<button type="button" class="btn primary" data-dlhere>${icon('dl')}Download</button></div>
-      ${DS.hereWarned ? `<div class="detected is-bad">${icon('alert')}<span>Download opens Apple's <b>Shortcuts</b> app to run <b>${SHORTCUT_DL}</b>. If you haven't made that Shortcut and installed a-Shell yet, it won't work: set them up once in the <b>Settings</b> tab. Or wait until you're home, when your PC does it. Made them already? Tap <b>Download</b> again.</span></div>` : ''}
-      <div class="route"><i class="dotlight"></i><span>Your PC is out of reach, so this iPhone downloads it with the free <b>a-Shell</b> app, through the <b>${SHORTCUT_DL}</b> Shortcut, and saves it to Photos.</span></div></div>
-    <p class="mhint">${icon('info')}<span>First time? Set up the Shortcut and a-Shell once: <b>Settings</b> tab, then <b>Share button</b> and <b>When your PC is off</b>.</span></p></div>`;
-  if (OFFLINE && NATIVE?.phoneDownload) { // the S23 app has yt-dlp built in
-    const ph = DS.phone || {};
-    return dlTitle('Download', 'Paste a link, or share one from any app.') + `<div class="feed scroller">${off}
-    <div class="dlbox">
-      <label class="dlinput">${icon('link')}<span class="sr">Link</span><input id="dlhere" value="${esc(DS.url)}" placeholder="Paste a link" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url"></label>
-      ${ph.err ? `<div class="detected is-bad">${icon('alert')}<span>${esc(ph.err)}</span></div>` : ph.busy ? `<div class="detected"><span class="pulse"></span><span>Downloading on this phone… ${ph.pct || 0}%</span></div><div class="prog"><i style="width:${Math.max(2, ph.pct || 0)}%"></i></div>`
-        : ph.done ? `<div class="detected"><i class="dotlight"></i><span>Saved: <b>${esc(ph.done)}</b>, in Gallery.</span></div>` : '<div class="detected">Any link from TikTok, YouTube, Instagram, X, Reddit and about 1,700 other sites.</div>'}
-      <div class="bigbtns">${NATIVE.clipboard ? '<button type="button" class="btn" data-dlpaste2>Paste</button>' : ''}<button type="button" class="btn primary" data-dlphone ${ph.busy ? 'disabled' : ''}>${icon('dl')}Download</button></div>
-      <label class="dlswitch"><span>Audio only (MP3)</span><input type="checkbox" class="switch" role="switch" id="dlaudio" ${DS.audio ? 'checked' : ''}></label>
-      <div class="route"><i class="dotlight"></i><span>Your PC is out of reach, so this phone downloads it and puts it in Gallery.</span></div></div></div>`;
-  }
-  if (OFFLINE) return dlTitle('Download', 'Paste a link, or share one from any app.') + `<div class="feed scroller">${off}
-    <p class="mhint">${icon('info')}<span>Your PC is off or out of reach. Links you share wait and go to the PC when it's back.</span></p></div>`;
-  const mine = dlJobs().filter((j) => j.from === ST?.me).slice(0, 6);
-  const can = DS.url.trim() && !DS.busy && DL?.ready;
-  const n = DS.note;
-  return `${dlTitle('Download', IOS ? 'Paste a link, or tap Share in any app.' : 'Paste a link, or share one to Premade Tools from any app.')}
-    <div class="feed scroller">${off}
-      <div class="dlbox">
-        <label class="dlinput">${icon('link')}<span class="sr">Link</span><input id="dlurl" value="${esc(DS.url)}" placeholder="Paste a link" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url"></label>
-        ${dlLine()}
-        <div class="bigbtns">${NATIVE?.clipboard ? `<button type="button" class="btn" data-dlpaste>Paste</button>` : ''}<button type="button" class="btn primary" data-dlgo ${can ? '' : 'disabled'}>${DS.busy ? 'Checking…' : `${icon('dl')}Download`}</button></div>
-        <label class="dlswitch"><span>Audio only (MP3)</span><input type="checkbox" class="switch" role="switch" id="dlaudio" ${DS.audio ? 'checked' : ''}></label>
-        <div class="route"><i class="dotlight"></i><span>${IOS ? 'Your PC downloads it. When it\'s done, tap <b>To Photos</b>, then in the video tap <b>Share</b> › <b>Save Video</b>.' : 'Your PC downloads it, then it goes into Gallery by itself.'}</span></div>
-        ${!DL?.ready ? `<div class="notebox is-info">${icon('info')}<div>The PC is still setting up its download engines. Try again in a few minutes.</div></div>` : ''}
-        ${n?.repeat ? `<div class="notebox is-info">${icon('info')}<div>You already have <b>${esc(n.repeat.title)}</b>, from ${esc(dayOf(new Date(n.repeat.at)).toLowerCase())}.<div class="acts">${dlSaveButton(n.repeat)}<button type="button" class="btn small" data-dlforce>Download again</button></div></div></div>` : ''}
-      </div>
-      ${mine.length ? `<section class="sec"><h2 class="group-label">From this phone</h2><div class="rows hrows">${mine.map((j) => dlRow(j)).join('')}</div></section>` : ''}
-      ${IOS ? `<p class="mhint">${icon('share')}<span>Faster: in TikTok, Instagram or YouTube tap <b>Share</b> (then <b>More</b>) and pick <b>${SHORTCUT_DL}</b>. Set it up once in <b>Settings</b>.</span></p>` : ''}
-    </div>`;
-}
-
-function dlHistoryView(off) {
-  const days = [];
-  for (const j of dlJobs()) {
-    const day = dayOf(new Date(j.at));
-    if (days.at(-1)?.day !== day) days.push({ day, rows: [] });
-    days.at(-1).rows.push(dlRow(j, true));
-  }
-  return `${dlTitle('History', 'Everything downloaded on the PC and your phones, newest first.')}
-    <div class="feed scroller">${off}${days.length ? days.map((g) => `<div class="daygroup"><div class="dayhead"><b>${esc(g.day)}</b><span>${g.rows.length}</span><i></i></div><div class="rows hrows">${g.rows.join('')}</div></div>`).join('')
-      : `<div class="empty">${icon('dl')}<h2>Nothing downloaded yet</h2><p>Paste a link in Download, or share one from any app.</p></div>`}</div>`;
+function dlView() {
+  const field = `<label class="linkfield">${icon('link')}<input id="dlurl" value="${esc(DS.url)}" placeholder="Paste a link" aria-label="Link" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url">${NATIVE?.clipboard || navigator.clipboard?.readText ? '<button type="button" class="btn text" data-dlpaste>Paste</button>' : ''}</label>`;
+  const audio = `<label class="sw"><input type="checkbox" class="switch" role="switch" id="dlaudio" ${DS.audio ? 'checked' : ''}>Audio only (MP3)</label>`;
+  const ph = DS.phone || {}, n = DS.note;
+  let box;
+  if (OFFLINE && IOS) box = `${field}<button type="button" class="btn primary big" data-dlhere>Download</button>
+    ${DS.hereWarned ? note(`Download opens Apple's <b>Shortcuts</b> app to run <b>${SHORTCUT_DL}</b>. If you haven't made that Shortcut and installed a-Shell yet, it won't work, so set them up first. Or wait until you're home, when your PC does it. Made them already? Tap <b>Download</b> again.`) : ''}
+    <p class="tip">Your PC is out of reach, so this iPhone downloads it with the free a-Shell app, through the ${SHORTCUT_DL} Shortcut, and saves it to Photos. <button type="button" class="link" data-go="dlsettings">Set it up</button></p>`;
+  else if (OFFLINE && NATIVE?.phoneDownload) box = `${field}${ph.err ? `<p class="detected is-bad">${icon('alert')}<span>${esc(ph.err)}</span></p>` : ph.busy ? `<p class="detected"><i class="pulse"></i><span>Downloading on this phone… ${ph.pct || 0}%</span></p><span class="prog"><i style="width:${Math.max(2, ph.pct || 0)}%"></i></span>`
+      : ph.done ? `<p class="detected"><i class="dotlight"></i><span>Saved: <b>${esc(ph.done)}</b>, in Gallery.</span></p>` : ''}
+    <button type="button" class="btn primary big" data-dlphone ${ph.busy ? 'disabled' : ''}>Download</button>${audio}
+    <p class="tip">Your PC is out of reach, so this phone downloads it and puts it in Gallery.</p>`;
+  else if (OFFLINE) box = `<p class="tip">Your PC is off or out of reach. Links you share wait and go to the PC when it's back.</p>`;
+  else box = `${field}${dlLine()}<button type="button" class="btn primary big" data-dlgo ${DS.url.trim() && !DS.busy && DL?.ready ? '' : 'disabled'}>${DS.busy ? 'Checking…' : 'Download'}</button>${audio}
+    <p class="tip">${IOS ? `From TikTok, Instagram or YouTube: tap Share, then ${SHORTCUT_DL}. <button type="button" class="link" data-go="dlsettings">Set it up</button>` : 'From TikTok, Instagram or YouTube: tap Share, then Premade Tools.'}</p>
+    ${DL && !DL.ready ? note('Your PC is still setting up its download engines. Try again in a few minutes.', 'info') : ''}
+    ${n?.repeat ? note(`You already have <b>${esc(n.repeat.title)}</b>, from ${esc(dayOf(new Date(n.repeat.at)).toLowerCase())}.<div class="acts">${dlSaveButton(n.repeat)}<button type="button" class="btn small" data-dlforce>Download again</button></div>`, 'info') : ''}`;
+  const jobs = [...dlJobs()].sort(newest);
+  return `<div class="dlbox">${box}</div>${jobs.length ? byDay(jobs, (j) => j.at, dlRow) : ''}`;
 }
 
 function dlAskView() {
   const p = DS.ask;
-  return `<div class="msheet" data-dlaskno><div class="msheet-card"><div class="grab"><span></span></div>
-    <div class="msheet-body"><p class="eyebrow">${esc(p.site)} playlist</p><h2 class="ask-title">${esc(p.title)}</h2>
-    <p class="ask-text">This link is a playlist of <b>${p.count} ${DS.audio ? 'songs' : 'videos'}</b>. All of them, or just the one it was opened on?</p></div>
-    <div class="actions dlask"><button type="button" class="btn primary block" data-dlmode="all">All ${p.count}</button><button type="button" class="btn block" data-dlmode="one">Just this one</button><button type="button" class="btn block" data-dlaskno>Cancel</button></div></div></div>`;
+  return `<div class="backdrop" data-dlaskno><section class="sheet upd" role="dialog" aria-modal="true" aria-label="Playlist">
+    <div class="ask-head"><p class="eyebrow">${esc(p.site)} playlist</p><h2 class="sheet-title">${esc(p.title)}</h2></div>
+    <div class="ask-body">This link is a playlist of <b>${p.count} ${DS.audio ? 'songs' : 'videos'}</b>. All of them, or just the one it was opened on?</div>
+    <div class="ask-foot"><button type="button" class="btn" data-dlaskno>Cancel</button><button type="button" class="btn" data-dlmode="one">Just this one</button><button type="button" class="btn primary" data-dlmode="all">All ${p.count}</button></div></section></div>`;
 }
 
-function dlSettingsView(off) {
-  const base = PCLINK, t = encodeURIComponent(TOKEN);
-  const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
-  const eng = DL?.engines || [];
-  const ios = IOS ? `
-    <section class="group"><div class="sectionhead"><b>Share button</b><i></i></div>
+function dlSettingsView() {
+  const base = PCLINK, t = encodeURIComponent(TOKEN), eng = DL?.engines || [];
+  return `${IOS ? `<section class="sec"><h2>Share button</h2><p class="tip">Make the <b>${SHORTCUT_DL}</b> Shortcut once, and it's in the Share button of every app.</p>
     <details class="iosguide"><summary>Set up "${SHORTCUT_DL}"</summary><ol>
       <li>Open <b>Shortcuts</b>, tap <b>+</b> and name it <b>${SHORTCUT_DL}</b>. Tap <b>ⓘ</b> and turn on <b>Show in Share Sheet</b>. Under <b>Receive</b>, keep only <b>URLs</b>, <b>Safari web pages</b> and <b>Text</b>, and set <b>If there's no input</b> to <b>Get Clipboard</b>.</li>
-      <li>Add <b>Get Contents of URL</b> with the address below, Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Shortcut Input</b>.${field('Start', `${base}/api/phone/dl/ios/start?t=${t}`)}</li>
+      <li>Add <b>Get Contents of URL</b> with the address below, Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Shortcut Input</b>.${copyField('Start', `${base}/api/phone/dl/ios/start?t=${t}`)}</li>
       <li><b>Set Variable</b> named <b>Job</b> to <b>Contents of URL</b>. Then <b>If</b> <b>Job</b> <b>begins with</b> <b>ERR OFF</b> (your PC is off or offline): do the steps in <b>When your PC is off</b> below, then <b>Stop This Shortcut</b>. <b>End If</b>.</li>
       <li>Then <b>If</b> <b>Job</b> <b>begins with</b> <b>ERR</b>: <b>Show Notification</b> with <b>Job</b>, then <b>Stop This Shortcut</b>. <b>End If</b>.</li>
-      <li><b>Repeat</b> <b>40</b> times. Inside it: a <b>Text</b> with the address below, with <b>Job</b> put where it says JOB, then <b>Get Contents of URL</b> of that Text.${field('Get', `${base}/api/phone/dl/ios/get/JOB?t=${t}`)}</li>
+      <li><b>Repeat</b> <b>40</b> times. Inside it: a <b>Text</b> with the address below, with <b>Job</b> put where it says JOB, then <b>Get Contents of URL</b> of that Text.${copyField('Get', `${base}/api/phone/dl/ios/get/JOB?t=${t}`)}</li>
       <li>Still inside the Repeat: <b>If</b> <b>Contents of URL</b> <b>begins with</b> <b>WAIT</b>, do nothing (the PC waits up to 20 seconds each time). <b>Otherwise</b>: <b>If</b> it <b>begins with</b> <b>ERR</b>, <b>Show Notification</b> and <b>Stop This Shortcut</b>. <b>Otherwise</b>: <b>If</b> <b>File Extension</b> <b>is</b> <b>zip</b>, <b>Extract Archive</b> then <b>Save to Photo Album</b>; <b>Otherwise</b> <b>Save to Photo Album</b> on <b>Contents of URL</b>. Then <b>Show Notification</b> “Saved to Photos” and <b>Stop This Shortcut</b>.</li>
       <li>After the Repeat ends: <b>Show Notification</b> “Still downloading on the PC. Open Premade Tools to save it later.”</li>
       <li>Try it: in TikTok tap <b>Share</b> › <b>More</b> › <b>${SHORTCUT_DL}</b>. Allow access to devices on your network and to Photos when asked.</li>
     </ol></details></section>
-    <section class="group"><div class="sectionhead"><b>When your PC is off</b><i></i></div>
+    <section class="sec"><h2>When your PC is off</h2>
     <details class="iosguide"><summary>Download on the iPhone with a-Shell</summary><ol>
-      <li>Install <b>a-Shell</b> (free, App Store). Open it and run this once (it takes a minute):${field('Setup', 'pip install -U yt-dlp gallery-dl')}</li>
-      <li>In the Shortcut, inside <b>If Job begins with ERR OFF</b>: add a-Shell's <b>Execute Command</b> with this command, and put <b>Shortcut Input</b> where it says LINK (keep the quotes).${field('Command', 'mkdir -p ~/Documents/premade && cd ~/Documents/premade && rm -f * && (yt-dlp -f "b[ext=mp4]/b" -o "%(title).80B.%(ext)s" "LINK" || gallery-dl -D . "LINK")')}</li>
+      <li>Install <b>a-Shell</b> (free, App Store). Open it and run this once (it takes a minute):${copyField('Setup', 'pip install -U yt-dlp gallery-dl')}</li>
+      <li>In the Shortcut, inside <b>If Job begins with ERR OFF</b>: add a-Shell's <b>Execute Command</b> with this command, and put <b>Shortcut Input</b> where it says LINK (keep the quotes).${copyField('Command', 'mkdir -p ~/Documents/premade && cd ~/Documents/premade && rm -f * && (yt-dlp -f "b[ext=mp4]/b" -o "%(title).80B.%(ext)s" "LINK" || gallery-dl -D . "LINK")')}</li>
       <li>Then a-Shell's <b>Get File</b> (or <b>Get Contents of Folder</b> on a-Shell › <b>premade</b>) and <b>Save to Photo Album</b>.</li>
       <li>Keep the screen on while it runs. YouTube may not work without the PC, so YouTube links are best shared at home.</li>
-    </ol></details></section>` : `
-    <section class="group"><div class="sectionhead"><b>Share menu</b><i></i></div><div class="panel"><div class="block"><h2 class="block-title">Premade Tools is in every app's Share menu</h2><p class="block-hint">In TikTok, Instagram, YouTube or X tap Share and pick Premade Tools. The PC downloads it and it lands in Gallery. Away from home, links wait and go when the PC is reachable.</p></div></div></section>`;
-  return `${dlTitle('Settings', 'How downloads get to this phone.')}<div class="headrule"></div>
-    <div class="feed scroller">${off}${ios}
-    <section class="group"><div class="sectionhead"><b>On the PC</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Save folder on the PC</h2><p class="vaultpath-m">${esc(DL?.dir || '')}</p><p class="block-hint">A copy of everything stays here. Every tool saves into this one folder. Change it on the PC in Settings.</p></div>
-      <div class="block"><h2 class="block-title">Logins</h2><p class="block-hint">${(DL?.logins || []).length ? 'Logged in to ' + esc(DL.logins.join(', ')) + '. ' : ''}For Instagram stories and other posts that need an account, log in once on the PC: Settings › Logins.</p></div>
-      <div class="block"><h2 class="block-title">Engines</h2><p class="block-hint mono">${eng.map((e) => `${esc(e.name)} ${esc(e.version || e.state)}`).join(' · ')}</p></div>
-    </div></section>
-    <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>`;
+    </ol></details></section>`
+    : `<section class="sec"><h2>Share menu</h2><p class="tip">Premade Tools is in every app's Share menu. In TikTok, Instagram, YouTube or X tap Share and pick Premade Tools. Your PC downloads it and it lands in Gallery. Away from home, links wait and go when your PC is reachable.</p></section>`}
+    <section class="sec"><h2>On your PC</h2>
+      <div class="srow"><span class="grow">Save folder<span class="h mono">${esc(DL?.dir || '')}</span><span class="h">A copy of everything stays here. Every tool saves into this one folder. Change it on the PC in Settings.</span></span></div>
+      <div class="srow"><span class="grow">Logins<span class="h">${(DL?.logins || []).length ? 'Logged in to ' + esc(DL.logins.join(', ')) + '. ' : ''}For Instagram stories and other posts that need an account, log in once on the PC: Settings › Downloader › Logins.</span></span></div>
+      <div class="srow"><span class="grow">Engines<span class="h">${eng.map((e) => `${esc(e.name)} ${esc(e.version || e.state)}`).join(', ') || 'Not set up yet.'}</span></span></div>
+    </section>`;
 }
 
 async function dlProbeNow() {
   const url = DS.url.trim();
-  if (!url) { DS.probe = null; DS.probing = ''; return render(); }
+  if (!url || OFFLINE) { DS.probe = null; DS.probing = ''; return render(); }
   DS.probing = url; render();
   try {
     const p = await api('/api/phone/dl/probe?url=' + encodeURIComponent(url));
@@ -178,10 +139,10 @@ async function dlGo(mode, force) {
   DS.busy = true; DS.err = ''; DS.note = null; render();
   try {
     const r = await api('/api/phone/dl/start', { url: DS.url, audio: DS.audio, mode: mode || '', force: !!force });
-    DS.probe = r.probe; DS.ask = null; S.dlAsk = false;
+    DS.probe = r.probe; DS.ask = null;
     if (r.job) { DS.url = ''; DS.probe = null; document.activeElement?.blur(); }
     else if (r.repeat) DS.note = { repeat: r.repeat };
-    else if (r.probe?.ask) { DS.ask = r.probe; S.dlAsk = true; }
+    else if (r.probe?.ask) DS.ask = r.probe;
     DL = await api('/api/phone/dl');
     NATIVE?.watchDownloads?.();
   } catch (e) { DS.err = e.message; }
@@ -189,7 +150,7 @@ async function dlGo(mode, force) {
 }
 
 $app.addEventListener('click', async (e) => {
-  if (e.target.dataset?.dlaskno !== undefined && e.target.classList.contains('msheet')) { S.dlAsk = false; render(); return; }
+  if (e.target.matches('.backdrop[data-dlaskno]')) { DS.ask = null; render(); return; }
   const b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
@@ -197,11 +158,10 @@ $app.addEventListener('click', async (e) => {
     if (d.dlgo !== undefined) dlGo();
     else if (d.dlforce !== undefined) dlGo(DS.note?.repeat?.mode, true); // a playlist again: the same choice, all or one
     else if (d.dlmode) dlGo(d.dlmode);
-    else if (d.dlaskno !== undefined) { S.dlAsk = false; render(); }
-    else if (d.dlpaste !== undefined) { DS.url = NATIVE.clipboard() || ''; DS.err = ''; dlProbeNow(); }
+    else if (d.dlaskno !== undefined) { DS.ask = null; render(); }
+    else if (d.dlpaste !== undefined) { DS.url = (NATIVE?.clipboard ? NATIVE.clipboard() : await navigator.clipboard.readText()) || ''; DS.err = ''; DS.probe = null; dlProbeNow(); }
     else if (d.dlcancel) { await api('/api/phone/dl/cancel/' + d.dlcancel, {}); refresh(); }
     else if (d.dlphone !== undefined) { if (DS.url.trim()) { DS.phone = { busy: true, pct: 0 }; render(); NATIVE.phoneDownload(dlLink(DS.url), DS.audio); } }
-    else if (d.dlpaste2 !== undefined) { DS.url = NATIVE.clipboard() || ''; render(); }
     else if (d.dlhere !== undefined) {
       if (!DS.url.trim()) return;
       // The first time, say what's about to open instead of dropping them into the Shortcuts app unannounced.
@@ -211,21 +171,19 @@ $app.addEventListener('click', async (e) => {
       try { localStorage.setItem('dlShortcutOK', '1'); } catch {}
       location.href = runDl(dlLink(DS.url));
     }
-    else if (d.dlherepaste !== undefined) { DS.url = (await navigator.clipboard.readText()).trim(); render(); }
     else if (d.dlsave) { saving.add(d.dlsave); NATIVE.saveDownload(d.dlsave); b.textContent = 'Saving…'; }
   } catch (err) { DS.err = err.message; render(); }
 });
 // iPhone: opening a download to save it counts as picked up, so the PC stops saying it's waiting for this phone.
 $app.addEventListener('click', (e) => { const a = e.target.closest('a[data-dlgot]'); if (a) api('/api/phone/dl/fetched/' + a.dataset.dlgot, {}).catch(() => {}); });
 $app.addEventListener('input', (e) => {
-  if (e.target.id === 'dlhere') DS.url = e.target.value;
   if (e.target.id !== 'dlurl') return;
   DS.url = e.target.value; DS.err = ''; DS.note = null; DS.probe = null;
   clearTimeout(dlProbeTimer);
   dlProbeTimer = setTimeout(dlProbeNow, 700);
 });
 $app.addEventListener('change', (e) => { if (e.target.id === 'dlaudio') { DS.audio = e.target.checked; render(); } });
-$app.addEventListener('keydown', (e) => { if (e.target.id === 'dlurl' && e.key === 'Enter') { clearTimeout(dlProbeTimer); e.target.blur(); dlGo(); } });
+$app.addEventListener('keydown', (e) => { if (e.target.id === 'dlurl' && e.key === 'Enter' && !OFFLINE) { clearTimeout(dlProbeTimer); e.target.blur(); dlGo(); } });
 // The S23 app reports a download it does by itself (PhoneDL.java).
 window.phoneDlProgress = (pct) => { DS.phone = { busy: true, pct }; const b = document.querySelector('.dlbox .prog i'); if (b) b.style.width = Math.max(2, pct) + '%'; else render(); };
 window.phoneDlDone = (res) => { DS.phone = res.startsWith('ERR:') ? { err: res.slice(4) } : { done: res.split('\n').join(', ') }; if (!DS.phone.err) DS.url = ''; render(); };

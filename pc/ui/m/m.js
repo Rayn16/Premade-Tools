@@ -1,10 +1,13 @@
-// Vault on the phone: the same screens for the Android app (inside its WebView) and the iPhone home-screen app.
+// Premade Tools on the phone: the same pages for the Android app (inside its WebView) and the iPhone home-screen app.
+// Home lists the tools; each tool has one page (its box, then everything it did, by day) and a settings page.
 'use strict';
 
 const qs = new URLSearchParams(location.hash.slice(1) || location.search); // Android: #t=…; iPhone Home Screen app: ?t=…
 if (qs.get('t')) { try { localStorage.setItem('vaultToken', qs.get('t')); } catch (e) {} }
 const TOKEN = qs.get('t') || (() => { try { return localStorage.getItem('vaultToken'); } catch (e) { return null; } })();
 const NATIVE = window.Vault || null; // Android bridge, absent on iPhone
+const IOS = !NATIVE;
+const ME = IOS ? 'this iPhone' : 'this phone';
 // The pages come from the PC itself (Android app, the old iPhone icon) or from the relay (the iPhone icon now), which
 // keeps working with the PC off. From the relay, the PC is reached at its Tailscale https address, or through the
 // relay's link to it (link.go), whichever answers; both are saved at pairing and kept up to date.
@@ -14,22 +17,81 @@ const PCS = HOSTED ? [kept('pc'), kept('link')].filter(Boolean) : [];
 let PCURL = PCS[0] || '';
 const PCLINK = (HOSTED ? PCURL || kept('lan') : '') || location.origin; // the address Shortcuts use
 
-const S = { tool: 'home', tab: 'home', drawer: false, phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null, view: 'grid' };
-try { S.view = localStorage.getItem('vaultView') || 'grid'; } catch (e) {}
-if (qs.get('tool') === 'drop') { S.tool = 'drop'; S.tab = 'drop'; } // the Android app's "Sent to this phone" notification
-// Each tool has its own bottom tabs; the ☰ sidebar switches tools.
-const TOOLS = { home: { name: 'Home', icon: 'home', tabs: [['home', 'Home', 'home']] },
-  download: { name: 'Downloader', icon: 'dl', tabs: [['dl', 'Download', 'dl'], ['history', 'History', 'clock'], ['dlsettings', 'Settings', 'settings']] },
-  convert: { name: 'Converter', icon: 'convert', tabs: [['convert', 'Convert', 'convert'], ['cvhistory', 'History', 'clock'], ['cvsettings', 'Settings', 'settings']] },
-  pdf: { name: 'PDF', icon: 'pdf', tabs: [['pdf', 'Tools', 'pdf'], ['pdfhistory', 'History', 'clock'], ['pdfsettings', 'Settings', 'settings']] },
-  transcribe: { name: 'Transcribe', icon: 'transcribe', tabs: [['transcribe', 'Transcribe', 'transcribe'], ['trhistory', 'History', 'clock'], ['trsettings', 'Settings', 'settings']] },
-  friends: { name: 'Friends', icon: 'friends', tabs: [['friends', 'Friends', 'friends']] },
-  drop: { name: 'File drop', icon: 'drop', tabs: [['drop', 'Drop', 'drop'], ['drophistory', 'History', 'clock'], ['dropsettings', 'Settings', 'settings']] },
-  vault: { name: 'Vault', icon: 'shield', tabs: [['deleted', 'Deleted', 'deleted'], ['phones', 'Phones', 'phones'], ['settings', 'Settings', 'settings']] } };
+// Every page: its title, what draws it, and its settings page (the ⚙ at the top).
+const PAGES = {
+  home: ['Premade Tools', () => homeView()],
+  dl: ['Download', () => dlView(), 'dlsettings'], convert: ['Convert', () => cvView(), 'cvsettings'], pdf: ['PDF', () => pdfToolsView(), 'pdfsettings'],
+  transcribe: ['Transcribe', () => trToolsView(), 'trsettings'], drop: ['File drop', () => dropToolsView(), 'dropsettings'],
+  deleted: ['Vault', () => deletedView(), 'settings'], phones: ['Vault', () => phonesView(), 'settings'], friends: ['Friends', () => frToolsView()],
+  dlsettings: ['Download settings', () => dlSettingsView()], cvsettings: ['Convert settings', () => cvSettingsView()], pdfsettings: ['PDF settings', () => pdfSettingsView()],
+  trsettings: ['Transcribe settings', () => trSettingsView()], dropsettings: ['File drop settings', () => dropSettingsView()], settings: ['Settings', () => settingsView()],
+};
+// The tools on Home: page and icon.
+const HOME = [['dl', 'dl'], ['convert', 'convert'], ['pdf', 'pdf'], ['transcribe', 'transcribe'], ['drop', 'drop'], ['deleted', 'shield'], ['friends', 'friends']];
+// Pages are browser history, so Back (Android's, or the ‹ at the top) goes to the page before.
+const S = { page: PAGES[history.state?.page] ? history.state.page : qs.get('tool') === 'drop' ? 'drop' : 'home', // the Android app's "Sent to this phone" notification
+  phone: 'all', type: 'all', q: '', sheet: null, msg: '', ask: null };
+if (!history.state) history.replaceState({ page: S.page, depth: 0 }, '');
 const FLOW = {}; // file id → 'confirm', { wait: text } or { done: true, name, folder }
 let ST = null, ITEMS = [], OFFLINE = false, LAST = '';
 let DL = null; // /api/phone/dl, drawn by mdl.js
 const $app = document.getElementById('app');
+TAPROWS = true; // a finished row opens its buttons in a sheet (common.js)
+
+function go(page) {
+  if (page === S.page) return;
+  history.pushState({ page, depth: (history.state?.depth || 0) + 1 }, '');
+  S.page = page; S.sheet = null; S.msg = ''; MENU = ''; SHEET = ''; render();
+}
+function back() {
+  if (history.state?.depth) return history.back();
+  history.replaceState({ page: 'home', depth: 0 }, ''); S.page = 'home'; render(); // opened straight on a page
+}
+// An open sheet is a step of its own in history, so Back (Android's, or the iPhone's swipe) closes it and stays on the page.
+let OWNBACK = false;
+const sheetUp = () => !!(S.sheet || SHEET || FR.share || DS.ask);
+function sheetStep() {
+  if (sheetUp() && !history.state?.sheet) history.pushState({ ...history.state, sheet: 1 }, '');
+  else if (!sheetUp() && history.state?.sheet) { OWNBACK = true; history.back(); } // closed some other way: drop its step
+}
+addEventListener('popstate', (e) => {
+  if (OWNBACK) { OWNBACK = false; return; }
+  if (FLOW[S.sheet] === 'confirm' || FLOW[S.sheet]?.done) delete FLOW[S.sheet];
+  S.page = PAGES[e.state?.page] ? e.state.page : 'home'; S.sheet = null; MENU = ''; SHEET = ''; FR.share = null; DS.ask = null; render();
+});
+
+// A sheet from the bottom follows the finger down and closes past a third of its height (or on a quick flick);
+// short of that it slides back. Only from its top, or once its contents are scrolled to the top.
+let DRAG = null;
+$app.addEventListener('touchstart', (e) => {
+  const card = e.target.closest('.msheet:not(.out) .msheet-card');
+  if (!card || e.touches.length > 1 || e.target.closest('input,select,textarea,video,audio') || document.documentElement.classList.contains('reduced')) return;
+  DRAG = { card, y0: e.touches[0].clientY, t0: performance.now(), dy: 0, on: false };
+}, { passive: true });
+$app.addEventListener('touchmove', (e) => {
+  if (!DRAG) return;
+  const d = DRAG, dy = e.touches[0].clientY - d.y0, body = d.card.querySelector('.msheet-body');
+  if (!d.on) {
+    if (Math.abs(dy) < 8) return;
+    if (dy < 0 || (body && body.scrollTop > 0 && !e.target.closest('.grab'))) { DRAG = null; return; } // a scroll, not a drag
+    d.on = true; d.card.classList.remove('snap'); d.card.classList.add('dragging');
+  }
+  e.preventDefault();
+  d.dy = Math.max(0, dy);
+  d.card.style.transform = `translateY(${d.dy}px)`;
+  d.card.parentNode.style.opacity = String(1 - Math.min(1, d.dy / d.card.offsetHeight) * .6);
+}, { passive: false });
+function dragEnd() {
+  const d = DRAG; DRAG = null;
+  if (!d?.on) return;
+  d.card.classList.remove('dragging');
+  const fast = d.dy / (performance.now() - d.t0) > .6; // px per ms
+  if (d.dy > d.card.offsetHeight * .3 || (fast && d.dy > 40)) { closeAnySheet(); return; }
+  d.card.classList.add('snap'); d.card.style.transform = ''; d.card.parentNode.style.opacity = '';
+}
+$app.addEventListener('touchend', dragEnd);
+$app.addEventListener('touchcancel', dragEnd);
+function closeAnySheet() { if (history.state?.sheet) history.back(); else { FR.share = null; DS.ask = null; closeSheet(); } }
 
 async function api(path, body) {
   const opt = { headers: { Authorization: 'Bearer ' + TOKEN } };
@@ -95,7 +157,7 @@ async function refresh() {
     if (!ST) { ST = { me: '', phones: [], version: '', config: { theme: 'red' } }; ITEMS = []; } // never reached the PC: the phone's own tools still work
   }
   const now = JSON.stringify([ST, ITEMS, OFFLINE, DL, CVS, PDFST, TRST]);
-  if (now !== LAST || (S.tab !== 'deleted' && S.tab !== 'dl' && S.tab !== 'convert' && S.tab !== 'pdf' && S.tab !== 'transcribe' && S.tab !== 'drop')) render();
+  if (now !== LAST || S.page === 'phones') render(); // Phones: "checked 5 minutes ago", and the Android app's own checks
   LAST = now;
 }
 
@@ -104,177 +166,145 @@ const phoneName = (id) => id === ST?.me ? 'This phone' : phoneById(id)?.Name || 
 const view = (id, dl) => `${PCURL}/api/phone/view/${id}?t=${encodeURIComponent(TOKEN)}${dl ? '&dl=1' : ''}`;
 const fresh = (p) => Date.now() - new Date(p.LastSeen) < 2 * 3600e3;
 const live = () => liveItems(ITEMS || []);
-const crest = '<span class="crest"><img src="/icon.svg" alt=""></span>';
-const LEDE = { deleted: 'Everything you deleted on your phones, newest first.', phones: 'The phones that send what you delete to your PC.', settings: 'How long the vault keeps things, where they sit, and how this app looks.' };
+const note = (text, ic = 'alert') => text ? `<div class="notebox ${ic === 'alert' ? '' : 'is-info'}">${icon(ic)}<div>${text}</div></div>` : '';
+// A Shortcut's address, with a Copy button (works over plain http too, see the click handler).
+const copyField = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}" aria-label="${label}"><button type="button" class="btn small" data-copy>Copy</button></div>`;
+// Where a tool's result is now, seen from this phone. got: where this phone put it once saved ("In your Photos").
+function whereOf(j, got) {
+  if (j.local) return ljWhere(j);
+  if (j.state === 'failed') return '';
+  const mine = j.from === ST?.me;
+  if (j.state !== 'done') return mine ? icon('phones') + `Comes to ${ME} when done` : '';
+  return !mine ? icon('pc') + 'On your PC' : j.fetched ? icon('check') + got : NATIVE ? icon('clock') + 'Saving…' : icon('pc') + 'On your PC';
+}
 
+const SCROLL = {}; // each page's scroll, kept for coming back to it
+let DRAWN = '';
 function render() {
   if (!TOKEN) {
-    $app.innerHTML = `<div class="topbar">${crest}<span class="wordmark-app">Premade Tools</span></div><div class="titlerow"><div><h1 class="pagetitle">Not paired yet</h1><p class="pagelede">Open Premade Tools on your PC, choose Phones, then Add a phone, and scan the code with this phone.</p></div></div>`;
+    $app.innerHTML = `<header class="ph-title">${MARK}<h1>Premade Tools</h1></header><main class="ph-body"><h2 class="block-title">Not paired yet</h2>
+      <p class="tip">Open Premade Tools on your PC, choose Vault, then Phones, then Add a phone, and scan the code with this phone.</p></main>`;
     return;
   }
-  const keep = [...$app.querySelectorAll('.scroller')].map((n) => n.scrollTop);
-  const c = ST?.config || {};
-  $app.dataset.theme = c.theme || 'red';
-  $app.style.setProperty('--c', c.custom || '#d9202d');
-  const keepFocus = document.activeElement?.id;
-  const tool = TOOLS[S.tool];
-  const tabs = tool.tabs.map(([id, l, ic]) =>
-    `<button type="button" class="tab" data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></button>`).join('');
-  const off = OFFLINE ? `<div class="offline">Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : HOSTED ? 'This phone does the work itself until it is.' : 'This shows what was there last time.'}</div>` : '';
-  const head = `<div class="topbar"><button type="button" class="menubtn" data-drawer aria-label="Tools" aria-expanded="${S.drawer}">${icon('menu')}</button>${crest}<span class="wordmark-app">${tool.name}</span></div>`;
-  const views = { home: homeView, phones: phonesView, settings: settingsView, deleted: deletedView, dl: dlView, history: dlHistoryView, dlsettings: dlSettingsView, convert: cvView, cvhistory: cvHistoryView, cvsettings: cvSettingsView,
-    pdf: pdfToolsView, pdfhistory: pdfHistoryView, pdfsettings: pdfSettingsView, transcribe: trToolsView, trhistory: trHistoryView, trsettings: trSettingsView,
-    drop: dropToolsView, drophistory: dropHistoryView, dropsettings: dropSettingsView, friends: frToolsView };
-  const body = !ST ? '<div class="titlerow"><p class="pagelede">Loading…</p></div>' : (views[S.tab] || deletedView)(off);
-  $app.innerHTML = `${head}${body}${tool.tabs.length > 1 ? `<nav class="tabbar" aria-label="Sections">${tabs}</nav>` : ''}${S.sheet ? sheetView() : ''}${S.ask ? askView() : ''}${S.dlAsk ? dlAskView() : ''}${typeof frSheet === 'function' ? frSheet() : ''}${S.drawer ? drawerView() : ''}${updView()}`;
-  $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
-  if (keepFocus && document.getElementById(keepFocus)) document.getElementById(keepFocus).focus();
+  const keep = [...$app.querySelectorAll('.scroller')].map((n) => n.scrollTop), same = DRAWN === S.page;
+  if (keep.length) SCROLL[DRAWN] = keep[0]; // the page itself is the first
+  const act = document.activeElement, focusId = act?.id, caret = [act?.selectionStart, act?.selectionEnd];
+  paintTheme($app, ST?.config || {});
+  const [title, page, gear] = PAGES[S.page] || PAGES.home;
+  const top = S.page === 'home' ? `<header class="ph-title">${MARK}<h1>${title}</h1><span class="grow"></span><button type="button" class="btn icon" data-go="settings" aria-label="Settings">${icon('settings')}</button></header>`
+    : `<header class="ph-top"><button type="button" class="btn icon" data-back aria-label="Back">${icon('back')}</button><h1>${title}</h1><span class="grow"></span>${gear ? `<button type="button" class="btn icon" data-go="${gear}" aria-label="${title} settings">${icon('settings')}</button>` : ''}</header>`;
+  const off = OFFLINE ? `<p class="note">${icon('alert')}<span>Can't reach your PC right now. ${NATIVE ? 'This phone keeps saving what you delete and sends it when you are home.' : HOSTED ? 'This phone does the work itself until it is.' : 'This shows what was there last time.'}</span></p>` : '';
+  SHEETROW = '';
+  const body = ST ? off + page() : '<p class="tip">Loading…</p>';
+  if (!SHEETROW) SHEET = ''; // its row is gone
+  // The tapped row's sheet steps aside while the Send sheet it opened is up.
+  redraw($app, `${top}<main class="ph-body scroller">${body}</main>${FR.share ? '' : SHEETROW}${S.sheet ? sheetView() : ''}${DS.ask ? dlAskView() : ''}${frSheet()}${updView()}`);
+  if (DRAWN && DRAWN !== S.page) pageIn($app.querySelector('.ph-body')); // a new page fades in
+  DRAWN = S.page;
+  sheetStep();
+  $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = same ? keep[i] || 0 : i ? 0 : SCROLL[S.page] || 0; });
+  const f = focusId && document.getElementById(focusId);
+  if (f && f !== document.activeElement) { f.focus(); try { f.setSelectionRange(caret[0], caret[1]); } catch (e) {} }
   lazyMedia($app);
 }
 
-function homeView(off) {
-  const done = (jobs) => jobs.filter((j) => j.state === 'done').length;
-  return `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">Your tools</h1><p class="pagelede">Pick a tool to open it.</p></div>${frHomeBtn('data-tool')}</div>
-    <div class="feed scroller">${off}${moveNudge()}${homeCards('tool', [
-      ['download', 'dl', 'Downloader', 'Save videos and photos from any link.', tally(done(dlJobs()), 'download saved', 'downloads saved')],
-      ['convert', 'convert', 'Converter', 'Turn files into other formats on your PC.', tally(done(typeof cvJobs === 'function' ? cvJobs() : []), 'file converted', 'files converted')],
-      ['pdf', 'pdf', 'PDF', 'Edit, merge, split, compress and lock PDFs.', tally(done(pdfJobs()), 'PDF done', 'PDFs done')],
-      ['transcribe', 'transcribe', 'Transcribe', 'Turn voice memos and videos into text.', tally(done(trJobs()), 'file transcribed', 'files transcribed')],
-      ['drop', 'drop', 'File drop', 'Send files, links and text to your PC.', dropNew() ? `<b>${dropNew()}</b> new for this phone` : tally(dropJobs().length, 'drop this week', 'drops this week')],
-      ['vault', 'shield', 'Vault', 'Get back what you deleted on your phones.', tally(live().length, 'deleted item', 'deleted items') + ' kept']])}</div>`;
+// ---------- Home: the tools, then the latest from all of them ----------
+function homeView() {
+  const n = { dl: running(dlJobs()), convert: running(cvJobs()), pdf: running(pdfJobs()), transcribe: running(trJobs()), drop: dropNew() ? dropNew() + ' new' : '',
+    deleted: live().length ? live().length + ' kept' : '', friends: frMe()?.waiting?.length ? frMe().waiting.length + ' asking' : '' };
+  const recent = [...dlJobs().map((j) => [j, dlFields(j), 'dl']), ...cvJobs().map((j) => [j, cvFields(j), 'convert']), ...pdfJobs().map((j) => [j, pdfFields(j), 'pdf']),
+    ...trJobs().map((j) => [j, trFields(j), 'transcribe']), ...dropJobs().map((j) => [j, dropFields(j), 'drop'])].sort(([a], [b]) => newest(a, b)).slice(0, 8);
+  return `${moveNudge()}<nav class="tools" aria-label="Tools">${HOME.map(([pg, ic]) => `<button type="button" class="tool" data-go="${pg}">${icon(ic)}<b>${PAGES[pg][0]}</b>${n[pg] ? `<span class="${pg === 'deleted' ? '' : 'live'}">${n[pg]}</span>` : ''}${icon('chev', 'chev')}</button>`).join('')}</nav>
+    ${recent.length ? `<h2 class="day">Recent</h2><div class="rows">${recent.map(([, f, pg]) => rowOf({ ...f, go: `data-go="${pg}"` })).join('')}</div>` : ''}`;
 }
 
 // iPhones still on the old icon (pages from the PC over the home Wi-Fi): offer the new one, which opens anywhere.
 function moveNudge() {
-  if (HOSTED && !navigator.standalone && /iP(hone|ad|od)/.test(navigator.userAgent)) return `<div class="notebox is-info">${icon('info')}<div><b>Keep Premade on this iPhone.</b> Tap <b>Share</b> › <b>Add to Home Screen</b>, then open Premade from there. It opens even with your PC off.</div></div>`;
-  if (HOSTED && !PCS.length) return `<div class="notebox is-info">${icon('info')}<div><b>Connect this iPhone to your PC again.</b> On the PC, open Premade › Vault › Phones › <b>Add a phone</b> and scan the code, then open Premade from the new icon. This phone's own tools work until then.</div></div>`;
+  if (HOSTED && !navigator.standalone && /iP(hone|ad|od)/.test(navigator.userAgent)) return note('<b>Keep Premade on this iPhone.</b> Tap <b>Share</b> › <b>Add to Home Screen</b>, then open Premade from there. It opens even with your PC off.', 'info');
+  if (HOSTED && !PCS.length) return note('<b>Connect this iPhone to your PC again.</b> On the PC, open Premade › Vault › Phones › <b>Add a phone</b> and scan the code, then open Premade from the new icon. This phone\'s own tools work until then.', 'info');
   if (HOSTED || NATIVE || !ST?.relay || ST.relay.includes('REPLACE') || !/iP(hone|ad|od)/.test(navigator.userAgent)) return '';
   const to = `${ST.relay}/m/?t=${encodeURIComponent(TOKEN)}&pc=${encodeURIComponent(ST.remote || '')}&link=${encodeURIComponent(ST.link || '')}&lan=${encodeURIComponent(location.origin)}`;
-  return `<div class="notebox is-info">${icon('info')}<div><b>Premade now works away from home.</b> Open the new version, then tap <b>Share</b> › <b>Add to Home Screen</b> and remove this old icon.<div class="acts"><a class="btn small primary" href="${esc(to)}">Open the new version</a></div></div></div>`;
+  return note(`<b>Premade now works away from home.</b> Open the new version, then tap <b>Share</b> › <b>Add to Home Screen</b> and remove this old icon.<div class="acts"><a class="btn small primary" href="${esc(to)}">Open the new version</a></div>`, 'info');
 }
 
+// ---------- Vault: Deleted ----------
 function shown() {
   const q = S.q.trim().toLowerCase();
   return ITEMS.filter((it) => !it.dismissed && (S.phone === 'all' || it.phone === S.phone) && (S.type === 'all' || it.kind === S.type) && (!q || (it.name + ' ' + it.folder).toLowerCase().includes(q)));
 }
-const titleRow = (name, extra = '') => `<div class="titlerow"><div class="titlerow-text"><h1 class="pagetitle">${name}</h1><p class="pagelede">${LEDE[name.toLowerCase()]}</p></div>${extra}</div>`;
-
-function deletedView(off) {
-  const all = live(), n = (f) => all.filter(f).length;
-  const phoneOpts = [['all', 'All phones', all.length], ...ST.phones.map((p) => [p.ID, p.ID === ST.me ? 'This phone' : p.Name, n((i) => i.phone === p.ID)])];
-  const typeOpts = [['all', 'All', all.length], ['photo', 'Photos', n((i) => i.kind === 'photo')], ['video', 'Videos', n((i) => i.kind === 'video')], ['voice', 'Voice', n((i) => i.kind === 'voice')], ['file', 'Files', n((i) => i.kind === 'file')]];
-  const pills = (opts, key) => opts.map(([id, l, c]) => `<button type="button" class="pill" data-${key}="${esc(id)}" aria-pressed="${S[key] === id}">${esc(l)} <i>${c}</i></button>`).join('');
-  const toggle = `<div class="viewtoggle" role="group" aria-label="View"><button type="button" data-view="grid" aria-pressed="${S.view === 'grid'}" aria-label="Grid">${icon('grid')}</button><button type="button" data-view="list" aria-pressed="${S.view === 'list'}" aria-label="List">${icon('list')}</button></div>`;
-  return `${titleRow('Deleted', toggle)}
-    <label class="search">${icon('search')}<span class="sr">Search deleted files</span><input type="search" id="q" value="${esc(S.q)}" placeholder="Search by name or folder"></label>
-    <div class="rails"><div class="rail" role="group" aria-label="Type">${pills(typeOpts, 'type')}</div>
-    ${phoneOpts.length > 2 ? `<div class="rail rail-sm" role="group" aria-label="Phone">${pills(phoneOpts, 'phone')}</div>` : ''}</div>
-    <div class="headrule"></div>
-    <div class="feed scroller" id="dl">${off}${ST.vault ? `<div class="notebox is-info">${icon('info')}<div>${esc(ST.vault)}</div></div>` : ''}${iosNudge()}${listView()}</div>`;
-}
-
-function listView() {
-  const all = shown(), items = all.filter((i) => !i.missed);
-  const notes = all.filter((i) => i.missed).map((it) => `<div class="failnote" role="status">${icon('alert')}<span><b>${esc(it.name)}</b> couldn't be saved. ${esc(it.note || '')}</span><button type="button" class="quiet" data-dismiss="${it.id}">Dismiss</button></div>`).join('');
-  if (!live().length) return notes + `<div class="empty">${icon('deleted')}<h2>Nothing deleted yet</h2><p>From now on, anything you delete shows up here, newest first.</p></div>`;
-  if (!items.length) return notes + `<div class="empty">${icon('search')}<h2>Nothing matches that</h2><p>Try another name, or clear the filters.</p></div>`;
-  const groups = [];
-  for (const it of items) {
-    const day = dayOf(new Date(it.deletedAt));
-    if (groups.at(-1)?.day !== day) groups.push({ day, rows: [] });
-    groups.at(-1).rows.push(S.view === 'list' ? rowView(it) : cardView(it));
-  }
-  return `<p class="feedcount"><b>${items.length}</b> ${items.length === 1 ? 'item' : 'items'} kept</p>${notes}` +
-    groups.map((g) => `<section class="daygroup"><div class="dayhead"><b>${g.day}</b><span>${g.rows.length}</span><i></i></div><div class="${S.view === 'list' ? 'list' : 'grid'}">${g.rows.join('')}</div></section>`).join('');
-}
-
+const vaultSeg = (on) => `<div class="seg two" role="group" aria-label="Vault">${[['deleted', 'Deleted'], ['phones', 'Phones']].map(([id, l]) => `<button type="button" data-seg="${id}" aria-pressed="${on === id}">${l}</button>`).join('')}</div>`;
 const noPreview = (it) => /\.dng$/i.test(it.name);
-const mark = (it) => FLOW[it.id]?.done ? `<span class="restoredmark">${icon('check')}</span>` : '';
-const cardView = (it) => `<button type="button" class="card" data-open="${it.id}"><span class="media">${tile(it, view(it.id), noPreview(it))}${mark(it)}</span>
-  <span class="card-meta"><span class="card-name">${esc(it.name)}</span><span class="card-phone">${esc(phoneName(it.phone))}</span><span class="card-days ${keptClass(it, ST.config.keep)}">${keptLabel(it, ST.config.keep)}</span></span></button>`;
-const rowView = (it) => `<button type="button" class="lrow" data-open="${it.id}"><span class="media">${tile(it, view(it.id), noPreview(it))}${mark(it)}</span>
-  <span class="lrow-text"><span class="card-name">${esc(it.name)}</span><span class="card-phone">${esc(phoneName(it.phone))}</span><span class="card-when">${it.byTime ? 'by ' : ''}${whenShort(new Date(it.deletedAt))}</span></span>
-  <span class="lrow-right"><span class="card-days ${keptClass(it, ST.config.keep)}">${keptLabel(it, ST.config.keep)}</span><span class="card-days">${size(it.size)}</span></span></button>`;
+// A square in the grid. Only its picture is kept across redraws (data-k), so the restored mark still updates.
+const tileView = (it) => `<button type="button" class="tile" data-open="${it.id}" aria-label="${esc(it.name)}"><span class="media" data-k="v${it.id}">${tile(it, view(it.id), noPreview(it))}</span>${FLOW[it.id]?.done ? `<span class="restoredmark">${icon('check')}</span>` : ''}</button>`;
 
+function deletedView() {
+  const all = shown(), list = all.filter((i) => !i.missed);
+  const pick = (key, label, opts) => `<label class="sel"><select data-filter="${key}" aria-label="${label}">${opts.map(([id, l]) => `<option value="${esc(id)}" ${S[key] === id ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>${icon('down')}</label>`;
+  const notes = all.filter((i) => i.missed).map((it) => `<p class="note">${icon('alert')}<span>${esc(it.name)} couldn't be saved. ${esc(it.note || '')}</span><button type="button" class="btn text" data-dismiss="${it.id}">Dismiss</button></p>`).join('');
+  return `${vaultSeg('deleted')}<label class="search">${icon('search')}<input type="search" id="q" value="${esc(S.q)}" placeholder="Search" aria-label="Search deleted files"></label>
+    <div class="filters">${ST.phones.length > 1 ? pick('phone', 'Phone', [['all', 'All phones'], ...ST.phones.map((p) => [p.ID, p.ID === ST.me ? 'This phone' : p.Name])]) : ''}
+      ${pick('type', 'Type', [['all', 'All types'], ['photo', 'Photos'], ['video', 'Videos'], ['voice', 'Voice'], ['file', 'Files']])}</div>
+    ${ST.vault ? note(esc(ST.vault), 'info') : ''}${iosNudge()}${notes}
+    ${!live().length ? `<div class="empty">${icon('deleted')}<h2>Nothing deleted yet</h2><p>From now on, anything you delete shows up here, newest first.</p></div>`
+      : list.length ? byDay(list, (i) => i.deletedAt, tileView, 'pgrid') : `<div class="empty">${icon('search')}<h2>Nothing matches that</h2><p>Try another name, or clear the filters.</p></div>`}`;
+}
+
+// The file picked in the grid, from the bottom of the screen: its preview, what it was, and Restore.
 function sheetView() {
   const it = ITEMS.find((i) => i.id === S.sheet);
   if (!it) return '';
-  const src = view(it.id);
+  const src = view(it.id), keep = ST.config.keep;
   const pv = it.kind === 'photo' ? `<img src="${src}" alt="Preview of ${esc(it.name)}" onerror="this.replaceWith(document.createTextNode('No preview for this photo type'))">`
     : it.kind === 'video' ? `<video src="${src}#t=0.1" controls playsinline preload="metadata"></video>`
-    : it.kind === 'voice' ? `${wave(it.id, 40)}<audio src="${src}" controls preload="none"></audio>` : `${doc()}<span class="tag is-doc">${esc(ext(it.name) || 'FILE')}</span>`;
-  const p = phoneById(it.phone), me = it.phone === ST.me;
-  return `<div class="msheet" data-close><div class="msheet-card" role="dialog" aria-label="${esc(it.name)}"><div class="grab"><span></span></div>
-    <div class="msheet-body scroller"><div class="preview">${pv}</div><p class="detail-name">${esc(it.name)}</p><p class="detail-kind">${kindLabel(it)}, ${size(it.size)}</p>
-    <dl class="kv"><div><dt>Deleted</dt><dd class="mono">${it.byTime ? 'By ' : ''}${whenShort(new Date(it.deletedAt))}</dd></div>
-    <div><dt>From</dt><dd>${me && p ? `This phone (${esc(p.Name)})` : esc(phoneName(it.phone))}</dd></div>
-    <div><dt>Was in</dt><dd class="mono">${esc(it.folder)}</dd></div><div><dt>Type and size</dt><dd>${kindLabel(it)}, ${size(it.size)}</dd></div>
-    <div><dt>Kept</dt><dd class="mono ${keptClass(it, ST.config.keep)}">${keptLabel(it, ST.config.keep)}</dd></div></dl></div>
-    <div class="actions">${actions(it, p, me)}</div></div></div>`;
+    : it.kind === 'voice' ? `${wave(it.id, 40)}<audio src="${src}" controls preload="none"></audio>` : `${doc()}<span class="tag">${esc(ext(it.name) || 'FILE')}</span>`;
+  return `<div class="msheet" data-close><div class="msheet-card" role="dialog" aria-modal="true" aria-label="${esc(it.name)}"><div class="grab"><span></span></div>
+    <div class="msheet-body scroller"><div class="preview">${pv}</div><h2 class="detail-name">${esc(it.name)}</h2>
+      <dl class="facts"><dt>Deleted</dt><dd>${it.byTime ? 'By ' : ''}${whenShort(new Date(it.deletedAt))}</dd><dt>From</dt><dd>${esc(phoneName(it.phone))}</dd>
+        <dt>Was in</dt><dd class="mono">${esc(it.folder)}</dd><dt>Size</dt><dd>${kindLabel(it)}, ${size(it.size)}</dd>
+        <dt>Kept</dt><dd class="${keptClass(it, keep) ? 'warn' : ''}">${keptLabel(it, keep)}</dd></dl></div>
+    <div class="msheet-acts">${actions(it, phoneById(it.phone))}</div></div></div>`;
 }
 
-function actions(it, p, me) {
+function actions(it, p) {
   const f = FLOW[it.id];
-  if (f?.done) return `<div class="done">${icon('check')}<span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>on ${esc(f.name)}</em></span></div><div class="actions-quiet"><button type="button" class="quiet" data-closesheet>Done</button></div>`;
+  if (f?.done) return `<div class="done"><span class="donemark" data-in="done:${it.id}">${icon('check')}</span><span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>On ${esc(f.name)}</em></span></div><button type="button" class="quiet" data-closesheet>Done</button>`;
   if (f?.wait || p?.Pending?.includes(it.id)) return `<div class="restoring"><div class="restoring-row">${icon('spin', 'spin')}Restoring…</div><div class="progline"><span></span></div>${f?.wait ? `<p>${esc(f.wait)}</p>` : ''}</div>
-    <div class="actions-quiet"><button type="button" class="quiet" data-unrestore="${it.id}">Cancel</button></div>`;
-  if (f === 'confirm') return `<div class="confirm"><p class="confirm-text">Delete this from the vault?</p><p class="confirm-sub">The copy on this PC is deleted. It can't be brought back.</p>
-    <div class="confirm-row"><button type="button" class="btn" data-unconfirm="${it.id}">Keep it</button><button type="button" class="btn danger" data-dismiss="${it.id}">Dismiss</button></div></div>`;
-  const target = me ? 'this phone' : p ? p.Name : '';
-  return `<div class="actions-stack">${p ? `<button type="button" class="btn primary block" data-restore="${it.id}">Restore to ${esc(target)}</button>` : ''}
-    <a class="btn block" href="${view(it.id, true)}" download="${esc(it.name)}">${icon('save')}${NATIVE ? 'Download' : 'Save to Files'}</a></div>
+    <button type="button" class="quiet" data-unrestore="${it.id}">Cancel</button>`;
+  if (f === 'confirm') return `<div class="confirm"><p class="confirm-text">Delete this from the vault?</p><p class="confirm-sub">The copy on your PC is deleted. It can't be brought back.</p>
+    <div class="confirm-row"><button type="button" class="btn" data-unconfirm="${it.id}">Keep it</button><button type="button" class="btn danger" data-dismiss="${it.id}">Delete</button></div></div>`;
+  return `${p ? `<button type="button" class="btn primary block" data-restore="${it.id}">Restore to ${it.phone === ST.me ? ME : esc(p.Name)}</button>` : ''}
+    <a class="btn block" href="${view(it.id, true)}" download="${esc(it.name)}">${NATIVE ? 'Download' : 'Save to Files'}</a>
     <div class="msg bad" role="status">${esc(S.msg)}</div>
-    <div class="actions-quiet"><button type="button" class="quiet" data-askdismiss="${it.id}">Dismiss</button></div>`;
+    <button type="button" class="quiet" data-askdismiss="${it.id}">Delete from vault</button>`;
 }
 
 // The pop-up that offers a new version. Updating puts it on the PC, which hands it to this phone.
 function updView() {
   if (!ST?.update || (OFFLINE && !S.updBusy) || (S.updLater === ST.update && !S.updBusy)) return '';
-  return `<div class="mpop"><div class="mpop-card" role="dialog" aria-modal="true" aria-label="Update ready">
-    <img class="mpop-crest" src="/icon.svg" alt=""><h2 class="sheet-title">Update ready</h2>
-    <p class="sheet-text">Premade Tools <b class="mono">${esc(ST.update)}</b> is out. You have <span class="mono">${esc(ST.version)}</span>.</p>
-    <p class="sheet-note" role="status">${esc(S.updBusy || S.updErr || (NATIVE ? 'It updates your PC, then this app.' : 'It updates your PC, and this app with it.'))}</p>
-    <div class="actions-stack"><button type="button" class="btn primary block" data-updnow ${S.updBusy ? 'disabled' : ''}>Update now</button><button type="button" class="btn block" data-updlater ${S.updBusy ? 'disabled' : ''}>Later</button></div></div></div>`;
+  const busy = S.updBusy;
+  return `<div class="backdrop"><section class="sheet upd" role="dialog" aria-modal="true" aria-label="Update ready">
+    <div class="upd-body">${MARK}<h2 class="sheet-title">Update ready</h2><p class="upd-text">Premade Tools <b>${esc(ST.update)}</b> is out. You have ${esc(ST.version)}.</p>
+      <p class="upd-text" role="status">${esc(busy || S.updErr || (NATIVE ? 'It updates your PC, then this app.' : 'It updates your PC, and this app with it.'))}</p></div>
+    <div class="upd-foot"><button type="button" class="btn" data-updlater ${busy ? 'disabled' : ''}>Later</button><button type="button" class="btn primary" data-updnow ${busy ? 'disabled' : ''}>Update now</button></div></section></div>`;
 }
 
-function askView() {
-  const a = S.ask;
-  return `<div class="msheet" data-closeask><div class="msheet-card" role="dialog" aria-label="Keep for less time?"><div class="grab"><span></span></div>
-    <div class="msheet-body"><h2 class="sheet-title">Keep for less time?</h2><p class="sheet-text">This clears ${plural(a.count, 'file')} (${esc(a.size)}) deleted more than ${esc(a.label)} ago. They can't be brought back.</p><p class="sheet-note">Everything deleted since then stays in the vault.</p></div>
-    <div class="actions"><div class="actions-stack"><button type="button" class="btn block danger" data-keepyes="${a.id}">Clear them</button><button type="button" class="btn block" data-askclear>Keep them</button></div></div></div></div>`;
-}
-
-function phonesView(off) {
+// ---------- Vault: Phones ----------
+function phonesView() {
   const local = NATIVE ? JSON.parse(NATIVE.status()) : null;
-  const saved = (p) => live().filter((i) => i.phone === p.ID);
-  const me = ST.phones.find((p) => p.ID === ST.me);
-  const others = ST.phones.filter((p) => p !== me);
-  return `${titleRow('Phones')}<div class="headrule"></div>
-    <div class="feed scroller">${off}${me ? (me.Kind === 'iphone' ? heroIphone(me, saved(me)) + iosGuide(me) : heroAndroid(me, local || me.Status || {}, saved(me), local)) : ''}
-    ${others.length ? `<div class="sectionhead"><b>Other phones</b><i></i></div><div class="phonelist">${others.map((p) => otherPhone(p, saved(p).length)).join('')}</div>` : ''}
-    <div class="pcrow"><i class="dotlight ${OFFLINE ? 'off' : ''}"></i><span>${OFFLINE ? "Can't reach your PC" : 'Connected to your PC'}</span></div>
-    <p class="mhint">${icon('info')}<span>To add another phone, open Vault on your PC and choose <b>Phones</b>, then <b>Add a phone</b>.</span></p></div>`;
-}
-
-const ring = '<div class="ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="45"/><circle class="ring-arc" cx="50" cy="50" r="45"/></svg><img src="/icon.svg" alt=""></div>';
-const heroTop = (eyebrow, name) => `<div class="hero-id">${icon('phones')}<div><span>${eyebrow}</span><b>${esc(name)}</b></div></div>`;
-
-function heroAndroid(p, st, saved, local) {
-  const up = fresh(p);
-  const rows = [[st.allFiles, 'All files access allowed', 'All files access is off', 'files'], [st.battery, 'Battery set to Unrestricted', 'Battery is not Unrestricted', 'battery'], [st.binOn !== false, "Gallery's Recycle bin is on", "Gallery's Recycle bin looks off", 'bin']];
-  const allOk = rows.every(([ok]) => ok), good = allOk && (up || NATIVE);
-  const month = saved.filter((i) => Date.now() - new Date(i.deletedAt) < 30 * 864e5).length;
-  const checks = rows.map(([ok, yes, no, fix]) => `<li class="mcheck ${ok ? '' : 'is-bad'}"><span class="check-mark">${icon(ok ? 'check' : 'x')}</span><span class="check-label">${ok ? yes : no}</span>${!ok && NATIVE ? `<button type="button" class="btn-fix" data-fix="${fix}">Fix</button>` : ''}</li>`).join('');
-  const pending = local?.pending ? `<li class="mcheck is-wait"><span class="check-mark">${icon('clock')}</span><span class="check-label">Waiting to send: <b>${plural(local.pending, 'file')}</b>, sent when the PC is reachable</span></li>` : '';
-  return `<section class="mhero ${good ? '' : 'is-warn'}">${heroTop('This phone', p.Name)}
-    <div class="hero-state">${ring}<h2 class="hero-headline">${good ? 'Watching the bin' : allOk ? 'Not seen lately' : 'Needs a fix'}</h2><p class="hero-check">Last check ${ago(p.LastSeen)}</p><p class="hero-saved"><b>${month}</b> ${month === 1 ? 'file' : 'files'} saved this month</p></div>
-    <ul class="mchecks">${checks}${pending}</ul></section>`;
-}
-
-function heroIphone(p, saved) {
-  return `<section class="mhero">${heroTop('This iPhone', p.Name)}
-    <div class="hero-state">${ring}<h2 class="hero-headline">${neverBackedUp(p) ? 'Not backed up yet' : 'Backs up at home'}</h2><p class="hero-check">${neverBackedUp(p) ? 'Add the Shortcut below, then tap Back up now' : 'Last backup ' + whenShort(new Date(p.LastSeen))}</p><p class="hero-saved"><b>${saved.length}</b> ${saved.length === 1 ? 'item' : 'items'} saved</p></div>
-    <dl class="kv pad"><div><dt>Runs when</dt><dd>It joins your home Wi-Fi, and when it starts charging</dd></div><div><dt>Covers</dt><dd>Photos and videos, screenshots, screen recordings, WhatsApp and Telegram media</dd></div></dl></section>`;
+  const list = [...ST.phones].sort((a, b) => (b.ID === ST.me) - (a.ID === ST.me)).map((p) => { // this phone first
+    const me = p.ID === ST.me, ios = p.Kind === 'iphone', st = (me && local) || p.Status || {}, up = fresh(p) || (me && NATIVE);
+    const n = live().filter((i) => i.phone === p.ID).length;
+    const checks = ios ? [[true, 'Backs up when it joins your home Wi-Fi, and when it starts charging'], [true, 'Covers photos and videos, screenshots, screen recordings, WhatsApp and Telegram media. Not voice memos.']]
+      : [[st.binOn !== false, "Gallery's Recycle bin is on", "Gallery's Recycle bin looks off", 'bin'], [st.allFiles, 'All files access allowed', 'All files access is off', 'files'], [st.battery, 'Battery set to Unrestricted', 'Battery is not Unrestricted', 'battery']];
+    const state = ios ? (neverBackedUp(p) ? 'Not backed up yet' : 'Last backup ' + whenShort(new Date(p.LastSeen))) : (up ? 'Watching the bin, checked ' : 'Not seen since ') + ago(p.LastSeen);
+    return `<section class="phone">${icon('phones')}<div><h2>${esc(p.Name)}</h2><p class="state"><i class="dot ${ios ? '' : up ? 'on' : 'warn'}"></i>${me ? 'This phone. ' : ''}${state}</p></div><p class="n"><b>${n}</b>kept</p>
+      <ul>${checks.map(([ok, yes, no, fix]) => `<li class="${ok ? '' : 'is-bad'}">${icon(ios ? 'info' : ok ? 'check' : 'alert')}<span class="grow">${ok ? yes : no}</span>${!ok && me && NATIVE ? `<button type="button" class="btn small" data-fix="${fix}">Fix</button>` : ''}</li>`).join('')}
+        ${me && local?.pending ? `<li>${icon('clock')}<span class="grow">${plural(local.pending, 'file')} waiting to go to your PC when it's reachable</span></li>` : ''}</ul>
+      ${me && ios ? `<div class="guide">${iosGuide(p)}</div>` : ''}</section>`;
+  }).join('');
+  return `${vaultSeg('phones')}<div class="phones">${list || `<div class="empty">${icon('phones')}<h2>No phones yet</h2></div>`}</div>
+    <p class="hint">${icon(OFFLINE ? 'alert' : 'pc')}${OFFLINE ? "Can't reach your PC" : 'Connected to your PC'}</p>
+    <p class="hint">${icon('info')}<span>To add another phone, open Premade on your PC: Vault › Phones › <b>Add a phone</b>.</span></p>`;
 }
 
 // iPhone: apps can't see Recently Deleted, so a Shortcut the user builds once sends the PC a copy of
@@ -285,75 +315,56 @@ const runShortcut = 'shortcuts://run-shortcut?name=' + encodeURIComponent(SHORTC
 
 // The PC held back a backup that didn't see many photos it keeps (Store.SyncPhoneList), most likely Shortcuts let
 // see only some of them.
-const heldNote = (p) => p.Held ? `<div class="notebox">${icon('info')}<div><b>The last backup didn't see ${p.Held} photos.</b> They don't show as deleted, because that many at once usually means Shortcuts can see only some photos. Open <b>Settings</b> › <b>Apps</b> › <b>Shortcuts</b> › <b>Photos</b>, pick <b>Full Access</b>, then tap <b>Back up now</b>.<div class="acts"><button type="button" class="btn small" data-heldok>I deleted them</button></div></div></div>` : '';
+const heldNote = (p) => p.Held ? note(`<b>The last backup didn't see ${p.Held} photos.</b> They don't show as deleted, because that many at once usually means Shortcuts can see only some photos. Open <b>Settings</b> › <b>Apps</b> › <b>Shortcuts</b> › <b>Photos</b>, pick <b>Full Access</b>, then tap <b>Back up now</b>.<div class="acts"><button type="button" class="btn small" data-heldok>I deleted them</button></div>`, 'info') : '';
 
 function iosNudge() {
   const me = phoneById(ST.me);
   if (!me || me.Kind !== 'iphone') return '';
   if (me.Held) return heldNote(me);
-  if (!navigator.standalone) return `<p class="mhint ios-nudge">${icon('info')}<span>Tap <b>Share</b>, then <b>Add to Home Screen</b>, then open Vault from there.</span></p>`;
-  if (neverBackedUp(me)) return `<p class="mhint ios-nudge">${icon('info')}<span>One more step: add the backup Shortcut. Open <b>Phones</b> and follow the steps.</span></p>`;
+  if (!navigator.standalone) return note('Tap <b>Share</b>, then <b>Add to Home Screen</b>, then open Premade from there.', 'info');
+  if (neverBackedUp(me)) return note('One more step: add the backup Shortcut. Open <b>Phones</b> and follow the steps.', 'info');
   return '';
 }
 
 function iosGuide(p) {
   // The home address: the backup runs at home, and the relay takes nothing over 100 MB, so a long video would stop it.
   const base = kept('lan') || PCLINK, t = encodeURIComponent(TOKEN), redo = p.Relay && base !== PCLINK;
-  const field = (label, v) => `<div class="copyfield"><span>${label}</span><input readonly value="${esc(v)}"><button type="button" class="btn" data-copy>Copy</button></div>`;
   const steps = [
     `Open <b>Shortcuts</b>, tap <b>+</b> and name it <b>${SHORTCUT}</b>.`,
     `Add <b>Find Photos</b> (leave it on All Photos).`,
     `Add <b>Get Details of Images</b> and pick <b>Name</b>.`,
     `Add <b>Combine Text</b> and set it to <b>New Lines</b>.`,
-    `Add <b>Get Contents of URL</b> with the address below. Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Combined Text</b>.${field('Backup', `${base}/api/phone/ios/backup?t=${t}`)}`,
+    `Add <b>Get Contents of URL</b> with the address below. Method <b>POST</b>, Request Body <b>File</b>, and pick <b>Combined Text</b>.${copyField('Backup', `${base}/api/phone/ios/backup?t=${t}`)}`,
     `Add <b>Set Variable</b>, name it <b>Need</b>, set to <b>Contents of URL</b>.`,
     `Add <b>Repeat with Each</b> and pick <b>Photos</b> from step 2. Inside it:`,
     `<b>Text</b>: type <b>|</b>, insert <b>Repeat Item</b> and tap it to choose <b>Name</b>, then type <b>|</b>.`,
-    `<b>If</b> <b>Need</b> <b>contains</b> <b>Text</b>. Inside it, <b>Get Contents of URL</b> with the address below, Method <b>PUT</b>, Request Body <b>File</b> set to <b>Repeat Item</b>, and two headers: <b>X-Key</b> and <b>X-Name</b>, both <b>Repeat Item</b> › <b>Name</b>.${field('Upload', `${base}/api/phone/upload?t=${t}`)}`,
-    `After <b>End Repeat</b>, for files you restore from the PC: <b>Get Contents of URL</b> with this address.${field('Restores', `${base}/api/phone/ios/restores?t=${t}`)}`,
-    `Add <b>Split Text</b> by <b>New Lines</b>, then <b>Repeat with Each</b>. Inside it: <b>If Repeat Item is not none</b>, then a <b>Text</b> with the first address below with <b>Repeat Item</b> put where it says ID, <b>Get Contents of URL</b> of that Text, and <b>Save to Photo Album</b>. Then another <b>Text</b> with the second address, again with <b>Repeat Item</b> for ID, and <b>Get Contents of URL</b> of it with Method <b>POST</b>.${field('Restore file', `${base}/api/phone/file/ID?t=${t}`)}${field('Restored', `${base}/api/phone/restored/ID?t=${t}`)}`,
+    `<b>If</b> <b>Need</b> <b>contains</b> <b>Text</b>. Inside it, <b>Get Contents of URL</b> with the address below, Method <b>PUT</b>, Request Body <b>File</b> set to <b>Repeat Item</b>, and two headers: <b>X-Key</b> and <b>X-Name</b>, both <b>Repeat Item</b> › <b>Name</b>.${copyField('Upload', `${base}/api/phone/upload?t=${t}`)}`,
+    `After <b>End Repeat</b>, for files you restore from the PC: <b>Get Contents of URL</b> with this address.${copyField('Restores', `${base}/api/phone/ios/restores?t=${t}`)}`,
+    `Add <b>Split Text</b> by <b>New Lines</b>, then <b>Repeat with Each</b>. Inside it: <b>If Repeat Item is not none</b>, then a <b>Text</b> with the first address below with <b>Repeat Item</b> put where it says ID, <b>Get Contents of URL</b> of that Text, and <b>Save to Photo Album</b>. Then another <b>Text</b> with the second address, again with <b>Repeat Item</b> for ID, and <b>Get Contents of URL</b> of it with Method <b>POST</b>.${copyField('Restore file', `${base}/api/phone/file/ID?t=${t}`)}${copyField('Restored', `${base}/api/phone/restored/ID?t=${t}`)}`,
     `Tap <b>Back up now</b> below to run it once. Allow access to Photos and to devices on your network when asked. The first run sends every photo, so keep the screen on and the iPhone on Wi-Fi.`,
     `Make it run by itself: <b>Automation</b> tab › <b>+</b> › <b>Wi-Fi</b>, pick your home Wi-Fi, choose <b>Run Immediately</b> and pick <b>${SHORTCUT}</b>. Add a second one with <b>Charger</b> › <b>Is Connected</b>.`,
   ];
-  return `${heldNote(p)}${redo ? `<div class="notebox">${icon('info')}<div><b>Update your backup Shortcut.</b> It sends photos through the internet, which takes nothing over 100 MB, so a long video stops every backup. Open it in Shortcuts, and in each address change the part before <b>/api</b> to <b>${esc(base)}</b>.</div></div>` : ''}
-    <details class="iosguide" ${neverBackedUp(p) || redo ? 'open' : ''}><summary>Set up the backup Shortcut</summary>
-    <ol>${steps.map((x) => `<li>${x}</li>`).join('')}</ol></details>
+  return `${heldNote(p)}${redo ? note(`<b>Update your backup Shortcut.</b> It sends photos through the internet, which takes nothing over 100 MB, so a long video stops every backup. Open it in Shortcuts, and in each address change the part before <b>/api</b> to <b>${esc(base)}</b>.`) : ''}
+    <details class="iosguide" ${neverBackedUp(p) || redo ? 'open' : ''}><summary>Set up the backup Shortcut</summary><ol>${steps.map((x) => `<li>${x}</li>`).join('')}</ol></details>
     <a class="btn primary block" href="${runShortcut}">Back up now</a>`;
 }
 
-function otherPhone(p, n) {
-  const ios = p.Kind === 'iphone', up = fresh(p);
-  const state = ios ? ['is-idle', 'Backs up at home'] : up ? ['', 'Watching the bin'] : ['is-warn', 'Not seen lately'];
-  return `<div class="phonecard"><span class="phonecard-glyph">${icon('phones')}</span><span class="phonecard-text"><b>${esc(p.Name)}</b><span class="phonecard-state ${state[0]}"><i class="dotlight"></i>${state[1]}</span></span>
-    <span class="phonecard-right"><span>${ios ? whenShort(new Date(p.LastSeen)) : ago(p.LastSeen)}</span><span>${n} saved</span></span></div>`;
-}
-
-function drawerView() {
-  const c = ST?.config || {};
-  const tools = Object.entries(TOOLS).filter(([id]) => id !== 'friends').map(([id, t]) => `<button type="button" class="drawer-tool" data-tool="${id}" aria-current="${S.tool === id ? 'page' : 'false'}">${icon(t.icon)}<span>${t.name}</span></button>`).join('');
-  return `<div class="drawer-back" data-closedrawer><nav class="drawer" aria-label="Tools">
-    <div class="drawer-head">${crest}<span class="wordmark-app">Premade Tools</span></div>
-    <p class="drawer-label">Tools</p>${tools}
-    <div class="drawer-foot"><p class="drawer-label">Look</p><div class="themes">${THEMES.map(([id, l, bg, panel, ac]) => `<button type="button" class="mswatch" data-theme-pick="${id}" aria-pressed="${c.theme === id}"><span class="mswatch-preview" style="background:${bg}"><i style="background:${panel}"></i><u style="background:${ac}"></u>${c.theme === id ? `<em>${icon('check')}</em>` : ''}</span><span class="mswatch-name">${l}</span></button>`).join('')}</div>
-    <div class="appfoot">${crest}<span>Premade Tools ${esc(ST?.version || '')}</span></div></div>
-  </nav></div>`;
-}
-
-function settingsView(off) {
-  const c = ST.config;
-  return `${titleRow('Settings')}<div class="headrule"></div>
-    <div class="feed scroller">${off}
-    <section class="group"><div class="sectionhead"><b>Vault</b><i></i></div><div class="panel">
-      <div class="block"><h2 class="block-title">Keep deleted files</h2><div class="chips">${KEEP.map(([id, l]) => `<button type="button" class="pill" data-keep="${id}" aria-pressed="${c.keep === id}">${c.keep === id ? icon('check') : ''}${l}</button>`).join('')}</div><p class="block-hint">Only files deleted longer ago than this are cleared.</p></div>
-      <div class="block"><h2 class="block-title">Stored on your PC</h2><p class="vaultpath-m">${esc(c.vaultDir)}</p>${ST.free ? `<p class="capstat"><b>${esc(nice(ST.free))}</b> free</p>` : ''}<p class="block-hint">You can move it from Settings on the PC.</p></div>
-    </div></section>
-    <div class="appfoot">${crest}<span>Premade Tools ${esc(ST.version)}</span></div></div>`;
+// ---------- Settings: the look, and how long the vault keeps things ----------
+function settingsView() {
+  const c = ST.config, ask = S.ask;
+  return `${S.msg ? note(esc(S.msg)) : ''}<section class="sec"><h2>Look</h2>${themePicker(c.theme, c.custom || '#d9202d')}
+      ${c.theme === 'custom' ? `<label class="srow"><span class="grow">Your color</span><input type="color" class="colorpick" id="custom" value="${esc(c.custom || '#d9202d')}"></label>` : ''}
+      ${motionRow('Follow phone')}</section>
+    <section class="sec"><h2>Vault</h2>
+      <div class="srow"><span class="grow">Keep deleted files<span class="h">Only files deleted longer ago than this are cleared.</span></span><label class="sel"><select id="keep" aria-label="Keep deleted files">${KEEP.map(([id, l]) => `<option value="${id}" ${(ask?.id || c.keep) === id ? 'selected' : ''}>${l}</option>`).join('')}</select>${icon('down')}</label></div>
+      ${ask ? `<div class="srow sub"><span class="grow">This clears ${plural(ask.count, 'file')} (${esc(ask.size)}) deleted more than ${esc(ask.label)} ago. They can't be brought back.</span></div>
+        <div class="srow sub"><span class="grow"></span><button type="button" class="btn" data-askclear>Keep them</button><button type="button" class="btn danger" data-keepyes="${ask.id}">Clear them</button></div>` : ''}
+      <div class="srow"><span class="grow">Stored on your PC<span class="h mono">${esc(c.vaultDir)}</span><span class="h">${ST.free ? esc(nice(ST.free)) + ' free. ' : ''}You can move it from Settings on the PC.</span></span></div></section>
+    <section class="sec"><h2>Premade Tools ${esc(ST.version)}</h2><div class="srow"><span class="grow">Updates<span class="h">${NATIVE ? 'This app updates' : 'These pages update'} with your PC.</span></span></div></section>`;
 }
 
 $app.addEventListener('click', async (e) => {
-  if (e.target.dataset?.close !== undefined && e.target.classList.contains('msheet')) { closeSheet(); return; }
-  if (e.target.dataset?.closeask !== undefined) { S.ask = null; render(); return; }
-  if (e.target.dataset?.closedrawer !== undefined) { S.drawer = false; render(); return; }
+  if (e.target.matches('.msheet[data-close]')) { closeSheet(); return; }
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.copy !== undefined) { // clipboard API needs https; a selected field + execCommand works over plain http
@@ -363,13 +374,11 @@ $app.addEventListener('click', async (e) => {
   }
   const d = b.dataset;
   try {
-    if (d.tab) { S.tab = d.tab; render(); }
-    else if (d.drawer !== undefined) { S.drawer = !S.drawer; render(); }
-    else if (d.tool) { S.tool = d.tool; S.tab = TOOLS[d.tool].tabs[0][0]; S.drawer = false; render(); }
-    else if (d.phone) { S.phone = d.phone; render(); }
-    else if (d.type) { S.type = d.type; render(); }
-    else if (d.view) { S.view = d.view; try { localStorage.setItem('vaultView', d.view); } catch (e2) {} render(); }
+    if (d.go) go(d.go);
+    else if (d.back !== undefined) back();
+    else if (d.seg) { history.replaceState({ ...history.state, page: d.seg }, ''); S.page = d.seg; render(); } // Deleted ⇄ Phones isn't a step back
     else if (d.open) { S.sheet = d.open; S.msg = ''; render(); }
+    else if (d.rs) { SHEET = d.rs; render(); }
     else if (d.closesheet !== undefined) closeSheet();
     else if (d.askdismiss) { FLOW[d.askdismiss] = 'confirm'; render(); }
     else if (d.unconfirm) { delete FLOW[d.unconfirm]; render(); }
@@ -385,13 +394,6 @@ $app.addEventListener('click', async (e) => {
     else if (d.unrestore) { await api('/api/phone/unrestore/' + d.unrestore, {}); FLOW[d.unrestore] = { cancelled: true }; refresh(); }
     else if (d.fix) { NATIVE.fix(d.fix); }
     else if (d.heldok !== undefined) { await api('/api/phone/ios/held', {}); refresh(); }
-    else if (d.keep) {
-      if (KEEPDAYS[d.keep] < KEEPDAYS[ST.config.keep]) {
-        const p = await api('/api/phone/keep-preview?keep=' + d.keep);
-        if (p.count) { S.ask = { id: d.keep, count: p.count, size: p.size, label: b.textContent.toLowerCase() }; render(); return; }
-      }
-      await api('/api/phone/settings', { keep: d.keep }); refresh();
-    }
     else if (d.keepyes) { await api('/api/phone/settings', { keep: d.keepyes }); S.ask = null; refresh(); }
     else if (d.askclear !== undefined) { S.ask = null; render(); }
     else if (d.updlater !== undefined) { S.updLater = ST.update; render(); }
@@ -403,12 +405,27 @@ $app.addEventListener('click', async (e) => {
       else if (!S.updBusy) { S.updLater = ST.update; S.msg = m; }
       render();
     }
-    else if (d.themePick) { await api('/api/phone/settings', { theme: d.themePick }); refresh(); }
   } catch (err) { if (S.updBusy) S.updErr = err.message; S.updBusy = ''; S.msg = err.message; render(); }
 });
+$app.addEventListener('change', async (e) => {
+  const t = e.target;
+  try {
+    if (t.dataset.filter) { S[t.dataset.filter] = t.value; render(); }
+    else if (t.name === 'theme' || t.id === 'custom') { ST.config[t.name === 'theme' ? 'theme' : 'custom'] = t.value; render(); await api('/api/phone/settings', { [t.name === 'theme' ? 'theme' : 'custom']: t.value }); refresh(); }
+    else if (t.id === 'keep') { // a shorter time first shows what would be cleared
+      S.ask = null;
+      if (KEEPDAYS[t.value] < KEEPDAYS[ST.config.keep]) {
+        const p = await api('/api/phone/keep-preview?keep=' + t.value);
+        if (p.count) { S.ask = { id: t.value, count: p.count, size: p.size, label: KEEP.find(([id]) => id === t.value)[1].toLowerCase() }; render(); return; }
+      }
+      await api('/api/phone/settings', { keep: t.value }); refresh();
+    }
+  } catch (err) { S.msg = err.message; render(); }
+});
+$app.addEventListener('input', (e) => { if (e.target.id === 'q') { S.q = e.target.value; render(); } });
 function closeSheet() {
   if (FLOW[S.sheet] === 'confirm' || FLOW[S.sheet]?.done) delete FLOW[S.sheet];
-  S.sheet = null; S.msg = ''; render();
+  S.sheet = null; SHEET = ''; S.msg = ''; render();
 }
 // Shows "Restored" once the phone has put the file back (the PC drops it from that phone's list).
 function watchRestore(it) {
@@ -424,7 +441,6 @@ function watchRestore(it) {
     render();
   }, 3000);
 }
-$app.addEventListener('input', (e) => { if (e.target.id === 'q') { S.q = e.target.value; const n = document.getElementById('dl'); n.innerHTML = (OFFLINE ? n.querySelector('.offline')?.outerHTML || '' : '') + listView(); lazyMedia($app); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 window.vaultRefresh = refresh; // the Android app calls this after it sends something
 // iPhone: new pages arrive with a new offline copy (sw.js). Look for one each time Premade comes to the front, and
@@ -448,7 +464,7 @@ setInterval(() => { // every second while a download runs, else every 30 s
   // A box being typed in isn't redrawn; an empty one (the link box after a download starts) is. Nor is an open sheet:
   // on an iPhone a tap that lands while the page is redrawn is lost, so a busy page made the Send sheet ignore taps.
   const a = document.activeElement;
-  if (document.hidden || S.sheet || S.ask || S.drawer || (typeof FR !== 'undefined' && FR.share) || (['q', 'dlurl', 'dlhere', 'pdfpw'].includes(a?.id) && a.value)) return;
+  if (document.hidden || S.sheet || SHEET || DS.ask || FR.share || (['q', 'dlurl', 'pdfpw', 'droptext', 'frname', 'frmyname'].includes(a?.id) && a.value)) return;
   if (S.updBusy && Date.now() - S.updAt > 3 * 60e3) { S.updBusy = ''; S.updErr = "Your PC hasn't come back yet. Check that Premade Tools is open on it."; render(); }
   const busy = jobsBusy(); // polls every second
   if (NEWPAGES && !busyNow()) { location.reload(); return; }
