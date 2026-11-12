@@ -47,8 +47,51 @@ function back() {
   if (history.state?.depth) return history.back();
   history.replaceState({ page: 'home', depth: 0 }, ''); S.page = 'home'; render(); // opened straight on a page
 }
-// ponytail: Back with a sheet open leaves the page too; give each sheet its own history entry if that annoys.
-addEventListener('popstate', (e) => { S.page = PAGES[e.state?.page] ? e.state.page : 'home'; S.sheet = null; MENU = ''; SHEET = ''; render(); });
+// An open sheet is a step of its own in history, so Back (Android's, or the iPhone's swipe) closes it and stays on the page.
+let OWNBACK = false;
+const sheetUp = () => !!(S.sheet || SHEET || FR.share || DS.ask);
+function sheetStep() {
+  if (sheetUp() && !history.state?.sheet) history.pushState({ ...history.state, sheet: 1 }, '');
+  else if (!sheetUp() && history.state?.sheet) { OWNBACK = true; history.back(); } // closed some other way: drop its step
+}
+addEventListener('popstate', (e) => {
+  if (OWNBACK) { OWNBACK = false; return; }
+  if (FLOW[S.sheet] === 'confirm' || FLOW[S.sheet]?.done) delete FLOW[S.sheet];
+  S.page = PAGES[e.state?.page] ? e.state.page : 'home'; S.sheet = null; MENU = ''; SHEET = ''; FR.share = null; DS.ask = null; render();
+});
+
+// A sheet from the bottom follows the finger down and closes past a third of its height (or on a quick flick);
+// short of that it slides back. Only from its top, or once its contents are scrolled to the top.
+let DRAG = null;
+$app.addEventListener('touchstart', (e) => {
+  const card = e.target.closest('.msheet:not(.out) .msheet-card');
+  if (!card || e.touches.length > 1 || e.target.closest('input,select,textarea,video,audio') || document.documentElement.classList.contains('reduced')) return;
+  DRAG = { card, y0: e.touches[0].clientY, t0: performance.now(), dy: 0, on: false };
+}, { passive: true });
+$app.addEventListener('touchmove', (e) => {
+  if (!DRAG) return;
+  const d = DRAG, dy = e.touches[0].clientY - d.y0, body = d.card.querySelector('.msheet-body');
+  if (!d.on) {
+    if (Math.abs(dy) < 8) return;
+    if (dy < 0 || (body && body.scrollTop > 0 && !e.target.closest('.grab'))) { DRAG = null; return; } // a scroll, not a drag
+    d.on = true; d.card.classList.remove('snap'); d.card.classList.add('dragging');
+  }
+  e.preventDefault();
+  d.dy = Math.max(0, dy);
+  d.card.style.transform = `translateY(${d.dy}px)`;
+  d.card.parentNode.style.opacity = String(1 - Math.min(1, d.dy / d.card.offsetHeight) * .6);
+}, { passive: false });
+function dragEnd() {
+  const d = DRAG; DRAG = null;
+  if (!d?.on) return;
+  d.card.classList.remove('dragging');
+  const fast = d.dy / (performance.now() - d.t0) > .6; // px per ms
+  if (d.dy > d.card.offsetHeight * .3 || (fast && d.dy > 40)) { closeAnySheet(); return; }
+  d.card.classList.add('snap'); d.card.style.transform = ''; d.card.parentNode.style.opacity = '';
+}
+$app.addEventListener('touchend', dragEnd);
+$app.addEventListener('touchcancel', dragEnd);
+function closeAnySheet() { if (history.state?.sheet) history.back(); else { FR.share = null; DS.ask = null; closeSheet(); } }
 
 async function api(path, body) {
   const opt = { headers: { Authorization: 'Bearer ' + TOKEN } };
@@ -156,7 +199,9 @@ function render() {
   if (!SHEETROW) SHEET = ''; // its row is gone
   // The tapped row's sheet steps aside while the Send sheet it opened is up.
   redraw($app, `${top}<main class="ph-body scroller">${body}</main>${FR.share ? '' : SHEETROW}${S.sheet ? sheetView() : ''}${DS.ask ? dlAskView() : ''}${frSheet()}${updView()}`);
+  if (DRAWN && DRAWN !== S.page) pageIn($app.querySelector('.ph-body')); // a new page fades in
   DRAWN = S.page;
+  sheetStep();
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = same ? keep[i] || 0 : i ? 0 : SCROLL[S.page] || 0; });
   const f = focusId && document.getElementById(focusId);
   if (f && f !== document.activeElement) { f.focus(); try { f.setSelectionRange(caret[0], caret[1]); } catch (e) {} }
@@ -222,7 +267,7 @@ function sheetView() {
 
 function actions(it, p) {
   const f = FLOW[it.id];
-  if (f?.done) return `<div class="done">${icon('check')}<span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>On ${esc(f.name)}</em></span></div><button type="button" class="quiet" data-closesheet>Done</button>`;
+  if (f?.done) return `<div class="done"><span class="donemark" data-in="done:${it.id}">${icon('check')}</span><span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>On ${esc(f.name)}</em></span></div><button type="button" class="quiet" data-closesheet>Done</button>`;
   if (f?.wait || p?.Pending?.includes(it.id)) return `<div class="restoring"><div class="restoring-row">${icon('spin', 'spin')}Restoring…</div><div class="progline"><span></span></div>${f?.wait ? `<p>${esc(f.wait)}</p>` : ''}</div>
     <button type="button" class="quiet" data-unrestore="${it.id}">Cancel</button>`;
   if (f === 'confirm') return `<div class="confirm"><p class="confirm-text">Delete this from the vault?</p><p class="confirm-sub">The copy on your PC is deleted. It can't be brought back.</p>
@@ -308,7 +353,8 @@ function iosGuide(p) {
 function settingsView() {
   const c = ST.config, ask = S.ask;
   return `${S.msg ? note(esc(S.msg)) : ''}<section class="sec"><h2>Look</h2>${themePicker(c.theme, c.custom || '#d9202d')}
-      ${c.theme === 'custom' ? `<label class="srow"><span class="grow">Your color</span><input type="color" class="colorpick" id="custom" value="${esc(c.custom || '#d9202d')}"></label>` : ''}</section>
+      ${c.theme === 'custom' ? `<label class="srow"><span class="grow">Your color</span><input type="color" class="colorpick" id="custom" value="${esc(c.custom || '#d9202d')}"></label>` : ''}
+      ${motionRow('Follow phone')}</section>
     <section class="sec"><h2>Vault</h2>
       <div class="srow"><span class="grow">Keep deleted files<span class="h">Only files deleted longer ago than this are cleared.</span></span><label class="sel"><select id="keep" aria-label="Keep deleted files">${KEEP.map(([id, l]) => `<option value="${id}" ${(ask?.id || c.keep) === id ? 'selected' : ''}>${l}</option>`).join('')}</select>${icon('down')}</label></div>
       ${ask ? `<div class="srow sub"><span class="grow">This clears ${plural(ask.count, 'file')} (${esc(ask.size)}) deleted more than ${esc(ask.label)} ago. They can't be brought back.</span></div>

@@ -381,4 +381,48 @@ html:has(.boxpage),html:has(.boxpage) body{overflow:auto}
 .box ol{margin:0 0 16px;padding-left:20px;display:grid;gap:8px;font-size:15px;line-height:22px}
 .box p{font-size:14px;color:var(--fg2)}
 .wordrow{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
-@media (prefers-reduced-motion:reduce){.pt *{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important}}
+
+/* Motion: calm, CSS only, and only transform and opacity move. common.js (redraw) adds .in to what just appeared,
+   .out to a copy of what just closed, --age so a redraw mid-way carries on, and .reduced on <html> for
+   Settings > Animations. Exits are 20% quicker than entrances. */
+.pt{--t-press:120ms;--t-pop:180ms;--t-sheet:260ms;--t-page:150ms;--ease-out:cubic-bezier(.23,1,.32,1);--ease-io:cubic-bezier(.77,0,.175,1)}
+.btn,.pill,.seg button,.iconbtn,.tool,.navitem,.rows .row,.menu button,.menu a,.drive,.rs-list [role=menuitem]{transition:transform var(--t-press) var(--ease-out),background-color var(--t-press) ease,color var(--t-press) ease}
+.btn:active:not(:disabled),.pill:active,.seg button:active,.iconbtn:active:not(:disabled){transform:scale(.96)}
+.btn.block:active:not(:disabled),.m .btn.big:active:not(:disabled),.m .msheet-acts.rs-acts>.btn:active{transform:scale(.98)} /* wide ones press less */
+.navitem:active,.rows button.row:active,.drive:active{background:var(--raised)}
+.menu{transform-origin:top right}
+.menu.in{animation:pt-pop var(--t-pop) var(--ease-out) var(--age,0ms) both}
+.menu.out{animation:pt-pop-out calc(var(--t-pop)*.8) var(--ease-out) both}
+.backdrop.in,.msheet.in{animation:pt-fade var(--t-sheet) ease var(--age,0ms) both}
+.backdrop.out,.msheet.out{animation:pt-fade-out calc(var(--t-sheet)*.8) ease both;pointer-events:none}
+.backdrop.in>.sheet{animation:pt-pop var(--t-sheet) var(--ease-out) var(--age,0ms) both}
+.backdrop.out>.sheet{animation:pt-pop-out calc(var(--t-sheet)*.8) var(--ease-out) both}
+.msheet.in>.msheet-card{animation:pt-up var(--t-sheet) var(--ease-out) var(--age,0ms) both}
+.msheet.out>.msheet-card{animation:pt-down calc(var(--t-sheet)*.8) var(--ease-out) both}
+.msheet-card.dragging{transition:none}
+.msheet-card.snap{transition:transform var(--t-sheet) var(--ease-out)}
+.pagein{animation:pt-fade var(--t-page) var(--ease-out)}
+@keyframes pt-fade{from{opacity:0}}
+@keyframes pt-fade-out{to{opacity:0}}
+@keyframes pt-pop{from{opacity:0;transform:scale(.95)}}
+@keyframes pt-pop-out{to{opacity:0;transform:scale(.97)}}
+@keyframes pt-up{from{transform:translateY(100%)}}
+@keyframes pt-down{to{transform:translateY(100%)}}
+/* a spinner shows only after 0.3 s, so quick answers never flash one */
+.spin{opacity:0;animation:pt-spin 1s linear infinite var(--age,0ms),pt-show 1ms calc(300ms + var(--age,0ms)) forwards}
+@keyframes pt-show{to{opacity:1}}
+/* File restored: the check draws in with a short ring, under half a second */
+.donemark{position:relative;display:inline-grid;place-items:center;flex:none;color:var(--good)}
+.donemark svg.i{stroke-dasharray:22;stroke-width:2.2}
+.donemark::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid currentColor;opacity:0;pointer-events:none}
+.donemark.in svg.i{animation:pt-draw 320ms var(--ease-out) calc(80ms + var(--age,0ms)) both}
+.donemark.in::after{animation:pt-ring 420ms var(--ease-out) calc(120ms + var(--age,0ms))}
+@keyframes pt-draw{from{stroke-dashoffset:22}to{stroke-dashoffset:0}}
+@keyframes pt-ring{0%{opacity:.6;transform:scale(.8)}100%{opacity:0;transform:scale(1.6)}}
+/* Reduced: nothing moves, things only fade, briefly */
+.reduced .pt *{transition-property:opacity,background-color,color!important}
+.reduced .btn:active,.reduced .pill:active,.reduced .seg button:active,.reduced .iconbtn:active{transform:none}
+.reduced .in,.reduced .in>.sheet,.reduced .in>.msheet-card,.reduced .pagein{animation:pt-fade 120ms ease both!important}
+.reduced .out,.reduced .out>.sheet,.reduced .out>.msheet-card{animation:pt-fade-out 100ms ease both!important}
+.reduced .donemark.in::after{animation:none!important}
+.reduced .progline span{animation:none;width:100%;opacity:.5}
