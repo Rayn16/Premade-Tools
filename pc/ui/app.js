@@ -7,6 +7,7 @@ const FLOW = {};    // file id → 'confirm', { wait: text } or { done: true, na
 let ST = null;      // /api/ui/state
 let ITEMS = [];     // /api/ui/deleted
 let VER = '';       // the version this page was loaded with
+let PAGED = '';     // the page drawn last, so only a new one fades in
 let LAST = '';      // the last data drawn, so an unchanged poll doesn't redraw (and stop a playing video)
 const $app = document.getElementById('app');
 const $ = (id) => document.getElementById(id);
@@ -74,6 +75,7 @@ function render() {
     </div>${S.pair && S.page === 'phones' ? pairSheet() : ''}${frSheet()}${updSheet()}`;
   }
   redraw($app, html());
+  if (S.page !== PAGED) { if (PAGED) pageIn($app.querySelector('.shell>.side+*')); PAGED = S.page; } // a new page fades in
   $app.querySelectorAll('.scroller').forEach((n, i) => { n.scrollTop = keep[i] || 0; });
   const f = focusId && document.getElementById(focusId);
   if (f && f !== document.activeElement) { f.focus(); try { f.setSelectionRange(caret[0], caret[1]); } catch (e) {} }
@@ -161,7 +163,7 @@ function inspector(it) {
 
 function actions(it) {
   const f = FLOW[it.id], p = phoneById(it.phone);
-  if (f?.done) return `<div class="done">${icon('check')}<span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>On ${esc(f.name)}</em></span></div><button type="button" class="quiet" data-flowclear="${it.id}">Done</button>`;
+  if (f?.done) return `<div class="done"><span class="donemark" data-in="done:${it.id}">${icon('check')}</span><span class="done-text">Restored. It's back in ${esc(f.folder)}.<em>On ${esc(f.name)}</em></span></div><button type="button" class="quiet" data-flowclear="${it.id}">Done</button>`;
   if (f?.wait || p?.Pending?.includes(it.id)) return `<div class="restoring"><div class="restoring-row">${icon('spin', 'spin')}Restoring…</div><div class="progline"><span></span></div>${f?.wait ? `<p>${esc(f.wait)}</p>` : ''}</div>
     <button type="button" class="quiet" data-unrestore="${it.id}">Cancel</button>`;
   if (f === 'confirm') return `<div class="confirm"><p class="confirm-text">Delete this from the vault?</p><p class="confirm-sub">The copy on this PC is deleted. It can't be brought back.</p>
@@ -178,6 +180,7 @@ function paintInspector() {
   if (!page) return;
   page.dataset.panel = it ? 'open' : 'closed';
   $('insp').innerHTML = it ? inspector(it) : '';
+  moved($('insp'));
 }
 
 // ---------- Vault: Phones ----------
@@ -240,6 +243,7 @@ function settingsView() {
   return `<section class="main">${head('Settings')}<div class="body scroller"><div class="set">
     <section class="sec"><h2>Look</h2>${themePicker(c.theme, c.custom || '#d9202d')}
       ${c.theme === 'custom' ? `<label class="srow"><span class="grow">Your color</span><input type="color" class="colorpick" id="custom" value="${esc(c.custom || '#d9202d')}"></label>` : ''}
+      ${motionRow('Follow Windows')}
       <label class="srow"><span class="grow">App size</span><input class="slider" type="range" min="80" max="140" step="10" value="${c.size}" id="size"><span class="pct" id="sizeval">${c.size}%</span></label></section>
     <section class="sec"><h2>Where files go</h2>
       ${DL ? `<div class="srow"><span class="grow">Save folder<span class="h mono">${esc(DL.dir)}</span><span class="h">Every tool saves here. What a phone sends goes back to it, and a copy stays here.</span></span><button type="button" class="btn" data-dl="folder">Change</button></div>` : ''}

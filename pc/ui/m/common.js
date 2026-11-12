@@ -90,12 +90,89 @@ const isLive = (j) => j.state === 'queued' || j.state === 'running';
 const running = (jobs) => { const j = jobs.find((x) => x.state === 'running') || jobs.find(isLive); return !j ? '' : j.state === 'queued' ? 'Waiting' : Math.floor(j.pct) + '%'; };
 const newest = (a, b) => (isLive(b) - isLive(a)) || new Date(b.at) - new Date(a.at); // running first, then newest
 // Draws html into root, keeping the pictures already loaded: a redraw every second while something runs would
-// otherwise flash them and load the videos again.
+// otherwise flash them and load the videos again. It also runs the motion (below): what just appeared eases in,
+// a sheet or menu that just went eases out, and a spinner that showed stays up its half second.
 function redraw(root, html) {
+  if (holdSpin(html)) return;
   const old = new Map([...root.querySelectorAll('[data-k]')].map((n) => [n.dataset.k, n]));
+  const was = new Map([...root.querySelectorAll(MOVES)].filter((n) => !n.classList.contains('out')).map((n) => [moveKey(n), n]));
   root.innerHTML = html;
   root.querySelectorAll('[data-k]').forEach((n) => { const o = old.get(n.dataset.k); if (o) { n.replaceWith(o); old.delete(n.dataset.k); } });
+  moved(root, was);
 }
+
+// ---------- motion ----------
+// Calm and CSS only (pt.css has the timings): the page redraws itself whole, so these pick out what is new.
+// MOVES are the things that ease in and out; each is known by a key that stays the same across redraws.
+const MOVES = '.backdrop,.msheet,.menu,[data-in]';
+const BORN = new Map(); // key → when it first showed, so a redraw mid-animation carries on instead of starting over
+function moveKey(n) {
+  if (n.dataset.in) return n.dataset.in;
+  if (n.matches('.menu')) return 'menu:' + n.previousElementSibling?.dataset.more;
+  const d = n.querySelector('[role=dialog]');
+  return n.className.split(' ')[0] + ':' + (d?.getAttribute('aria-label') || d?.querySelector('[id]')?.textContent || '');
+}
+function moved(root, was = new Map()) {
+  const now = performance.now(), seen = new Set();
+  root.querySelectorAll(MOVES).forEach((n) => {
+    if (n.classList.contains('out')) return;
+    const k = moveKey(n); seen.add(k);
+    if (!BORN.has(k)) BORN.set(k, now);
+    const age = now - BORN.get(k);
+    if (age < 600) { n.classList.add('in'); n.style.setProperty('--age', -age + 'ms'); }
+  });
+  for (const [k, n] of was) if (!seen.has(k)) { BORN.delete(k); leave(root, n); }
+  const spins = root.querySelectorAll('.spin');
+  if (!spins.length) SPUN = 0;
+  else { SPUN ||= now; spins.forEach((n) => n.style.setProperty('--age', SPUN - now + 'ms')); }
+}
+// What just closed stays a moment as a copy that can't be touched, easing out (exits are a bit quicker).
+function leave(root, n) {
+  if (!n.matches('.backdrop,.msheet,.menu')) return;
+  const host = n.matches('.menu') ? root.querySelector(`[data-more="${CSS.escape(n.previousElementSibling?.dataset.more || '')}"]`)?.parentNode : root;
+  if (!host || MOTION === 'reduced' && n.matches('.menu')) return;
+  n.classList.remove('in'); n.classList.add('out'); n.inert = true; n.setAttribute('aria-hidden', 'true');
+  host.append(n);
+  setTimeout(() => n.remove(), 230);
+}
+// Spinners show only after 0.3 s (pt.css), and once shown stay at least 0.5 s: a redraw that would take the last one
+// away sooner waits, then draws the newest state.
+let SPUN = 0, HOLD = 0;
+function holdSpin(html) {
+  clearTimeout(HOLD);
+  if (!SPUN || html.includes('class="i spin"')) return false;
+  const up = performance.now() - SPUN - 300;
+  if (up < 0 || up >= 500) return false;
+  HOLD = setTimeout(render, 500 - up);
+  return true;
+}
+// Animations: On, Reduced (movement becomes short fades), or follow the device (Windows' or the phone's own
+// "reduce motion"). Kept on each device, since each has its own setting to follow.
+let MOTION = 'auto';
+try { MOTION = localStorage.getItem('ptMotion') || 'auto'; } catch (e) {}
+const reduceQ = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)'); // absent in the node tests
+function paintMotion() {
+  document.documentElement?.classList.toggle('reduced', MOTION === 'reduced' || (MOTION === 'auto' && !!reduceQ?.matches));
+}
+reduceQ?.addEventListener?.('change', paintMotion);
+paintMotion();
+const motionRow = (follow) => `<div class="srow"><span class="grow">Animations<span class="h">Reduced keeps only short fades.</span></span>
+  <div class="seg" role="group" aria-label="Animations">${[['on', 'On'], ['reduced', 'Reduced'], ['auto', follow]].map(([v, l]) => `<button type="button" data-motion="${v}" aria-pressed="${MOTION === v}">${l}</button>`).join('')}</div></div>`;
+// A page shown by a click fades in; one reached from the keyboard just appears.
+let BYKEY = false;
+document.addEventListener('click', (e) => {
+  BYKEY = e.detail === 0;
+  const b = e.target.closest('[data-motion]');
+  if (!b) return;
+  MOTION = b.dataset.motion;
+  try { localStorage.setItem('ptMotion', MOTION); } catch (e2) {}
+  paintMotion(); render();
+}, true);
+function pageIn(n) {
+  if (!n || BYKEY) return;
+  n.classList.remove('pagein'); void n.offsetWidth; n.classList.add('pagein');
+}
+
 // A download in plain words: "Video from YouTube", "3 pictures from Instagram", "MP3 from YouTube".
 const dlWhat = (j) => `${(j.what || 'Link').replace(/^Video, .*|^1 video from the playlist$/, 'Video').replace(/^Sound only, MP3$/, 'MP3').replace(/^1 picture$/, 'Photo').replace(/ pictures$/, ' photos').replace(/^Playlist, /, '').replace(/ songs as MP3$/, ' MP3s')} from ${j.site || 'the link'}`;
 const dlDur = (j) => /^Video, ([\d:]+)$/.exec(j.what || '')?.[1] || '';
