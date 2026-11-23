@@ -285,13 +285,19 @@ final class Watcher {
     // ---------- talking to the PC ----------
 
     private void sync() {
-        if (!Vault.canReachHome(c)) return;
+        // Away from home the relay's link carries the calls (Vault.base), so no Tailscale is needed.
+        boolean home = Vault.canReachHome(c);
+        if (!home && Vault.prefs(c).getString("away", null) == null) return;
         Drops.check(c); // first: File drop works while the vault can't take files
         try {
             File[] metas = pending.listFiles((d, n) -> n.endsWith(".json"));
             if (metas != null) {
                 Arrays.sort(metas);
-                for (File meta : metas) send(meta);
+                for (File meta : metas) {
+                    // ponytail: the relay takes 100 MB per request, so bigger files wait for home Wi-Fi; send them in pieces if that matters
+                    if (!home && new File(meta.getPath().replace(".json", ".bin")).length() > 90L << 20) continue;
+                    send(meta);
+                }
             }
             JSONObject s = new JSONObject().put("allFiles", Vault.allFiles()).put("battery", Vault.battery(c))
                     .put("binOn", Vault.binOn()).put("watching", Vault.allFiles()).put("pending", pendingCount(c))
