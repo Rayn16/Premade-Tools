@@ -47,6 +47,7 @@ final class Watcher {
     private final Context c;
     private final Set<String> done = new HashSet<>();
     private Set<String> binNames = new HashSet<>(); // "folder/name" of everything in the bins right now
+    private final Set<String> otherNames = new HashSet<>(); // file names in other brands' bins, which don't keep the folder
     private final File pending, doneFile, listFile;
 
     private Watcher(Context c) {
@@ -92,7 +93,47 @@ final class Watcher {
         Set<String> names = new HashSet<>();
         walk(Vault.TRASH, names, base);
         mediaStoreTrash(names, base);
+        otherBins();
         binNames = names;
+    }
+
+    /** Other brands' galleries (Infinix, Tecno, Xiaomi...) keep their own hidden bin folder, each somewhere else.
+     *  Look for folders named like a bin and keep what lands there. Files already in a bin the first time it's
+     *  found were deleted before, so they are only marked as seen. */
+    private void otherBins() {
+        Set<String> known = new HashSet<>(Vault.prefs(c).getStringSet("bins", new HashSet<>()));
+        long last = Vault.prefs(c).getLong("binsFound", 0);
+        if (System.currentTimeMillis() - last > 3_600_000) { // ponytail: hourly search, a new gallery's bin is found within the hour
+            Set<String> found = new HashSet<>();
+            findBins(Vault.ROOT, 0, found);
+            for (String b : found) if (!known.contains(b)) eachFile(new File(b), f -> { try { markDone("other/" + f.getPath()); } catch (Exception ignored) {} });
+            known.addAll(found);
+            Vault.prefs(c).edit().putStringSet("bins", known).putLong("binsFound", System.currentTimeMillis()).apply();
+        }
+        for (String b : known)
+            eachFile(new File(b), f -> { otherNames.add(f.getName()); if (f.length() > 1024) keep("other/" + f.getPath(), f, f.getName(), "Recycle bin", System.currentTimeMillis()); });
+    }
+
+    private static final Pattern BIN = Pattern.compile("(?i).*(trash|recycle|deleted).*");
+
+    private static void findBins(File dir, int depth, Set<String> out) {
+        File[] kids = dir.listFiles(File::isDirectory);
+        if (kids == null) return;
+        for (File d : kids) {
+            String p = d.getPath();
+            if (p.equals(Vault.TRASH.getPath()) || p.startsWith(Vault.ROOT.getPath() + "/Android/data") || p.startsWith(Vault.ROOT.getPath() + "/Android/obb")) continue;
+            if (BIN.matcher(d.getName()).matches()) out.add(p);
+            else if (depth < 3) findBins(d, depth + 1, out);
+        }
+    }
+
+    private static void eachFile(File dir, java.util.function.Consumer<File> fn) {
+        File[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (File f : kids) {
+            if (f.isDirectory()) eachFile(f, fn);
+            else if (!f.getName().equals(".nomedia")) fn.accept(f);
+        }
     }
 
     private void walk(File dir, Set<String> names, long base) {
@@ -210,7 +251,7 @@ final class Watcher {
             }
             if (!gone.isEmpty()) scanBin(); // it may have reached the bin since the last look
             for (Map.Entry<String, String[]> e : gone.entrySet()) {
-                if (binNames.contains(e.getKey())) continue;
+                if (binNames.contains(e.getKey()) || otherNames.contains(new File(e.getKey()).getName())) continue;
                 reportMissed(new File(e.getKey()).getName(), new File(e.getKey()).getParent(), e.getValue()[1]);
             }
         }
