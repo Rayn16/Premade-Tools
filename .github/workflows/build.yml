@@ -27,17 +27,18 @@ jobs:
             keytool -genkeypair -keystore android/vault.keystore -storetype PKCS12 -storepass premadevault -keypass premadevault -alias vault -keyalg RSA -dname CN=temp
           fi
           gradle -p android assembleRelease
-          cp android/app/build/outputs/apk/release/app-release.apk pc/apk/PremadeTools.apk
+          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk pc/apk/PremadeTools.apk
+          cp android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk pc/PremadeTools-32bit.apk
           echo "$N" > pc/apk/version.txt
       - name: PC program (carries the Android app)
         run: cd pc && go vet ./... && go test -race ./... && GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui -s -w -X main.version=0.1.$N" -o PremadeTools.exe .
       - name: Release (the PC program updates itself from the latest one)
         if: github.ref_name == github.event.repository.default_branch && env.SIGNED == '1'
         env: { GH_TOKEN: '${{ github.token }}' }
-        run: gh release create "v0.1.$N" pc/PremadeTools.exe pc/apk/PremadeTools.apk --title "Premade Tools 0.1.$N" --notes "Built from ${GITHUB_SHA::7}." --target "$GITHUB_SHA"
+        run: gh release create "v0.1.$N" pc/PremadeTools.exe pc/apk/PremadeTools.apk pc/PremadeTools-32bit.apk --title "Premade Tools 0.1.$N" --notes "Built from ${GITHUB_SHA::7}." --target "$GITHUB_SHA"
       # Also on the "builds" branch, so a chat session can fetch them with git.
       - run: |
-          mkdir /tmp/out && cp pc/apk/PremadeTools.apk pc/PremadeTools.exe /tmp/out/
+          mkdir /tmp/out && cp pc/apk/PremadeTools.apk pc/PremadeTools-32bit.apk pc/PremadeTools.exe /tmp/out/
           git config user.name "github-actions" && git config user.email "actions@github.com"
           git checkout --orphan builds && git rm -rqf . && cp /tmp/out/* .
-          git add PremadeTools.apk PremadeTools.exe && git commit -qm "Build 0.1.$N from ${GITHUB_SHA::7}" && git push -f origin builds
+          git add PremadeTools.apk PremadeTools-32bit.apk PremadeTools.exe && git commit -qm "Build 0.1.$N from ${GITHUB_SHA::7}" && git push -f origin builds
