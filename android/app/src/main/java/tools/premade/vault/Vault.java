@@ -34,8 +34,11 @@ final class Vault {
     static boolean battery(Context c) {
         return ((PowerManager) c.getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(c.getPackageName());
     }
-    /** Gallery keeps a folder in the bin while its Recycle bin is on. */
-    static boolean binOn() { return new File(TRASH, "com.sec.android.gallery3d").exists(); }
+    /** Samsung's Gallery keeps a folder in the bin while its Recycle bin is on. Other phones use Android's own
+     *  trash, which is always on and has no switch, so there is nothing to warn about there. */
+    static boolean binOn() {
+        return !"samsung".equalsIgnoreCase(android.os.Build.MANUFACTURER) || new File(TRASH, "com.sec.android.gallery3d").exists();
+    }
 
     /** Home Wi-Fi, or a VPN such as Tailscale, and the PC answers there. Mobile data alone can't reach the PC. */
     static boolean canReachHome(Context c) {
