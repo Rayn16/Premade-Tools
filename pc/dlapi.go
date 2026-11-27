@@ -106,7 +106,7 @@ func (a *App) dlRoutes(m *http.ServeMux) {
 		if pr.Ask {
 			mode = "one" // from the Share menu, a playlist link means the video it was shared from
 		}
-		j, pr, rep := a.dl.Start(string(b), r.URL.Query().Get("audio") == "1", mode, false, p.ID)
+		j, pr, rep := a.dl.Start(string(b), isAudio(r.URL.Query().Get("audio")), mode, false, p.ID)
 		switch {
 		case rep != nil: // already downloaded: hand it over again
 			fmt.Fprint(w, rep.ID)
@@ -256,3 +256,6 @@ func (a *App) dlZip(w http.ResponseWriter, j *Job) {
 	}
 	zw.Close()
 }
+
+// isAudio reads the Shortcut's ?audio=: "1", or the "MP3" picked from its list.
+func isAudio(v string) bool { return v == "1" || strings.EqualFold(strings.TrimSpace(v), "mp3") }

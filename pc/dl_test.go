@@ -115,3 +115,11 @@ func TestEngineAssets(t *testing.T) {
 		}
 	}
 }
+
+func TestIsAudio(t *testing.T) {
+	for v, want := range map[string]bool{"1": true, "MP3": true, "mp3 ": true, "MP4": false, "": false, "0": false} {
+		if isAudio(v) != want {
+			t.Errorf("isAudio(%q) = %v", v, !want)
+		}
+	}
+}
