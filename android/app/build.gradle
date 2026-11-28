@@ -12,9 +12,11 @@ android {
         // CI numbers each build, so every new build installs over the last one.
         versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger())
         versionName "0.1.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
-        // yt-dlp and Python come as native libraries; only the 64-bit ARM ones, which every recent phone uses (S23 too).
-        ndk { abiFilters 'arm64-v8a' }
     }
+    // yt-dlp and Python come as native libraries, so build one APK per CPU type: 64-bit ARM (most phones, the S23 too)
+    // and 32-bit ARM (cheaper and older phones, which Android calls "not compatible" with a 64-bit-only APK).
+    // One APK with both would pass GitHub's 100 MB file limit.
+    splits { abi { enable true; reset(); include 'arm64-v8a', 'armeabi-v7a'; universalApk false } }
     packaging { jniLibs { useLegacyPackaging true } } // yt-dlp runs its bundled Python from the unpacked libraries
     // The signing key comes from the ANDROID_KEYSTORE repo secret (CI writes it here); it never goes in the repo.
     // The same key signs every build, so each one installs over the last.

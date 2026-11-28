@@ -52,6 +52,10 @@ func (a *App) routes() http.Handler {
 	m.Handle("GET /drop.css", static)
 	m.Handle("GET /friends.css", static)
 	m.HandleFunc("GET /download/PremadeTools.apk", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("abi") == "armeabi-v7a" {
+			apk32(w, r)
+			return
+		}
 		b, err := apkFile.ReadFile("apk/PremadeTools.apk")
 		if err != nil {
 			http.Error(w, "This build of the PC program has no Android app inside.", 404)
@@ -822,4 +826,26 @@ func lanIP() string {
 		}
 	}
 	return best
+}
+
+// apk32 hands older 32-bit phones their own APK. Only the 64-bit one rides inside the PC program (both would make it
+// too big), so this one comes from this version's GitHub release.
+func apk32(w http.ResponseWriter, r *http.Request) {
+	u := "https://github.com/Rayn16/Premade-Tools/releases/download/v" + version + "/PremadeTools-32bit.apk"
+	req, _ := http.NewRequestWithContext(r.Context(), "GET", u, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		if err == nil {
+			resp.Body.Close()
+		}
+		http.Error(w, "Couldn't get the Android app for older phones. Check the PC is online and try again.", 502)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+	w.Header().Set("Content-Disposition", `attachment; filename="PremadeTools.apk"`)
+	if resp.ContentLength > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	io.Copy(w, resp.Body)
 }

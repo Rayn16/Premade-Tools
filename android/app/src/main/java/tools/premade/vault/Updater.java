@@ -87,7 +87,9 @@ final class Updater {
         if (android.os.Build.VERSION.SDK_INT >= 31) sp.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
         int id = pi.createSession(sp);
         try (PackageInstaller.Session s = pi.openSession(id)) {
-            HttpURLConnection h = Vault.open(c, "GET", "/download/PremadeTools.apk");
+            HttpURLConnection h = Vault.open(c, "GET", "/download/PremadeTools.apk"
+                    // 32-bit-only phones need the 32-bit APK; the 64-bit one is "not compatible" there.
+                    + (android.os.Build.SUPPORTED_64_BIT_ABIS.length == 0 ? "?abi=armeabi-v7a" : ""));
             try (InputStream in = h.getInputStream(); OutputStream o = s.openWrite("app.apk", 0, -1)) {
                 byte[] buf = new byte[1 << 16];
                 for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
