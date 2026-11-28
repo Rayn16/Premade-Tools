@@ -24,6 +24,8 @@ import java.nio.charset.StandardCharsets;
  */
 final class Downloads {
     private static final Object LOCK = new Object();
+    /** Put before a shared link (and kept in the queue with it) when sound only was picked. */
+    static final String MP3 = "mp3 ";
 
     /** A link from the Share menu. False when the PC couldn't be reached and it was kept for later. */
     static boolean share(Context c, String text) {
@@ -36,7 +38,7 @@ final class Downloads {
             toast(c, "Your PC can't be reached. Premade will send the link when it can.");
             return false;
         }
-        toast(c, r.startsWith("ERR") ? r.substring(4).trim() : "Downloading on your PC. It'll land in Gallery.");
+        toast(c, r.startsWith("ERR") ? r.substring(4).trim() : text.startsWith(MP3) ? "Downloading the sound on your PC. It'll land in Download/Premade." : "Downloading on your PC. It'll land in Gallery.");
         if (!r.startsWith("ERR")) want(c, r);
         return !r.startsWith("ERR");
     }
@@ -97,7 +99,9 @@ final class Downloads {
     }
 
     private static String post(Context c, String text) throws Exception {
-        HttpURLConnection h = Vault.open(c, "POST", "/api/phone/dl/ios/start");
+        boolean mp3 = text.startsWith(MP3);
+        if (mp3) text = text.substring(MP3.length());
+        HttpURLConnection h = Vault.open(c, "POST", "/api/phone/dl/ios/start" + (mp3 ? "?audio=MP3" : ""));
         try {
             h.setDoOutput(true);
             h.setReadTimeout(120_000); // the PC looks at the link first
